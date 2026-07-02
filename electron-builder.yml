@@ -5,12 +5,6 @@ directories:
 files:
   - '**/*'
   - '!**/.git/**'
-  - '!node_modules/**/*'
-extraResources:
-  - from: node_modules
-    to: node_modules
-    filter:
-      - 'electron-updater/**/*'
 win:
   target: nsis
   icon: resources/icon.png
