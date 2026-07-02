@@ -84,13 +84,24 @@ function taskComplete(id,failed){ const t=taskMap[id];if(!t)return; t.className=
 function resetTasks(){ Object.values(taskMap).forEach(t=>{ t.className='task pending'; t.querySelector('.task-icon').textContent='○'; t.querySelector('.task-status').textContent='pending' }) }
 
 // ── Installer ──
+let selectedEnvType = 'venv'
+
+// Env type selector
+document.querySelectorAll('.env-type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.env-type-btn').forEach(b => b.classList.remove('selected'))
+    btn.classList.add('selected')
+    selectedEnvType = btn.dataset.env
+  })
+})
+
 async function startInstall(){
   show('installer'); $('installLog').textContent=''; resetTasks()
   $('installSubtitle').textContent='Setting up Wan2GP...'
   const installed = await window.w2gp.checkInstalled()
   if(installed.repo) taskComplete('clone'); else taskStart('clone')
   try {
-    await window.w2gp.install()
+    await window.w2gp.install(selectedEnvType)
     try {
       const gpu = await window.w2gp.detectGpu(); const hw = await window.w2gp.detectHardware()
       const name=(gpu.name||hw.gpu||'').toUpperCase(); const vendor=gpu.vendor||''
@@ -114,7 +125,7 @@ async function refreshDashboard(){
   const status = await window.w2gp.getStatus()
   if(status.error||!status.env){
     $('envName').textContent='No active environment'
-    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specGguf'].forEach(id=>$(id).textContent='—')
+    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub'].forEach(id=>$(id).textContent='—')
   } else {
     $('envName').textContent=status.env.name; $('envType').textContent=status.env.type
     $('specPython').textContent=status.versions?.python||'—'; $('specTorch').textContent=status.versions?.torch||'—'
@@ -129,7 +140,7 @@ async function refreshDashboard(){
     $('specOnnx').textContent=status.versions?.onnxruntime||'—'
     $('specOpencv').textContent=status.versions?.opencv||'—'
     $('specPeft').textContent=status.versions?.peft||'—'
-    $('specGguf').textContent=status.versions?.gguf||'—'
+    $('specHfhub').textContent=status.versions?.huggingface_hub||'—'
   }
   const envs = await window.w2gp.manageList()
   const list=$('envList'); list.innerHTML=''
@@ -302,7 +313,7 @@ $('viewBrowserBtn').addEventListener('click',()=>{ if(currentUrl) openBrowserPic
 $('settingsBackBtn').addEventListener('click',()=>show('dashboard'))
 $('settingsUpdateBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Updating...\n'; try{ await window.w2gp.update(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 $('settingsUpgradeBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Upgrading...\n'; try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
-$('settingsReinstallBtn').addEventListener('click',async()=>{ if(!confirm('Re-run the full installer?'))return; $('settingsLog').textContent='Reinstalling...\n'; try{ await window.w2gp.install(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
+$('settingsReinstallBtn').addEventListener('click',async()=>{ if(!confirm('Re-run the full installer?'))return; $('settingsLog').textContent='Reinstalling...\n'; try{ await window.w2gp.install(selectedEnvType); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 
 // ── GitHub token config in settings ──
 $('githubTokenSaveBtn')?.addEventListener('click', async () => {

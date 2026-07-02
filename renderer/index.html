@@ -71,7 +71,7 @@
             <div class="spec"><span class="spec-label">onnxruntime</span><span class="spec-val" id="specOnnx">—</span></div>
             <div class="spec"><span class="spec-label">OpenCV</span><span class="spec-val" id="specOpencv">—</span></div>
             <div class="spec"><span class="spec-label">PEFT</span><span class="spec-val" id="specPeft">—</span></div>
-            <div class="spec"><span class="spec-label">GGUF</span><span class="spec-val" id="specGguf">—</span></div>
+            <div class="spec"><span class="spec-label">hf_hub</span><span class="spec-val" id="specHfhub">—</span></div>
           </div>
         </div>
         <div class="action-grid">
@@ -126,6 +126,15 @@
       </div>
       <h2>Setting up Wan2GP</h2>
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
+      <!-- Environment type selector (shown before install starts) -->
+      <div class="env-type-select" id="envTypeSelect">
+        <label class="env-type-label">Environment:</label>
+        <div class="env-type-options">
+          <button class="env-type-btn selected" data-env="venv">venv <span class="env-type-desc">(bundled with Python)</span></button>
+          <button class="env-type-btn" data-env="uv">uv <span class="env-type-desc">(faster, requires install)</span></button>
+          <button class="env-type-btn" data-env="conda">conda <span class="env-type-desc">(Anaconda/Miniconda)</span></button>
+        </div>
+      </div>
       <!-- Hardware info displayed during install -->
       <div class="install-hw">
         <div class="install-hw-row">

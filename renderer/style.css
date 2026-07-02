@@ -44,6 +44,21 @@ body {
   font-weight: 600; font-size: 0.68rem; letter-spacing: 0.5px;
 }
 
+/* ── Env Type Selector ── */
+.env-type-select {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  padding: 8px 12px; background: #0f0f1a; border-radius: 8px; border: 1px solid #2a2a4e;
+}
+.env-type-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+.env-type-options { display: flex; gap: 4px; flex-wrap: wrap; }
+.env-type-btn {
+  padding: 4px 10px; border: 1px solid #333; border-radius: 5px;
+  background: #1a1a1a; color: #888; cursor: pointer; font-size: 0.72rem; font-weight: 500;
+}
+.env-type-btn:hover { background: #242424; }
+.env-type-btn.selected { background: #1a2a3e; border-color: #667eea; color: #ccc; }
+.env-type-desc { font-weight: 400; color: #666; font-size: 0.62rem; }
+
 .hidden { display: none !important; }
 
 /* ── Task List ── */

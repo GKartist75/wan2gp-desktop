@@ -154,7 +154,8 @@ print(f'{v}||{n}')
   } catch { return { vendor: 'UNKNOWN', name: 'Unknown' } }
 })
 
-ipcMain.handle('install', async () => {
+ipcMain.handle('install', async (_, envType) => {
+  const env = envType || 'venv'
   if (!fs.existsSync(path.join(REPO_DIR, 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -163,7 +164,16 @@ ipcMain.handle('install', async () => {
     })
     send('setup-output', '[*] Repository cloned.\n')
   }
-  await runSetup(['install', '--env', 'venv', '--auto'])
+  await runSetup(['install', '--env', env, '--auto'])
+  // Post-install: ensure huggingface_hub is installed (avoids Xet warning)
+  send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
+  try {
+    const envData = getActiveEnv()
+    if (envData) {
+      const py = getPythonForEnv(envData)
+      if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: REPO_DIR, windowsHide: true })
+    }
+  } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
   return true
 })
 
@@ -178,7 +188,8 @@ import sys, importlib.metadata
 pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',
         'diffusers','transformers','gradio','accelerate','onnxruntime','xformers',
         'nunchaku','gguf','mmgp','moviepy','opencv-python','insightface',
-        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio']
+        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio',
+        'huggingface_hub']
 r = []
 for p in pkgs:
     try:
