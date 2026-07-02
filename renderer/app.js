@@ -60,17 +60,19 @@ function log(el, msg) { if (!el) return; el.textContent += msg + '\n'; el.scroll
 // ── Theme ──
 function applyTheme(theme) {
   const html = document.documentElement
-  const sun = document.querySelector('#themeToggleBtn .sun-icon')
-  const moon = document.querySelector('#themeToggleBtn .moon-icon')
-  if (theme === 'dark') {
-    html.setAttribute('data-theme', 'dark')
-    if (sun) sun.style.display = 'none'
-    if (moon) moon.style.display = ''
-  } else {
-    html.removeAttribute('data-theme')
-    if (sun) sun.style.display = ''
-    if (moon) moon.style.display = 'none'
-  }
+  document.querySelectorAll('.theme-toggle').forEach(btn => {
+    const sun = btn.querySelector('.sun-icon')
+    const moon = btn.querySelector('.moon-icon')
+    if (theme === 'dark') {
+      if (sun) sun.style.display = 'none'
+      if (moon) moon.style.display = ''
+    } else {
+      if (sun) sun.style.display = ''
+      if (moon) moon.style.display = 'none'
+    }
+  })
+  if (theme === 'dark') html.setAttribute('data-theme', 'dark')
+  else html.removeAttribute('data-theme')
 }
 
 async function toggleTheme() {
@@ -357,7 +359,7 @@ $('updateBtn').addEventListener('click',async()=>{
   try{ await window.w2gp.update(); refreshDashboard() }catch(e){ alert('Update: '+e.message) }
   $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP'
 })
-$('themeToggleBtn').addEventListener('click', toggleTheme)
+document.querySelectorAll('.theme-toggle').forEach(btn => btn.addEventListener('click', toggleTheme))
 $('upgradeBtn').addEventListener('click',async()=>{
   openSettings(); $('settingsLog').textContent='Upgrade running (check Terminal for output)...\n'
   try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) }
