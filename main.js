@@ -163,6 +163,9 @@ ipcMain.handle('install', async (_, envType) => {
       stdio: 'pipe', timeout: 120000, windowsHide: true
     })
     send('setup-output', '[*] Repository cloned.\n')
+    send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
+  } else {
+    send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
   }
   await runSetup(['install', '--env', env, '--auto'])
   // Post-install: ensure huggingface_hub is installed (avoids Xet warning)

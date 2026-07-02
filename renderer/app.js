@@ -51,7 +51,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.w2gp.onLaunchLog(t => appendLog(t))
   window.w2gp.onSetupOutput(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c){ log($('installLog'),c); log($('settingsLog'),c) } })
   window.w2gp.onLaunchLog(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c) log($('launchLog'),c) })
-  window.w2gp.onSetupPhase(p => taskComplete(p.id))
+  window.w2gp.onSetupPhase(p => {
+    if (p.done) taskComplete(p.id)
+    else taskStart(p.id)
+  })
   window.w2gp.onSetupProfile(p => { $('installProfile').textContent=p; $('installProfileRow').style.display='flex' })
   window.w2gp.onWangpExit(c => { if($('viewer').classList.contains('active')){ show('dashboard'); refreshDashboard() } })
 
@@ -66,7 +69,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const hw = await window.w2gp.detectHardware()
     $('installCpu').textContent=hw.cpu||'—'; $('installRam').textContent=hw.ram||'—'
     $('installGpu').textContent=hw.gpu||'—'; $('installVram').textContent=hw.vram||'—'
-    setTimeout(startInstall, 500)
+    // Show installer with env selector, wait for user to press Install
+    show('installer')
+    $('installSubtitle').textContent = 'Select environment type, then click Install'
+    $('installStartBtn').classList.remove('hidden')
+    $('envTypeSelect').classList.remove('disabled')
+    document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = false)
   }
 })
 
@@ -95,8 +103,14 @@ document.querySelectorAll('.env-type-btn').forEach(btn => {
   })
 })
 
+$('installStartBtn').addEventListener('click', startInstall)
+
 async function startInstall(){
   show('installer'); $('installLog').textContent=''; resetTasks()
+  // Disable env selector + hide install button during install
+  $('envTypeSelect').classList.add('disabled')
+  document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = true)
+  $('installStartBtn').classList.add('hidden')
   $('installSubtitle').textContent='Setting up Wan2GP...'
   const installed = await window.w2gp.checkInstalled()
   if(installed.repo) taskComplete('clone'); else taskStart('clone')

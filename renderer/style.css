@@ -58,7 +58,11 @@ body {
 }
 .env-type-btn:hover { background: #242424; }
 .env-type-btn.selected { background: #1a2a3e; border-color: #667eea; color: #ccc; }
+.env-type-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.env-type-select.disabled { opacity: 0.6; pointer-events: none; }
 .env-type-desc { font-weight: 400; color: #666; font-size: 0.62rem; }
+#installStartBtn { padding: 10px 28px; font-size: 0.9rem; border: none; border-radius: 6px; background: linear-gradient(135deg,#667eea,#764ba2); color: #fff; cursor: pointer; transition: all .2s; margin: 8px 0 16px 0; }
+#installStartBtn:hover { opacity: .85; }
 
 .hidden { display: none !important; }
 
