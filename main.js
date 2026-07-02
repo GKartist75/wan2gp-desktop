@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execSync } = require('child_process')
 const net = require('net')
+const { autoUpdater } = require('electron-updater')
 
 const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
 const REPO_DIR = path.join(DATA_DIR, 'repo')
@@ -366,6 +367,29 @@ ipcMain.handle('detect-hardware', () => {
   return info
 })
 
+// ── Auto-updater ──
+autoUpdater.autoDownload = false
+autoUpdater.allowPrerelease = false
+
+autoUpdater.on('checking-for-update', () => send('update-status', { status: 'checking' }))
+autoUpdater.on('update-available', (info) => {
+  send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes })
+})
+autoUpdater.on('update-not-available', () => send('update-status', { status: 'up-to-date' }))
+autoUpdater.on('download-progress', (p) => send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }))
+autoUpdater.on('update-downloaded', (info) => send('update-status', { status: 'downloaded', version: info.version }))
+autoUpdater.on('error', (err) => send('update-status', { status: 'error', message: err.message || err.toString() }))
+
+ipcMain.handle('check-update', async () => {
+  try { autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
+})
+
+ipcMain.handle('download-update', async () => {
+  try { await autoUpdater.downloadUpdate() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
+})
+
+ipcMain.handle('install-update', async () => autoUpdater.quitAndInstall())
+
 // ── Window ──
 function createWindow() {
   mainWin = new BrowserWindow({
@@ -383,7 +407,13 @@ function createWindow() {
   mainWin.on('closed', () => { mainWin = null })
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  // Check for updates after window is ready
+  setTimeout(() => {
+    try { autoUpdater.checkForUpdates() } catch {}
+  }, 5000)
+})
 app.on('window-all-closed', () => {
   if (wangpProc) wangpProc.kill()
   if (PLATFORM !== 'darwin') app.quit()

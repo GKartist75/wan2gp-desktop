@@ -144,7 +144,23 @@ body {
 .btn.term-btn:hover { background: #242448; color: #ccc; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Small log fallback ── */
+/* ── Update Banner ── */
+.update-banner {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: #1a2e1a; border: 1px solid #2a5e2a; border-radius: 8px;
+  font-size: 0.78rem; margin-bottom: 8px; flex-shrink: 0;
+}
+.update-banner.hidden { display: none; }
+.update-info { display: flex; align-items: center; gap: 8px; flex: 1; }
+.update-badge { background: #4ade80; color: #000; padding: 1px 6px; border-radius: 3px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.update-actions { display: flex; gap: 6px; align-items: center; }
+.update-progress { display: flex; align-items: center; gap: 8px; flex: 1; }
+.update-progress.hidden { display: none; }
+.progress-bar { flex: 1; height: 6px; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0%; background: #4ade80; border-radius: 3px; transition: width 0.3s; }
+.progress-text { font-size: 0.65rem; color: #888; min-width: 35px; text-align: right; }
+.update-dismiss { background: none; border: none; color: #555; cursor: pointer; font-size: 1rem; padding: 0 3px; }
+.update-dismiss:hover { color: #ccc; }
 .log {
   margin-top: 8px; padding: 10px; background: #0a0a14; border-radius: 6px;
   max-height: 130px; overflow-y: auto; text-align: left;

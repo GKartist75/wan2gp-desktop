@@ -26,6 +26,22 @@
       </div>
     </div>
     <div class="dash-body" id="dashBody">
+      <!-- Update banner (hidden by default) -->
+      <div id="updateBanner" class="update-banner hidden">
+        <div class="update-info">
+          <span class="update-badge">UPDATE</span>
+          <span id="updateText">A new version is available</span>
+        </div>
+        <div class="update-actions" id="updateActions">
+          <button id="updateDownloadBtn" class="btn small">Download</button>
+          <button id="updateInstallBtn" class="btn small hidden">Install & Restart</button>
+        </div>
+        <div id="updateProgress" class="update-progress hidden">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <span id="progressText" class="progress-text">0%</span>
+        </div>
+        <button id="updateDismissBtn" class="update-dismiss">✕</button>
+      </div>
       <div class="dash-main">
         <div class="env-card">
           <div class="env-header"><h2>System</h2></div>
@@ -62,6 +78,7 @@
         <div id="envList"></div>
         <div class="env-actions">
           <button class="btn small" id="refreshBtn">⟳ Refresh</button>
+          <button class="btn small" id="updateCheckBtn" title="Check for desktop app update">⬆ Check Updates</button>
         </div>
       </div>
     </div>

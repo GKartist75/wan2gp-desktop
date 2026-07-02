@@ -329,7 +329,93 @@ $('installTermTab').addEventListener('click', () => {
 $('viewBackBtn').addEventListener('click', async () => { await window.w2gp.stop(); show('dashboard'); refreshDashboard() })
 $('viewBrowserBtn').addEventListener('click', () => { if (currentUrl) window.w2gp.openExternal(currentUrl) })
 
-// Settings
+// ── Auto-Update ──
+let updateState = null // { version, releaseNotes }
+
+window.w2gp.onUpdateStatus((status) => {
+  switch (status.status) {
+    case 'checking':
+      $('updateText').textContent = 'Checking for updates...'
+      $('updateBanner').classList.remove('hidden')
+      $('updateDownloadBtn').classList.add('hidden')
+      $('updateInstallBtn').classList.add('hidden')
+      $('updateActions').classList.remove('hidden')
+      $('updateProgress').classList.add('hidden')
+      $('updateDismissBtn').classList.add('hidden')
+      break
+    case 'available':
+      updateState = status
+      $('updateText').textContent = `v${status.version} available`
+      $('updateDownloadBtn').classList.remove('hidden')
+      $('updateInstallBtn').classList.add('hidden')
+      $('updateActions').classList.remove('hidden')
+      $('updateProgress').classList.add('hidden')
+      $('updateBanner').classList.remove('hidden')
+      $('updateDismissBtn').classList.remove('hidden')
+      break
+    case 'up-to-date':
+      $('updateText').textContent = 'Up to date ✓'
+      $('updateDownloadBtn').classList.add('hidden')
+      $('updateActions').classList.remove('hidden')
+      $('updateProgress').classList.add('hidden')
+      $('updateBanner').classList.remove('hidden')
+      $('updateDismissBtn').classList.remove('hidden')
+      setTimeout(() => { if (updateState?.status !== 'available') $('updateBanner').classList.add('hidden') }, 3000)
+      break
+    case 'downloading':
+      $('updateText').textContent = 'Downloading...'
+      $('updateDownloadBtn').classList.add('hidden')
+      $('updateInstallBtn').classList.add('hidden')
+      $('updateActions').classList.add('hidden')
+      $('updateProgress').classList.remove('hidden')
+      $('progressFill').style.width = status.percent + '%'
+      $('progressText').textContent = status.percent + '%'
+      $('updateBanner').classList.remove('hidden')
+      $('updateDismissBtn').classList.add('hidden')
+      break
+    case 'downloaded':
+      $('updateText').textContent = `v${status.version} downloaded — ready to install`
+      $('updateDownloadBtn').classList.add('hidden')
+      $('updateInstallBtn').classList.remove('hidden')
+      $('updateActions').classList.remove('hidden')
+      $('updateProgress').classList.add('hidden')
+      $('updateBanner').classList.remove('hidden')
+      $('updateDismissBtn').classList.remove('hidden')
+      break
+    case 'error':
+      $('updateText').textContent = `Update error: ${status.message}`
+      $('updateDownloadBtn').classList.add('hidden')
+      $('updateInstallBtn').classList.add('hidden')
+      $('updateActions').classList.add('hidden')
+      $('updateProgress').classList.add('hidden')
+      $('updateBanner').classList.remove('hidden')
+      $('updateDismissBtn').classList.remove('hidden')
+      setTimeout(() => $('updateBanner').classList.add('hidden'), 6000)
+      break
+  }
+})
+
+$('updateCheckBtn').addEventListener('click', () => {
+  $('updateCheckBtn').disabled = true
+  $('updateCheckBtn').textContent = 'Checking...'
+  window.w2gp.checkUpdate()
+  setTimeout(() => {
+    $('updateCheckBtn').disabled = false
+    $('updateCheckBtn').textContent = '⬆ Check Updates'
+  }, 10000)
+})
+
+$('updateDownloadBtn').addEventListener('click', () => {
+  window.w2gp.downloadUpdate()
+})
+
+$('updateInstallBtn').addEventListener('click', () => {
+  window.w2gp.installUpdate()
+})
+
+$('updateDismissBtn').addEventListener('click', () => {
+  $('updateBanner').classList.add('hidden')
+})
 $('settingsBackBtn').addEventListener('click', () => show('dashboard'))
 $('settingsUpdateBtn').addEventListener('click', async () => {
   $('settingsLog').textContent = 'Updating...\n'

@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld('w2gp', {
   manageDelete: (name) => ipcRenderer.invoke('manage-delete', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
+  // Update (desktop app itself)
+  checkUpdate: () => ipcRenderer.invoke('check-update'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateStatus: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('update-status', h)
+    return () => ipcRenderer.removeListener('update-status', h)
+  },
+
   // Events
   onSetupOutput: (cb) => {
     const h = (_e, d) => cb(d)

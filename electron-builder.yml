@@ -6,6 +6,11 @@ files:
   - '**/*'
   - '!**/.git/**'
   - '!node_modules/**/*'
+extraResources:
+  - from: node_modules
+    to: node_modules
+    filter:
+      - 'electron-updater/**/*'
 win:
   target: nsis
   icon: resources/icon.png
@@ -26,6 +31,7 @@ linux:
   category: Development
 publish:
   provider: github
-  owner: deepbeepmeep
-  repo: Wan2GP-Desktop
+  owner: GKartist75
+  repo: wan2gp-desktop
+  releaseType: release
 artifactName: Wan2GP-Desktop-${version}-${os}-${arch}.${ext}
