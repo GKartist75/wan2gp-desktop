@@ -38,8 +38,6 @@ function renderTerminals() {
   })
 }
 
-function clearLogBuffer() { logBuffer.length = 0; renderTerminals() }
-
 function setupScrollUnfollow(bodyId, btnId) {
   const body = document.getElementById(bodyId)
   const btn = document.getElementById(btnId)
@@ -386,8 +384,6 @@ $('viewerFollowBtn').addEventListener('click',()=>{
   if(termFollow.viewerTermBody){ const e=$('viewerTermBody'); if(e) setTimeout(()=>e.scrollTop=e.scrollHeight,10) }
 })
 
-$('termClearBtn').addEventListener('click', clearLogBuffer)
-$('viewerTermClearBtn').addEventListener('click', clearLogBuffer)
 $('viewerTermCloseBtn').addEventListener('click',(e)=>{ e.stopPropagation(); const p=$('viewerTermPanel'); if(p) p.classList.remove('open') })
 
 // ── Installer tabs ──
