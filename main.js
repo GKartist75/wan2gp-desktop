@@ -236,7 +236,7 @@ ipcMain.handle('launch', async () => {
   wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
     cwd: REPO_DIR,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1' },
+    env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
     windowsHide: true
   })
 
