@@ -21,14 +21,22 @@
     <div class="topbar">
       <div class="logo tiny">Wan<span>2</span>GP Desktop</div>
       <div class="topbar-right">
-        <span class="badge" id="gpuBadge">GPU: ...</span>
         <button class="btn small term-btn" id="dashTermBtn" title="Toggle Terminal">⎚ Terminal</button>
         <button class="btn small" id="settingsBtn">⚙ Manage</button>
       </div>
     </div>
     <div class="dash-body" id="dashBody">
       <div class="dash-main">
-        <div class="env-card" id="envCard">
+        <div class="env-card">
+          <div class="env-header"><h2>System</h2></div>
+          <div class="env-specs">
+            <div class="spec"><span class="spec-label">CPU</span><span class="spec-val" id="specCpu">—</span></div>
+            <div class="spec"><span class="spec-label">RAM</span><span class="spec-val" id="specRam">—</span></div>
+            <div class="spec"><span class="spec-label">GPU</span><span class="spec-val" id="specGpu">—</span></div>
+            <div class="spec"><span class="spec-label">VRAM</span><span class="spec-val" id="specVram">—</span></div>
+          </div>
+        </div>
+        <div class="env-card">
           <div class="env-header">
             <h2 id="envName">—</h2>
             <span class="env-type" id="envType">—</span>
@@ -37,7 +45,7 @@
             <div class="spec"><span class="spec-label">Python</span><span class="spec-val" id="specPython">—</span></div>
             <div class="spec"><span class="spec-label">Torch</span><span class="spec-val" id="specTorch">—</span></div>
             <div class="spec"><span class="spec-label">CUDA</span><span class="spec-val" id="specCuda">—</span></div>
-            <div class="spec"><span class="spec-label">Triton</span><span class="spec-val" id="specTriton">—</span></span></div>
+            <div class="spec"><span class="spec-label">Triton</span><span class="spec-val" id="specTriton">—</span></div>
             <div class="spec"><span class="spec-label">Sage Attn</span><span class="spec-val" id="specSage">—</span></div>
             <div class="spec"><span class="spec-label">Flash Attn</span><span class="spec-val" id="specFlash">—</span></div>
           </div>
@@ -57,17 +65,19 @@
         </div>
       </div>
     </div>
-    <!-- Terminal panel at bottom of dashboard -->
+    <!-- Terminal panel (resizable, follow-mode) -->
     <div class="terminal-panel" id="termPanel">
+      <div class="term-resize-handle" id="termResize"></div>
       <div class="term-header">
         <span class="term-title">Terminal</span>
-        <button class="term-clear" id="termClearBtn">Clear</button>
+        <button class="term-btn-small" id="termFollowBtn" title="Auto-scroll follow">▼ Follow</button>
+        <button class="term-btn-small" id="termClearBtn">Clear</button>
       </div>
       <div class="term-body" id="termBody"></div>
     </div>
   </div>
 
-  <!-- Installer (task view toggleable with terminal) -->
+  <!-- Installer -->
   <div id="installer" class="screen">
     <div class="card wide">
       <div class="install-top">
@@ -79,7 +89,6 @@
       </div>
       <h2>Setting up Wan2GP</h2>
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
-
       <div id="installTasks">
         <div class="task-list" id="taskList">
           <div class="task pending" data-id="clone"><span class="task-icon">○</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>
@@ -125,12 +134,13 @@
     </div>
     <div class="viewer-stack">
       <webview id="wangpView" src="about:blank"></webview>
-      <!-- Terminal overlay inside viewer -->
       <div class="terminal-panel viewer-term" id="viewerTermPanel">
+        <div class="term-resize-handle" id="viewerTermResize"></div>
         <div class="term-header">
           <span class="term-title">Wan2GP Output</span>
-          <button class="term-clear" id="viewerTermClearBtn">Clear</button>
-          <button class="term-clear" id="viewerTermCloseBtn">Close</button>
+          <button class="term-btn-small" id="viewerFollowBtn">▼ Follow</button>
+          <button class="term-btn-small" id="viewerTermClearBtn">Clear</button>
+          <button class="term-btn-small" id="viewerTermCloseBtn">Close</button>
         </div>
         <div class="term-body" id="viewerTermBody"></div>
       </div>

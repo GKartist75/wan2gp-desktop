@@ -260,6 +260,112 @@ ipcMain.handle('manage-delete', async (_, name) => {
 
 ipcMain.handle('open-external', (_, url) => shell.openExternal(url))
 
+// ── Hardware detection ──
+ipcMain.handle('detect-hardware', () => {
+  const info = { cpu: '—', ram: '—', gpu: '—', vram: '—' }
+  try {
+    if (IS_WIN) {
+      // CPU
+      try {
+        const cpuOut = execSync('wmic cpu get name', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
+        info.cpu = cpuOut.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Name'))[0] || '—'
+        if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
+      } catch {}
+
+      // RAM
+      try {
+        const ramOut = execSync('wmic memorychip get capacity', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
+        const capacities = ramOut.split('\n').map(l => l.trim()).filter(l => l && !isNaN(Number(l)))
+        if (capacities.length > 0) {
+          const totalGB = capacities.reduce((s, c) => s + Number(c), 0) / (1024**3)
+          info.ram = Math.round(totalGB) + ' GB'
+        }
+      } catch {}
+      if (info.ram === '—') {
+        try {
+          const totalOut = execSync('wmic computersystem get TotalPhysicalMemory', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
+          const n = totalOut.split('\n').map(l => l.trim()).filter(l => l && !isNaN(Number(l)))[0]
+          if (n) info.ram = Math.round(Number(n) / (1024**3)) + ' GB'
+        } catch {}
+      }
+
+      // GPU + VRAM
+      try {
+        const gpuOut = execSync('wmic path win32_VideoController get name,adapterram', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
+        const lines = gpuOut.split('\n').filter(l => l.trim())
+        if (lines.length > 1) {
+          // Last line should have actual data (header skipped)
+          for (let i = lines.length - 1; i >= 1; i--) {
+            const parts = lines[i].trim().split(/\s{2,}/)
+            if (parts.length >= 1 && parts[0].length > 0) {
+              info.gpu = parts[0]
+              if (parts.length >= 2 && !isNaN(Number(parts[parts.length-1]))) {
+                const vramBytes = Number(parts[parts.length-1])
+                info.vram = (vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB'
+              }
+              break
+            }
+          }
+        }
+      } catch {}
+
+      // Fallback GPU from nvidia-smi
+      if (info.gpu === '—') {
+        try {
+          const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
+          const [nvName, memStr] = nvOut.trim().split(', ')
+          if (nvName) info.gpu = nvName
+          if (memStr) {
+            const mem = parseFloat(memStr)
+            info.vram = Math.round(mem) + ' MB'
+            if (mem >= 1024) info.vram = Math.round(mem / 1024) + ' GB'
+          }
+        } catch {}
+      }
+    } else if (PLATFORM === 'darwin') {
+      try {
+        const cpuOut = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 5000 }).trim()
+        info.cpu = cpuOut
+      } catch {}
+      try {
+        const ramOut = execSync('sysctl -n hw.memsize', { encoding: 'utf8', timeout: 5000 }).trim()
+        info.ram = Math.round(Number(ramOut) / (1024**3)) + ' GB'
+      } catch {}
+      // Apple Silicon GPU info via system_profiler
+      try {
+        const gpuOut = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model|VRAM"', { encoding: 'utf8', timeout: 10000 })
+        const lines = gpuOut.trim().split('\n')
+        if (lines.length > 0) info.gpu = lines[0].replace('Chipset Model:', '').trim()
+        if (lines.length > 1) info.vram = lines[1].replace('VRAM (Dynamic, Max):', '').replace('VRAM (Total):', '').trim()
+      } catch {}
+    } else {
+      // Linux
+      try {
+        const cpuOut = execSync('cat /proc/cpuinfo | grep "model name" | head -1', { encoding: 'utf8', timeout: 5000, shell: true })
+        info.cpu = cpuOut.split(':')[1]?.trim() || '—'
+      } catch {}
+      try {
+        const ramOut = execSync('free -h | grep Mem', { encoding: 'utf8', timeout: 5000, shell: true })
+        info.ram = ramOut.split(/\s+/)[1] || '—'
+      } catch {}
+      try {
+        const gpuOut = execSync('lspci | grep -i "vga\\|3d" | head -1', { encoding: 'utf8', timeout: 5000, shell: true })
+        info.gpu = gpuOut.split(':')[2]?.trim() || gpuOut.trim() || '—'
+      } catch {}
+      try {
+        const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null', { encoding: 'utf8', timeout: 10000, shell: true })
+        const [nvName, memStr] = nvOut.trim().split(', ')
+        if (nvName) info.gpu = nvName
+        if (memStr) {
+          const mem = parseFloat(memStr)
+          if (!isNaN(mem)) info.vram = mem >= 1024 ? Math.round(mem / 1024) + ' GB' : Math.round(mem) + ' MB'
+        }
+      } catch {}
+    }
+  } catch {}
+  return info
+})
+
 // ── Window ──
 function createWindow() {
   mainWin = new BrowserWindow({

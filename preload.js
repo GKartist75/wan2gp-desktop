@@ -42,4 +42,5 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('wangp-exit', h)
     return () => ipcRenderer.removeListener('wangp-exit', h)
   },
+  detectHardware: () => ipcRenderer.invoke('detect-hardware'),
 })

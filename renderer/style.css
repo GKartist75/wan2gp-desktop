@@ -9,9 +9,9 @@ body {
 .screen.active { display: flex; }
 
 /* ── Splash ── */
-#splash { align-items: center; justify-content: center; background: linear-gradient(135deg, #0f0f0f, #1a1a2e, #0f0f0f); }
-.logo { font-size: 4rem; font-weight: 800; letter-spacing: -2px; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.logo span { background: linear-gradient(135deg, #f093fb, #f5576c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+#splash { align-items: center; justify-content: center; background: linear-gradient(135deg,#0f0f0f,#1a1a2e,#0f0f0f); }
+.logo { font-size: 4rem; font-weight: 800; letter-spacing: -2px; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.logo span { background: linear-gradient(135deg,#f093fb,#f5576c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .logo.small { font-size: 2rem; margin-bottom: 8px; }
 .logo.tiny { font-size: 1rem; -webkit-text-fill-color: #888; background: none; }
 .logo.tiny span { -webkit-text-fill-color: #f5576c; background: none; }
@@ -48,36 +48,42 @@ body {
 /* ── Terminal Panel ── */
 .terminal-panel {
   display: none; flex-direction: column; background: #0a0a0a;
-  border-top: 1px solid #2a2a2a; height: 200px; flex-shrink: 0;
+  border-top: 1px solid #2a2a2a; min-height: 80px; max-height: 70vh; flex-shrink: 0;
 }
 .terminal-panel.open { display: flex; }
+
+/* Resize handle (draggable bar) */
+.term-resize-handle {
+  height: 4px; background: #1a1a1a; cursor: ns-resize; flex-shrink: 0;
+  transition: background 0.15s;
+}
+.term-resize-handle:hover, .term-resize-handle.dragging { background: #667eea; }
+
 .term-header {
-  display: flex; align-items: center; padding: 4px 12px;
-  background: #141414; border-bottom: 1px solid #2a2a2a; gap: 8px;
+  display: flex; align-items: center; padding: 3px 10px;
+  background: #141414; border-bottom: 1px solid #2a2a2a; gap: 6px; flex-shrink: 0;
 }
-.term-title { font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 1px; flex: 1; }
-.term-clear {
-  padding: 2px 10px; border: 1px solid #333; border-radius: 4px;
-  background: #1a1a1a; color: #888; cursor: pointer; font-size: 0.7rem;
+.term-title { font-size: 0.65rem; color: #888; text-transform: uppercase; letter-spacing: 1px; flex: 1; }
+.term-btn-small {
+  padding: 2px 8px; border: 1px solid #333; border-radius: 3px;
+  background: #1a1a1a; color: #888; cursor: pointer; font-size: 0.65rem;
 }
-.term-clear:hover { background: #2a2a2a; }
+.term-btn-small:hover { background: #2a2a2a; }
+.term-btn-small.active { background: #1e3a1e; border-color: #4ade80; color: #4ade80; }
 .term-body {
-  flex: 1; overflow-y: auto; padding: 8px 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 0.7rem;
+  flex: 1; overflow-y: auto; padding: 6px 10px;
+  font-family: 'Cascadia Code','Fira Code','Consolas',monospace; font-size: 0.65rem;
   line-height: 1.5; color: #b0b0b0; white-space: pre-wrap; word-break: break-all;
 }
 
-/* Terminal inside viewer (overlay at bottom) */
+/* Viewer terminal overlay */
 .viewer-stack { flex: 1; display: flex; flex-direction: column; position: relative; }
 .viewer-stack webview { flex: 1; border: none; width: 100%; }
-.terminal-panel.viewer-term { position: absolute; bottom: 0; left: 0; right: 0; height: 180px; z-index: 10; }
+.terminal-panel.viewer-term { position: absolute; bottom: 0; left: 0; right: 0; min-height: 60px; max-height: 70vh; z-index: 10; }
 
 /* ── Launch Progress ── */
 .launch-progress { text-align: left; margin: 16px 0; }
-.launch-step {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px; font-size: 0.85rem; color: #666;
-}
+.launch-step { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 0.85rem; color: #666; }
 .launch-step.active { color: #ccc; }
 .launch-step.done { color: #4ade80; }
 .launch-step .step-icon { font-size: 0.9rem; width: 16px; text-align: center; }
@@ -89,36 +95,34 @@ body {
   -webkit-app-region: drag;
 }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
-.badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 10px; background: #1e1e3a; color: #999; }
 .dash-body { flex: 1; display: flex; gap: 16px; padding: 16px; overflow: auto; min-height: 0; }
-.dash-main { flex: 1; display: flex; flex-direction: column; gap: 16px; }
-.dash-side { width: 240px; flex-shrink: 0; }
+.dash-main { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.dash-side { width: 220px; flex-shrink: 0; }
 .dash-side h3 { font-size: 0.7rem; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
 
-.env-card { background: #1a1a2e; border-radius: 10px; padding: 16px; border: 1px solid #2a2a4e; }
-.env-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.env-header h2 { font-size: 1.2rem; }
+.env-card { background: #1a1a2e; border-radius: 10px; padding: 14px; border: 1px solid #2a2a4e; }
+.env-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.env-header h2 { font-size: 1rem; }
 .env-type { font-size: 0.7rem; padding: 2px 6px; border-radius: 6px; background: #2a2a5e; color: #888; }
-.env-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.spec { display: flex; justify-content: space-between; padding: 5px 8px; background: #0f0f1a; border-radius: 4px; font-size: 0.75rem; }
+.env-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.spec { display: flex; justify-content: space-between; padding: 4px 8px; background: #0f0f1a; border-radius: 4px; font-size: 0.7rem; }
 .spec-label { color: #666; }
-.spec-val { color: #ccc; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.7rem; }
+.spec-val { color: #ccc; font-family: 'Cascadia Code','Fira Code',monospace; font-size: 0.65rem; }
 
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .action-grid.vertical { grid-template-columns: 1fr; }
 .action-btn {
   padding: 12px 16px; border: 1px solid #2a2a4e; border-radius: 8px; background: #1a1a2e;
   color: #e0e0e0; cursor: pointer; font-size: 0.85rem; font-weight: 600; text-align: center;
-  transition: background 0.15s;
 }
 .action-btn:hover { background: #242448; }
-.action-btn.launch { background: linear-gradient(135deg, #667eea, #764ba2); border: none; }
+.action-btn.launch { background: linear-gradient(135deg,#667eea,#764ba2); border: none; }
 .action-btn.launch:hover { opacity: 0.9; }
 .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .env-list-item {
   display: flex; align-items: center; gap: 5px; padding: 6px 8px;
-  border-radius: 6px; margin-bottom: 3px; cursor: pointer; font-size: 0.8rem;
+  border-radius: 6px; margin-bottom: 3px; cursor: pointer; font-size: 0.78rem;
 }
 .env-list-item:hover { background: #1a1a2e; }
 .env-list-item.active { background: #1e1e3a; border: 1px solid #667eea; }
@@ -133,43 +137,32 @@ body {
 .btn {
   padding: 8px 20px; border: none; border-radius: 6px;
   font-size: 0.85rem; font-weight: 600; cursor: pointer;
-  background: linear-gradient(135deg, #667eea, #764ba2); color: #fff;
+  background: linear-gradient(135deg,#667eea,#764ba2); color: #fff;
 }
 .btn.small { padding: 5px 12px; font-size: 0.75rem; }
 .btn.term-btn { background: #1a1a2e; border: 1px solid #333; color: #888; }
 .btn.term-btn:hover { background: #242448; color: #ccc; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Log (small fallback) ── */
+/* ── Small log fallback ── */
 .log {
   margin-top: 8px; padding: 10px; background: #0a0a14; border-radius: 6px;
-  max-height: 150px; overflow-y: auto; text-align: left;
-  font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.65rem;
-  color: #777; line-height: 1.4;
+  max-height: 130px; overflow-y: auto; text-align: left;
+  font-family: 'Cascadia Code','Fira Code',monospace; font-size: 0.65rem; color: #777; line-height: 1.4;
 }
 
-/* ── Viewer ── */
+/* ── Viewer toolbar ── */
 .toolbar {
   display: flex; align-items: center; padding: 6px 12px;
   background: #141428; border-bottom: 1px solid #2a2a4e; gap: 8px;
   -webkit-app-region: drag;
 }
 .toolbar-title { flex: 1; text-align: center; font-weight: 600; font-size: 0.85rem; color: #ccc; }
-.toolbar-btn {
-  padding: 5px 12px; border: 1px solid #333; border-radius: 5px;
-  background: #1a1a2e; color: #ccc; cursor: pointer; font-size: 0.75rem;
-  -webkit-app-region: no-drag;
-}
+.toolbar-btn { padding: 5px 12px; border: 1px solid #333; border-radius: 5px; background: #1a1a2e; color: #ccc; cursor: pointer; font-size: 0.75rem; -webkit-app-region: no-drag; }
 .toolbar-btn:hover { background: #242448; }
 
-/* ── Terminal view inside installer card ── */
-.term-view {
-  text-align: left; margin-top: 8px;
-}
-.term-view .term-body {
-  background: #0a0a0a; border-radius: 6px; max-height: 350px;
-  border: 1px solid #1a1a1a;
-}
+/* ── Terminal view inside installer ── */
+.term-view .term-body { background: #0a0a0a; border-radius: 6px; max-height: 350px; border: 1px solid #1a1a1a; }
 
 /* ── Settings ── */
 .settings-body { flex: 1; padding: 20px; overflow: auto; max-width: 650px; }
