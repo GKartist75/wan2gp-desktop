@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   manageSetActive: (name) => ipcRenderer.invoke('manage-set-active', name),
   manageDelete: (name) => ipcRenderer.invoke('manage-delete', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openInBrowser: (url, browserPath) => ipcRenderer.invoke('open-in-browser', { url, browserPath }),
 
   // Update (desktop app itself)
   checkUpdate: () => ipcRenderer.invoke('check-update'),
@@ -30,6 +31,16 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('update-status', h)
     return () => ipcRenderer.removeListener('update-status', h)
   },
+
+  // Config
+  configLoad: () => ipcRenderer.invoke('config-load'),
+  configSave: (cfg) => ipcRenderer.invoke('config-save', cfg),
+
+  // Browser
+  detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
+
+  // Hardware
+  detectHardware: () => ipcRenderer.invoke('detect-hardware'),
 
   // Events
   onSetupOutput: (cb) => {
@@ -57,5 +68,4 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('wangp-exit', h)
     return () => ipcRenderer.removeListener('wangp-exit', h)
   },
-  detectHardware: () => ipcRenderer.invoke('detect-hardware'),
 })

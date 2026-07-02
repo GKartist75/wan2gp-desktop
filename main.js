@@ -8,6 +8,7 @@ const { autoUpdater } = require('electron-updater')
 const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
 const REPO_DIR = path.join(DATA_DIR, 'repo')
 const ENVS_FILE = path.join(REPO_DIR, 'envs.json')
+const CONFIG_FILE = path.join(DATA_DIR, 'desktop-config.json')
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
@@ -22,13 +23,23 @@ function sysPython() {
 
 function send(ch, data) { mainWin?.webContents.send(ch, data) }
 
-// ── TCP port check (reliable, doesn't need HTTP) ──
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+  } catch {}
+  return { githubToken: '', defaultBrowser: '' }
+}
+
+function saveConfig(cfg) {
+  fs.mkdirSync(DATA_DIR, { recursive: true })
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2))
+}
+
+// ── TCP port check ──
 function waitForPort(host, port, timeoutMs = 180000) {
   return new Promise((resolve, reject) => {
     const start = Date.now()
-    // Also monitor if process died
     const check = () => {
-      // Check if process already exited
       if (wangpProc && wangpProc.exitCode !== null) {
         return reject(new Error(`Wan2GP process exited with code ${wangpProc.exitCode} before server started`))
       }
@@ -59,10 +70,8 @@ function runSetup(args) {
     const emit = (text) => {
       buf += text
       send('setup-output', text)
-      // Detect profile marker
       const profileMatch = text.match(/Hardware Profile:\s*(\S+)/)
       if (profileMatch) send('setup-profile', profileMatch[1])
-      // Also emit structured phase events
       const phase = detectPhase(text)
       if (phase) send('setup-phase', phase)
     }
@@ -77,13 +86,10 @@ function runSetup(args) {
   })
 }
 
-// Detect install phases from setup.py output (matches actual setup.py format)
 function detectPhase(line) {
-  // Phase markers from setup.py's install_logic()
   if (line.includes('[1/3] Preparing Environment')) return { id: 'venv', label: 'Creating Python venv', done: false }
   if (line.includes('[2/3] Installing Torch')) return { id: 'torch', label: 'Installing PyTorch + CUDA wheels', done: false }
   if (line.includes('[3/3] Installing Requirements')) return { id: 'reqs', label: 'Installing Python dependencies', done: false }
-  // Individual component installs (the >>> Running: lines)
   if (line.includes('>>> Running') && (line.includes('triton-windows') || line.includes('triton<'))) return { id: 'triton', label: 'Installing Triton compiler', done: false }
   if (line.includes('>>> Running') && (line.includes('sageattention') || line.includes('SageAttention'))) return { id: 'sage', label: 'Installing Sage Attention kernel', done: false }
   if (line.includes('>>> Running') && (line.includes('flash_attn') || line.includes('flash-attn'))) return { id: 'flash', label: 'Installing Flash Attention', done: false }
@@ -91,12 +97,10 @@ function detectPhase(line) {
   if (line.includes('>>> Running') && (line.includes('SpargeAttn') || line.includes('spas_sage'))) return { id: 'sage', label: 'Installing Sparge Attention', done: false }
   if (line.includes('>>> Running') && line.includes('pip install -r requirements')) return { id: 'reqs', label: 'Installing dependencies from requirements.txt', done: false }
   if (line.includes('>>> Running') && line.includes('plugins')) return { id: 'plugins', label: 'Installing plugin requirements', done: false }
-  // Completion marker from setup.py
   if (line.includes('Automatic Install Complete') || line.includes('is now active')) return { id: 'done', label: 'Installation complete', done: true }
   return null
 }
 
-// ── Read active env ──
 function getActiveEnv() {
   try {
     if (!fs.existsSync(ENVS_FILE)) return null
@@ -177,7 +181,7 @@ pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',
         'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio']
 r = []
 for p in pkgs:
-    try: 
+    try:
         if p == 'python': r.append(f'python={sys.version.split()[0]}')
         elif p == 'opencv-python': r.append(f'opencv={importlib.metadata.version(\"opencv-python\")}')
         else: r.append(f'{p}={importlib.metadata.version(p)}')
@@ -226,10 +230,7 @@ ipcMain.handle('launch', async () => {
     send('launch-log', '[*] Wan2GP is ready!\n')
     return { url: `http://127.0.0.1:${port}`, port }
   } catch (err) {
-    // If process already exited, get the stderr
-    if (exited) {
-      throw new Error(`Wan2GP exited before server started. Check launch logs.`)
-    }
+    if (exited) throw new Error(`Wan2GP exited before server started. Check launch logs.`)
     throw err
   }
 })
@@ -274,19 +275,69 @@ ipcMain.handle('manage-delete', async (_, name) => {
 
 ipcMain.handle('open-external', (_, url) => shell.openExternal(url))
 
+// ── Browser detection ──
+ipcMain.handle('detect-browsers', () => {
+  const browsers = []
+  if (IS_WIN) {
+    const checks = [
+      { name: 'Edge', paths: [process.env['PROGRAMFILES(X86)'] + '\\Microsoft\\Edge\\Application\\msedge.exe', process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe'] },
+      { name: 'Chrome', paths: [process.env['PROGRAMFILES(X86)'] + '\\Google\\Chrome\\Application\\chrome.exe', process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe'] },
+      { name: 'Firefox', paths: [process.env.PROGRAMFILES + '\\Mozilla Firefox\\firefox.exe', process.env['PROGRAMFILES(X86)'] + '\\Mozilla Firefox\\firefox.exe'] },
+      { name: 'Brave', paths: [process.env.LOCALAPPDATA + '\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'] },
+      { name: 'Opera', paths: [process.env['PROGRAMFILES(X86)'] + '\\Opera\\launcher.exe'] },
+      { name: 'Vivaldi', paths: [process.env.LOCALAPPDATA + '\\Vivaldi\\Application\\vivaldi.exe'] },
+      { name: 'Yandex', paths: [process.env.LOCALAPPDATA + '\\Yandex\\YandexBrowser\\Application\\browser.exe'] },
+    ]
+    for (const c of checks) {
+      for (const p of c.paths) {
+        if (p && fs.existsSync(p)) { browsers.push({ name: c.name, path: p }); break }
+      }
+    }
+  } else if (PLATFORM === 'darwin') {
+    const apps = [
+      { name: 'Safari', path: '/Applications/Safari.app' },
+      { name: 'Chrome', path: '/Applications/Google Chrome.app' },
+      { name: 'Firefox', path: '/Applications/Firefox.app' },
+      { name: 'Brave', path: '/Applications/Brave Browser.app' },
+    ]
+    for (const a of apps) { if (fs.existsSync(a.path)) browsers.push(a) }
+  } else {
+    const bins = ['google-chrome', 'chromium-browser', 'firefox', 'brave-browser']
+    for (const b of bins) {
+      try {
+        const p = execSync(`which ${b} 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim()
+        if (p) browsers.push({ name: b, path: p })
+      } catch {}
+    }
+  }
+  return browsers
+})
+
+// ── Launch URL in specific browser ──
+ipcMain.handle('open-in-browser', (_, { url, browserPath }) => {
+  if (browserPath) {
+    const cmd = IS_WIN ? `"${browserPath}" "${url}"` : `open -a "${browserPath}" "${url}"`
+    execSync(cmd, { stdio: 'pipe', windowsHide: true, timeout: 5000 })
+  } else {
+    shell.openExternal(url)
+  }
+  return true
+})
+
+// ── Desktop config (token, browser preference) ──
+ipcMain.handle('config-load', () => loadConfig())
+ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
+
 // ── Hardware detection ──
 ipcMain.handle('detect-hardware', () => {
   const info = { cpu: '—', ram: '—', gpu: '—', vram: '—' }
   try {
     if (IS_WIN) {
-      // CPU
       try {
         const cpuOut = execSync('wmic cpu get name', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
         info.cpu = cpuOut.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Name'))[0] || '—'
         if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
       } catch {}
-
-      // RAM
       try {
         const ramOut = execSync('wmic memorychip get capacity', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
         const capacities = ramOut.split('\n').map(l => l.trim()).filter(l => l && !isNaN(Number(l)))
@@ -302,13 +353,10 @@ ipcMain.handle('detect-hardware', () => {
           if (n) info.ram = Math.round(Number(n) / (1024**3)) + ' GB'
         } catch {}
       }
-
-      // GPU + VRAM
       try {
         const gpuOut = execSync('wmic path win32_VideoController get name,adapterram', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
         const lines = gpuOut.split('\n').filter(l => l.trim())
         if (lines.length > 1) {
-          // Last line should have actual data (header skipped)
           for (let i = lines.length - 1; i >= 1; i--) {
             const parts = lines[i].trim().split(/\s{2,}/)
             if (parts.length >= 1 && parts[0].length > 0) {
@@ -322,8 +370,6 @@ ipcMain.handle('detect-hardware', () => {
           }
         }
       } catch {}
-
-      // Fallback GPU from nvidia-smi
       if (info.gpu === '—') {
         try {
           const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
@@ -345,7 +391,6 @@ ipcMain.handle('detect-hardware', () => {
         const ramOut = execSync('sysctl -n hw.memsize', { encoding: 'utf8', timeout: 5000 }).trim()
         info.ram = Math.round(Number(ramOut) / (1024**3)) + ' GB'
       } catch {}
-      // Apple Silicon GPU info via system_profiler
       try {
         const gpuOut = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model|VRAM"', { encoding: 'utf8', timeout: 10000 })
         const lines = gpuOut.trim().split('\n')
@@ -353,7 +398,6 @@ ipcMain.handle('detect-hardware', () => {
         if (lines.length > 1) info.vram = lines[1].replace('VRAM (Dynamic, Max):', '').replace('VRAM (Total):', '').trim()
       } catch {}
     } else {
-      // Linux
       try {
         const cpuOut = execSync('cat /proc/cpuinfo | grep "model name" | head -1', { encoding: 'utf8', timeout: 5000, shell: true })
         info.cpu = cpuOut.split(':')[1]?.trim() || '—'
@@ -394,6 +438,9 @@ autoUpdater.on('update-downloaded', (info) => send('update-status', { status: 'd
 autoUpdater.on('error', (err) => send('update-status', { status: 'error', message: err.message || err.toString() }))
 
 ipcMain.handle('check-update', async () => {
+  // Load token from config if available
+  const cfg = loadConfig()
+  if (cfg.githubToken) process.env.GH_TOKEN = cfg.githubToken
   try { autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
 
@@ -422,9 +469,12 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow()
-  // Check for updates after window is ready
   setTimeout(() => {
-    try { autoUpdater.checkForUpdates() } catch {}
+    try {
+      const cfg = loadConfig()
+      if (cfg.githubToken) process.env.GH_TOKEN = cfg.githubToken
+      autoUpdater.checkForUpdates()
+    } catch {}
   }, 5000)
 })
 app.on('window-all-closed', () => {
