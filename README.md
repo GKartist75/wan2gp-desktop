@@ -100,6 +100,7 @@ wan2gp-desktop/
 - **Typography system** — Instrument Serif (display) + Geist Sans (UI) + Geist Mono (data).
 - **Palette** — warm monochrome (#FBFBFA canvas, #FFFFFF surface, #EAEAEA hairline borders). All gradients, heavy shadows, pill shapes removed.
 - **Package versions card** — removed from center column (data already shown in left env card in 2-column grid).
+- **Viewer terminal close fix** — stopPropagation prevents click from reaching webview behind overlay.
 
 ### v1.0.1 — 2026-07-02
 
