@@ -56,11 +56,11 @@ body {
 }
 
 [data-theme="dark"] .launch-btn {
-  background: var(--text-primary);
-  color: var(--surface);
+  background: #3A3A3A;
+  color: #FFFFFF;
 }
 [data-theme="dark"] .launch-btn:hover {
-  background: #D4D2CD;
+  background: #4A4A4A;
 }
 
 /* ── App Shell ── */
