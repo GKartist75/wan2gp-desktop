@@ -5,3 +5,5 @@ bootstrap-python/
 .DS_Store
 Thumbs.db
 *.log
+nul
+showcase.html

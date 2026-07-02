@@ -46,14 +46,40 @@ function setupScrollUnfollow(bodyId, btnId) {
   if (!body || !btn) return
   body.addEventListener('scroll', () => {
     const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 30
-    if (!atBottom && termFollow[bodyId]) { termFollow[bodyId] = false; btn.classList.remove('active'); btn.textContent = '▼ Follow' }
-    else if (atBottom && !termFollow[bodyId]) { termFollow[bodyId] = true; btn.classList.add('active'); btn.textContent = '▼ Follow' }
+    if (!atBottom && termFollow[bodyId]) { termFollow[bodyId] = false; btn.classList.remove('active'); const ft=btn.querySelector('.follow-text'); if(ft) ft.textContent='Follow' }
+    else if (atBottom && !termFollow[bodyId]) { termFollow[bodyId] = true; btn.classList.add('active'); const ft=btn.querySelector('.follow-text'); if(ft) ft.textContent='Follow' }
   })
 }
 
 const $ = id => document.getElementById(id)
 function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active') }
+function openSettings() { $('settingsPanel').classList.add('open'); $('settingsOverlay').classList.add('visible') }
+function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible') }
 function log(el, msg) { if (!el) return; el.textContent += msg + '\n'; el.scrollTop = el.scrollHeight }
+
+// ── Theme ──
+function applyTheme(theme) {
+  const html = document.documentElement
+  const sun = document.querySelector('#themeToggleBtn .sun-icon')
+  const moon = document.querySelector('#themeToggleBtn .moon-icon')
+  if (theme === 'dark') {
+    html.setAttribute('data-theme', 'dark')
+    if (sun) sun.style.display = 'none'
+    if (moon) moon.style.display = ''
+  } else {
+    html.removeAttribute('data-theme')
+    if (sun) sun.style.display = ''
+    if (moon) moon.style.display = 'none'
+  }
+}
+
+async function toggleTheme() {
+  const cfg = await window.w2gp.configLoad()
+  const next = cfg.theme === 'dark' ? 'light' : 'dark'
+  cfg.theme = next
+  await window.w2gp.configSave(cfg)
+  applyTheme(next)
+}
 
 let currentUrl = null
 
@@ -75,12 +101,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.w2gp.onSetupProfile(p => { $('installProfile').textContent=p; $('installProfileRow').style.display='flex' })
   window.w2gp.onWangpExit(c => { if($('viewer').classList.contains('active')){ show('dashboard'); refreshDashboard() } })
 
+  // Load theme
+  const cfg = await window.w2gp.configLoad()
+  if (cfg.theme === 'dark') applyTheme('dark')
+
   loadHardware()
 
   if (installed.repo && installed.env) {
     show('dashboard')
     refreshDashboard()
-    setTimeout(() => toggleTerm('termPanel','termFollowBtn'), 300)
+
   } else {
     $('splashStatus').textContent = 'First-time setup...'
     const hw = await window.w2gp.detectHardware()
@@ -156,9 +186,12 @@ async function startInstall(){
       $('installProfile').textContent=profile; $('installProfileRow').style.display='flex'
     } catch {}
     taskComplete('done'); $('installSubtitle').textContent='Wan2GP is ready!'
-    setTimeout(()=>{ show('dashboard'); refreshDashboard(); toggleTerm('termPanel','termFollowBtn') }, 1200)
+    setTimeout(()=>{ show('dashboard'); refreshDashboard() }, 1200)
   } catch(e){ taskComplete('done',true); $('installSubtitle').textContent='Installation failed'; appendLog(`[ERROR] ${e.message}`) }
 }
+
+// ── Settings overlay click ──
+$('settingsOverlay').addEventListener('click', closeSettings)
 
 // ── Dashboard ──
 async function refreshDashboard(){
@@ -249,7 +282,7 @@ async function openBrowserPicker(url) {
     const item = document.createElement('div')
     const isSelected = b.path === selectedPath || (!selectedPath && !b.path)
     item.className = 'browser-list-item' + (isSelected ? ' selected' : '')
-    item.innerHTML = `<span class="browser-list-icon">${b.path ? '🌐' : '⚙'}</span><span class="browser-list-name">${b.name}</span>`
+    item.innerHTML = `<span class="b-icon">${b.path ? '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' : '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'}</span><span class="b-name">${b.name}</span>`
     item.addEventListener('click', () => {
       list.querySelectorAll('.browser-list-item').forEach(el => el.classList.remove('selected'))
       item.classList.add('selected')
@@ -289,7 +322,7 @@ function toggleTerm(panelId, followBtnId){
     renderTerminals()
     if(followBtnId){
       const btn=$(followBtnId)
-      if(btn){ termFollow[panel.querySelector('.term-body')?.id]=true; btn.classList.add('active'); btn.textContent='▼ Follow' }
+      if(btn){ termFollow[panel.querySelector('.term-body')?.id]=true; btn.classList.add('active'); const ft=btn.querySelector('.follow-text'); if(ft) ft.textContent='Follow' }
     }
     const body = panel.querySelector('.term-body')
     if(body) setTimeout(()=>body.scrollTop=body.scrollHeight, 50)
@@ -316,30 +349,36 @@ $('updateBtn').addEventListener('click',async()=>{
   try{ await window.w2gp.update(); refreshDashboard() }catch(e){ alert('Update: '+e.message) }
   $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP'
 })
+$('themeToggleBtn').addEventListener('click', toggleTheme)
 $('upgradeBtn').addEventListener('click',async()=>{
-  show('settings'); $('settingsLog').textContent='Upgrade running (check Terminal for output)...\n'
+  openSettings(); $('settingsLog').textContent='Upgrade running (check Terminal for output)...\n'
   try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) }
 })
 $('refreshBtn').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
-$('settingsBtn').addEventListener('click',()=>{ show('settings'); $('settingsLog').textContent='' })
+$('refreshBtn2').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
+$('settingsBtn').addEventListener('click',()=>{ openSettings(); $('settingsLog').textContent='' })
 
 $('dashTermBtn').addEventListener('click',()=>toggleTerm('termPanel','termFollowBtn'))
 $('viewTermBtn').addEventListener('click',()=>toggleTerm('viewerTermPanel','viewerFollowBtn'))
 
 $('termFollowBtn').addEventListener('click',()=>{
   termFollow.termBody=!termFollow.termBody
-  const b=$('termFollowBtn'); b.classList.toggle('active'); b.textContent=termFollow.termBody?'▼ Follow':'◼ Paused'
+  const b=$('termFollowBtn'); b.classList.toggle('active')
+  const ft=b.querySelector('.follow-text')
+  if(ft) ft.textContent=termFollow.termBody?'Follow':'Paused'
   if(termFollow.termBody){ const e=$('termBody'); if(e) setTimeout(()=>e.scrollTop=e.scrollHeight,10) }
 })
 $('viewerFollowBtn').addEventListener('click',()=>{
   termFollow.viewerTermBody=!termFollow.viewerTermBody
-  const b=$('viewerFollowBtn'); b.classList.toggle('active'); b.textContent=termFollow.viewerTermBody?'▼ Follow':'◼ Paused'
+  const b=$('viewerFollowBtn'); b.classList.toggle('active')
+  const ft=b.querySelector('.follow-text')
+  if(ft) ft.textContent=termFollow.viewerTermBody?'Follow':'Paused'
   if(termFollow.viewerTermBody){ const e=$('viewerTermBody'); if(e) setTimeout(()=>e.scrollTop=e.scrollHeight,10) }
 })
 
 $('termClearBtn').addEventListener('click', clearLogBuffer)
 $('viewerTermClearBtn').addEventListener('click', clearLogBuffer)
-$('viewerTermCloseBtn').addEventListener('click',()=>$('viewerTermPanel').classList.remove('open'))
+$('viewerTermCloseBtn').addEventListener('click',(e)=>{ e.stopPropagation(); const p=$('viewerTermPanel'); if(p) p.classList.remove('open') })
 
 // ── Installer tabs ──
 $('installTasksTab').addEventListener('click',()=>{ $('installTasks').classList.remove('hidden'); $('installTerm').classList.add('hidden'); $('installTasksTab').classList.add('active'); $('installTermTab').classList.remove('active') })
@@ -350,7 +389,7 @@ $('viewBackBtn').addEventListener('click',async()=>{ await window.w2gp.stop(); s
 $('viewBrowserBtn').addEventListener('click',()=>{ if(currentUrl) openBrowserPicker(currentUrl) })
 
 // ── Settings ──
-$('settingsBackBtn').addEventListener('click',()=>show('dashboard'))
+$('settingsBackBtn').addEventListener('click',closeSettings)
 $('settingsUpdateBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Updating...\n'; try{ await window.w2gp.update(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 $('settingsUpgradeBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Upgrading...\n'; try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 $('settingsReinstallBtn').addEventListener('click',async()=>{ if(!confirm('Re-run the full installer?'))return; $('settingsLog').textContent='Reinstalling...\n'; try{ await window.w2gp.install(selectedEnvType); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })

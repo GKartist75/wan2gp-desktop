@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1280">
 <title>Wan2GP Desktop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,104 +14,222 @@
 
   <!-- Splash -->
   <div id="splash" class="screen active">
-    <div class="logo">Wan<span>2</span>GP</div>
-    <p class="subtitle">Desktop</p>
-    <p class="splash-status" id="splashStatus">Checking installation...</p>
+    <div class="brand-mark">GK<span> Artist</span></div>
+    <div class="brand-sub">Wan2GP Deepbeepmeep</div>
+    <p class="splash-status"><span class="dot">&#9679;</span> <span id="splashStatus">Checking installation...</span></p>
+  </div>
+
+  <!-- Settings Overlay -->
+  <div id="settingsOverlay" class="settings-overlay"></div>
+
+  <!-- Settings Panel -->
+  <div id="settingsPanel" class="settings-panel">
+    <div class="settings-topbar">
+      <button class="btn-icon" id="settingsBackBtn" aria-label="Close settings">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <h2>Manage</h2>
+    </div>
+    <div class="settings-scroll">
+      <div class="settings-section">
+        <h3>Actions</h3>
+        <div class="settings-actions">
+          <button class="settings-action" id="settingsUpdateBtn">
+            <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            Update Wan2GP (git pull + deps)
+          </button>
+          <button class="settings-action" id="settingsUpgradeBtn">
+            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+            Upgrade PyTorch / Attention Kernels
+          </button>
+          <button class="settings-action" id="settingsReinstallBtn">
+            <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Reinstall environment
+          </button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>Log</h3>
+        <div class="log" id="settingsLog"></div>
+      </div>
+      <div class="settings-section">
+        <h3>GitHub Token (private repo updates)</h3>
+        <div class="token-field">
+          <input type="password" id="githubTokenInput" class="input" placeholder="ghp_...">
+          <button class="btn btn-primary small" id="tokenSaveBtn">Save</button>
+          <button class="btn btn-ghost small" id="tokenClearBtn">Clear</button>
+        </div>
+        <p class="token-hint">Create a <a href="#" id="tokenDocsLink">GitHub classic token</a> with <code>repo</code> scope. Only needed for private repo auto-updates.</p>
+      </div>
+    </div>
   </div>
 
   <!-- Dashboard -->
   <div id="dashboard" class="screen">
     <div class="topbar">
-      <div class="logo tiny">Wan<span>2</span>GP Desktop <span class="app-version">v1.0.1</span></div>
+      <div class="topbar-left">
+        <div class="brand-mark-small">GK<span> Artist</span></div>
+        <span class="app-title">Wan2GP Desktop</span>
+        <span class="app-version">v1.1.0</span>
+      </div>
+      <div class="topbar-spacer"></div>
       <div class="topbar-right">
-        <button class="btn small term-btn" id="dashTermBtn" title="Toggle Terminal">⎚ Terminal</button>
-        <button class="btn small" id="settingsBtn">⚙ Manage</button>
+        <button class="btn btn-ghost small" id="dashTermBtn" title="Toggle Terminal">
+          <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Terminal
+        </button>
+        <button class="btn-icon" id="themeToggleBtn" title="Toggle dark/light mode">
+          <svg viewBox="0 0 24 24" class="sun-icon"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg viewBox="0 0 24 24" class="moon-icon" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="btn btn-ghost small" id="settingsBtn">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          Manage
+        </button>
       </div>
     </div>
-    <div class="dash-body" id="dashBody">
-      <!-- Update banner (hidden by default) -->
-      <div id="updateBanner" class="update-banner hidden">
-        <div class="update-info">
-          <span class="update-badge">UPDATE</span>
-          <span id="updateText">A new version is available</span>
-        </div>
-        <div class="update-actions" id="updateActions">
-          <button id="updateDownloadBtn" class="btn small">Download</button>
-          <button id="updateInstallBtn" class="btn small hidden">Install & Restart</button>
-        </div>
-        <div id="updateProgress" class="update-progress hidden">
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <span id="progressText" class="progress-text">0%</span>
-        </div>
-        <button id="updateDismissBtn" class="update-dismiss">✕</button>
+
+    <!-- Update banner -->
+    <div id="updateBanner" class="update-banner hidden">
+      <div class="update-info">
+        <span class="update-badge">UPDATE</span>
+        <span id="updateText">A new version is available</span>
       </div>
-      <div class="dash-main">
-        <div class="env-card">
-          <div class="env-header"><h2>System</h2></div>
-          <div class="env-specs">
-            <div class="spec"><span class="spec-label">CPU</span><span class="spec-val" id="specCpu">—</span></div>
-            <div class="spec"><span class="spec-label">RAM</span><span class="spec-val" id="specRam">—</span></div>
-            <div class="spec"><span class="spec-label">GPU</span><span class="spec-val" id="specGpu">—</span></div>
-            <div class="spec"><span class="spec-label">VRAM</span><span class="spec-val" id="specVram">—</span></div>
+      <div class="update-actions" id="updateActions">
+        <button id="updateDownloadBtn" class="btn btn-primary small">Download</button>
+        <button id="updateInstallBtn" class="btn btn-primary small hidden">Install & Restart</button>
+      </div>
+      <div id="updateProgress" class="update-progress hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <span id="progressText" class="progress-text">0%</span>
+      </div>
+      <button id="updateDismissBtn" class="update-dismiss">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="dash-body" id="dashBody">
+      <!-- Left column: System -->
+      <div class="col-system" style="display:flex;flex-direction:column;gap:10px">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">System</span>
+          </div>
+          <div class="spec-grid">
+            <div class="spec-row"><span class="spec-label">CPU</span><span class="spec-value" id="specCpu">—</span></div>
+            <div class="spec-row"><span class="spec-label">RAM</span><span class="spec-value" id="specRam">—</span></div>
+            <div class="spec-row"><span class="spec-label">GPU</span><span class="spec-value" id="specGpu">—</span></div>
+            <div class="spec-row"><span class="spec-label">VRAM</span><span class="spec-value" id="specVram">—</span></div>
           </div>
         </div>
-        <div class="env-card">
-          <div class="env-header">
-            <h2 id="envName">—</h2>
-            <span class="env-type" id="envType">—</span>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Active Environment</span>
+            <span class="env-type-tag" id="envType"></span>
           </div>
-          <div class="env-specs" id="envSpecs">
-            <div class="spec"><span class="spec-label">Python</span><span class="spec-val" id="specPython">—</span></div>
-            <div class="spec"><span class="spec-label">Torch</span><span class="spec-val" id="specTorch">—</span></div>
-            <div class="spec"><span class="spec-label">CUDA</span><span class="spec-val" id="specCuda">—</span></div>
-            <div class="spec"><span class="spec-label">Triton</span><span class="spec-val" id="specTriton">—</span></div>
-            <div class="spec"><span class="spec-label">Sage Attn</span><span class="spec-val" id="specSage">—</span></div>
-            <div class="spec"><span class="spec-label">Flash Attn</span><span class="spec-val" id="specFlash">—</span></div>
-            <div class="spec"><span class="spec-label">Diffusers</span><span class="spec-val" id="specDiffusers">—</span></div>
-            <div class="spec"><span class="spec-label">Transformers</span><span class="spec-val" id="specTransformers">—</span></div>
-            <div class="spec"><span class="spec-label">Gradio</span><span class="spec-val" id="specGradio">—</span></div>
-            <div class="spec"><span class="spec-label">Accelerate</span><span class="spec-val" id="specAccelerate">—</span></div>
-            <div class="spec"><span class="spec-label">onnxruntime</span><span class="spec-val" id="specOnnx">—</span></div>
-            <div class="spec"><span class="spec-label">OpenCV</span><span class="spec-val" id="specOpencv">—</span></div>
-            <div class="spec"><span class="spec-label">PEFT</span><span class="spec-val" id="specPeft">—</span></div>
-            <div class="spec"><span class="spec-label">hf_hub</span><span class="spec-val" id="specHfhub">—</span></div>
-          </div>
-        </div>
-        <div class="action-grid">
-          <button class="action-btn launch" id="launchBtn">▶ Launch in Desktop</button>
-          <button class="action-btn" id="browserBtn">↗ Launch in Browser</button>
-          <button class="action-btn" id="updateBtn">↻ Update Wan2GP</button>
-          <button class="action-btn" id="upgradeBtn">▲ Upgrade Components</button>
-        </div>
-        <!-- Browser picker modal -->
-        <div id="browserPicker" class="modal-overlay hidden">
-          <div class="modal">
-            <h3>Select browser</h3>
-            <div id="browserList" class="browser-list"></div>
-            <label class="browser-default-label"><input type="checkbox" id="browserDefaultCheck"> Remember my choice (skip this dialog)</label>
-            <div class="modal-actions">
-              <button id="browserLaunchBtn" class="btn small" disabled>Launch</button>
-              <button id="browserCancelBtn" class="btn small" style="background:#333;color:#888">Cancel</button>
+          <div class="env-detail">
+            <div class="env-name-row">
+              <span class="env-name" id="envName">—</span>
+            </div>
+            <div class="env-specs" id="envSpecs">
+              <div class="spec-row"><span class="spec-label">Python</span><span class="spec-value" id="specPython">—</span></div>
+              <div class="spec-row"><span class="spec-label">Torch</span><span class="spec-value" id="specTorch">—</span></div>
+              <div class="spec-row"><span class="spec-label">CUDA</span><span class="spec-value" id="specCuda">—</span></div>
+              <div class="spec-row"><span class="spec-label">Triton</span><span class="spec-value" id="specTriton">—</span></div>
+              <div class="spec-row"><span class="spec-label">Sage Attn</span><span class="spec-value" id="specSage">—</span></div>
+              <div class="spec-row"><span class="spec-label">Flash Attn</span><span class="spec-value" id="specFlash">—</span></div>
+              <div class="spec-row"><span class="spec-label">Diffusers</span><span class="spec-value" id="specDiffusers">—</span></div>
+              <div class="spec-row"><span class="spec-label">Transformers</span><span class="spec-value" id="specTransformers">—</span></div>
+              <div class="spec-row"><span class="spec-label">Gradio</span><span class="spec-value" id="specGradio">—</span></div>
+              <div class="spec-row"><span class="spec-label">Accelerate</span><span class="spec-value" id="specAccelerate">—</span></div>
+              <div class="spec-row"><span class="spec-label">onnxruntime</span><span class="spec-value" id="specOnnx">—</span></div>
+              <div class="spec-row"><span class="spec-label">OpenCV</span><span class="spec-value" id="specOpencv">—</span></div>
+              <div class="spec-row"><span class="spec-label">PEFT</span><span class="spec-value" id="specPeft">—</span></div>
+              <div class="spec-row"><span class="spec-label">hf_hub</span><span class="spec-value" id="specHfhub">—</span></div>
             </div>
           </div>
         </div>
       </div>
-      <div class="dash-side">
-        <h3>Environments</h3>
-        <div id="envList"></div>
-        <div class="env-actions">
-          <button class="btn small" id="refreshBtn">⟳ Refresh</button>
-          <button class="btn small" id="updateCheckBtn" title="Check for desktop app update">⬆ Check Updates</button>
+
+      <!-- Center column: Actions -->
+      <div class="col-actions">
+        <button class="launch-btn" id="launchBtn">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Launch in Desktop
+        </button>
+        <div class="action-grid-2">
+          <button class="action-item primary-sub" id="browserBtn">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Launch in Browser
+          </button>
+          <button class="action-item" id="updateBtn">
+            <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            Update Wan2GP
+          </button>
+          <button class="action-item" id="upgradeBtn">
+            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+            Upgrade Components
+          </button>
+          <button class="action-item" id="refreshBtn">
+            <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Refresh
+          </button>
+        </div>
+
+
+      </div>
+
+      <!-- Right column: Environments -->
+      <div class="col-envs">
+        <div class="card" style="flex:1;display:flex;flex-direction:column">
+          <div class="card-header">
+            <span class="card-title">Environments</span>
+          </div>
+          <div class="env-list" id="envList"></div>
+          <div class="env-actions" style="margin-top:auto;padding-top:8px">
+            <button class="btn btn-ghost small" id="refreshBtn2">
+              <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Refresh
+            </button>
+            <button class="btn btn-ghost small" id="updateCheckBtn">
+              <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Updates
+            </button>
+          </div>
         </div>
       </div>
     </div>
-    <!-- Terminal panel (resizable, follow-mode) -->
-    <div class="terminal-panel" id="termPanel">
+
+    <!-- Browser picker modal -->
+    <div id="browserPicker" class="modal-overlay hidden">
+      <div class="modal">
+        <h3>Select browser</h3>
+        <div id="browserList" class="browser-list"></div>
+        <div class="browser-default-row">
+          <label class="checkbox-label"><input type="checkbox" id="browserDefaultCheck"> Remember my choice</label>
+        </div>
+        <div class="modal-actions">
+          <button id="browserLaunchBtn" class="btn btn-primary small" disabled>Launch</button>
+          <button id="browserCancelBtn" class="btn btn-ghost small">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal panel -->
+    <div class="terminal-panel open" id="termPanel" style="height:160px">
       <div class="term-resize-handle" id="termResize"></div>
       <div class="term-header">
         <span class="term-title">Terminal</span>
-        <button class="term-btn-small" id="termFollowBtn" title="Auto-scroll follow">▼ Follow</button>
-        <button class="term-btn-small" id="termClearBtn">Clear</button>
+        <div class="term-actions">
+          <button class="term-btn-small active" id="termFollowBtn">
+            <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            <span class="follow-text">Follow</span>
+          </button>
+          <button class="term-btn-small" id="termClearBtn">
+            <svg viewBox="0 0 24 24" style="width:10px;height:10px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Clear
+          </button>
+        </div>
       </div>
       <div class="term-body" id="termBody"></div>
     </div>
@@ -116,9 +237,9 @@
 
   <!-- Installer -->
   <div id="installer" class="screen">
-    <div class="card wide">
+    <div class="install-card">
       <div class="install-top">
-        <div class="logo small">Wan<span>2</span>GP</div>
+        <div class="brand-mark-small">GK<span> Artist</span></div>
         <div class="install-tabs">
           <button class="tab-btn active" id="installTasksTab">Tasks</button>
           <button class="tab-btn" id="installTermTab">Terminal</button>
@@ -126,7 +247,8 @@
       </div>
       <h2>Setting up Wan2GP</h2>
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
-      <!-- Environment type selector (shown before install starts) -->
+
+      <!-- Environment type selector -->
       <div class="env-type-select" id="envTypeSelect">
         <label class="env-type-label">Environment:</label>
         <div class="env-type-options">
@@ -135,8 +257,10 @@
           <button class="env-type-btn" data-env="conda">conda <span class="env-type-desc">(Anaconda/Miniconda)</span></button>
         </div>
       </div>
-      <button class="btn" id="installStartBtn">Install</button>
-      <!-- Hardware info displayed during install -->
+
+      <button id="installStartBtn">Install</button>
+
+      <!-- Hardware info -->
       <div class="install-hw">
         <div class="install-hw-row">
           <span class="ihw-label">CPU:</span><span class="ihw-val" id="installCpu">—</span>
@@ -150,17 +274,18 @@
           <span class="ihw-label">Profile:</span><span class="ihw-val profile-badge" id="installProfile">—</span>
         </div>
       </div>
+
       <div id="installTasks">
         <div class="task-list" id="taskList">
-          <div class="task pending" data-id="clone"><span class="task-icon">○</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="venv"><span class="task-icon">○</span><span class="task-label">Create Python virtual environment</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="torch"><span class="task-icon">○</span><span class="task-label">Install PyTorch + CUDA</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="reqs"><span class="task-icon">○</span><span class="task-label">Install Python dependencies</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="triton"><span class="task-icon">○</span><span class="task-label">Install Triton compiler</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="sage"><span class="task-icon">○</span><span class="task-label">Install Sage Attention kernel</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="flash"><span class="task-icon">○</span><span class="task-label">Install Flash Attention</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="kernels"><span class="task-icon">○</span><span class="task-label">Install GPU kernels (nunchaku/GGUF)</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="done"><span class="task-icon">○</span><span class="task-label">Finalize installation</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="clone"><span class="task-icon">&#9675;</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="venv"><span class="task-icon">&#9675;</span><span class="task-label">Create Python virtual environment</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="torch"><span class="task-icon">&#9675;</span><span class="task-label">Install PyTorch + CUDA</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="reqs"><span class="task-icon">&#9675;</span><span class="task-label">Install Python dependencies</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="triton"><span class="task-icon">&#9675;</span><span class="task-label">Install Triton compiler</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="sage"><span class="task-icon">&#9675;</span><span class="task-label">Install Sage Attention kernel</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="flash"><span class="task-icon">&#9675;</span><span class="task-label">Install Flash Attention</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="kernels"><span class="task-icon">&#9675;</span><span class="task-label">Install GPU kernels (nunchaku/GGUF)</span><span class="task-status">pending</span></div>
+          <div class="task pending" data-id="done"><span class="task-icon">&#9675;</span><span class="task-label">Finalize installation</span><span class="task-status">pending</span></div>
         </div>
         <div class="log" id="installLog"></div>
       </div>
@@ -172,26 +297,35 @@
 
   <!-- Launch progress -->
   <div id="launching" class="screen">
-    <div class="card">
-      <div class="logo small">Wan<span>2</span>GP</div>
+    <div class="launch-card">
+      <div class="brand-mark-small">GK<span> Artist</span></div>
       <h2>Starting Wan2GP</h2>
       <div class="launch-progress">
-        <div class="launch-step" id="launchStep1"><span class="step-icon">○</span> Starting Python process...</div>
-        <div class="launch-step" id="launchStep2"><span class="step-icon">○</span> Waiting for Gradio server...</div>
-        <div class="launch-step" id="launchStep3"><span class="step-icon">○</span> Loading Wan2GP interface...</div>
+        <div class="launch-step" id="launchStep1"><span class="step-icon">&#9675;</span> Starting Python process...</div>
+        <div class="launch-step" id="launchStep2"><span class="step-icon">&#9675;</span> Waiting for Gradio server...</div>
+        <div class="launch-step" id="launchStep3"><span class="step-icon">&#9675;</span> Loading Wan2GP interface...</div>
       </div>
       <div class="log" id="launchLog"></div>
-      <button class="btn" id="cancelLaunchBtn" style="margin-top:12px">Cancel</button>
+      <button class="btn btn-ghost" id="cancelLaunchBtn" style="margin-top:12px">Cancel</button>
     </div>
   </div>
 
   <!-- Viewer -->
   <div id="viewer" class="screen">
     <div class="toolbar">
-      <button class="toolbar-btn" id="viewBackBtn">← Dashboard</button>
+      <button class="toolbar-btn" id="viewBackBtn">
+        <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Dashboard
+      </button>
       <span class="toolbar-title">Wan2GP</span>
-      <button class="toolbar-btn term-btn" id="viewTermBtn">⎚ Terminal</button>
-      <button class="toolbar-btn" id="viewBrowserBtn">↗ Open in Browser</button>
+      <button class="toolbar-btn" id="viewTermBtn">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        Terminal
+      </button>
+      <button class="toolbar-btn" id="viewBrowserBtn">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Open in Browser
+      </button>
     </div>
     <div class="viewer-stack">
       <webview id="wangpView" src="about:blank"></webview>
@@ -199,62 +333,43 @@
         <div class="term-resize-handle" id="viewerTermResize"></div>
         <div class="term-header">
           <span class="term-title">Wan2GP Output</span>
-          <button class="term-btn-small" id="viewerFollowBtn">▼ Follow</button>
-          <button class="term-btn-small" id="viewerTermClearBtn">Clear</button>
-          <button class="term-btn-small" id="viewerTermCloseBtn">Close</button>
+          <div class="term-actions">
+            <button class="term-btn-small active" id="viewerFollowBtn">
+              <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              <span class="follow-text">Follow</span>
+            </button>
+            <button class="term-btn-small" id="viewerTermClearBtn">
+              <svg viewBox="0 0 24 24" style="width:10px;height:10px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Clear
+            </button>
+            <button class="term-btn-small" id="viewerTermCloseBtn">
+              <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Close
+            </button>
+          </div>
         </div>
         <div class="term-body" id="viewerTermBody"></div>
       </div>
     </div>
   </div>
 
-  <!-- Settings / Manage -->
-  <div id="settings" class="screen">
-    <div class="topbar">
-      <div class="logo tiny">Wan<span>2</span>GP Desktop <span class="app-version">v1.0.1</span></div>
-      <button class="btn small" id="settingsBackBtn">← Back</button>
-    </div>
-    <div class="settings-body">
-      <h2>Manage</h2>
-      <div class="settings-section">
-        <h3>Actions</h3>
-        <div class="action-grid vertical">
-          <button class="action-btn" id="settingsUpdateBtn">↻ Update Wan2GP (git pull + deps)</button>
-          <button class="action-btn" id="settingsUpgradeBtn">▲ Upgrade PyTorch / Attention Kernels</button>
-          <button class="action-btn" id="settingsReinstallBtn">⟳ Reinstall environment</button>
-        </div>
-      </div>
-      <div class="settings-section">
-        <h3>Log</h3>
-        <div class="log" id="settingsLog"></div>
-      </div>
-      <div class="settings-section">
-        <h3>GitHub Token (private repo updates)</h3>
-        <div class="token-field">
-          <input type="password" id="githubTokenInput" class="input" placeholder="ghp_...">
-          <button class="btn small" id="tokenSaveBtn">Save</button>
-          <button class="btn small" id="tokenClearBtn">Clear</button>
-        </div>
-        <p class="token-hint">Create a <a href="#" id="tokenDocsLink">GitHub classic token</a> with <code>repo</code> scope. Only needed for private repo auto-updates.</p>
-      </div>
-    </div>
-  </div>
-
 </div>
-<!-- Browser Picker Modal -->
+
+<!-- Browser Picker Modal (duplicate for the global modal at bottom) -->
 <div id="browserModal" class="modal-overlay hidden">
   <div class="modal">
     <h3>Choose Browser</h3>
     <p class="modal-sub">Select which browser to open Wan2GP in:</p>
-    <div id="browserList" class="browser-list"></div>
+    <div class="browser-list"></div>
     <div class="browser-default-row">
       <label class="checkbox-label">
-        <input type="checkbox" id="browserDefaultCheck"> Remember my choice
+        <input type="checkbox" id="browserDefaultCheck2"> Remember my choice
       </label>
     </div>
-    <button class="btn small" id="browserModalClose">Cancel</button>
+    <button class="btn btn-ghost small" id="browserModalClose">Cancel</button>
   </div>
 </div>
+
 <script src="app.js"></script>
 </body>
 </html>

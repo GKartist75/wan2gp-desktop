@@ -87,6 +87,20 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.0 — 2026-07-02
+
+**Complete visual redesign** — warm monochrome editorial UI with light/dark mode toggle.
+
+- **Light/Dark theme** — sun/moon toggle in topbar, persists to config. Warm charcoal dark variant, all signal colors adapted.
+- **Brand update** — splash now reads "GK Artist — Wan2GP Deepbeepmeep".
+- **Three-column bento dashboard** — system specs left, action zone center, environment list right.
+- **Persistent terminal dock** — always visible on dashboard, no longer hidden behind toggle.
+- **Slide-out settings panel** — Manage screen converted to a slide panel with overlay.
+- **All-emojis-out** — every icon replaced with inline SVG primitives. No emoji anywhere.
+- **Typography system** — Instrument Serif (display) + Geist Sans (UI) + Geist Mono (data).
+- **Palette** — warm monochrome (#FBFBFA canvas, #FFFFFF surface, #EAEAEA hairline borders). All gradients, heavy shadows, pill shapes removed.
+- **Package versions card** — removed from center column (data already shown in left env card in 2-column grid).
+
 ### v1.0.1 — 2026-07-02
 
 - **Env selector waits** — installer screen shows env type picker (venv/uv/conda) with Install button. User chooses first, then clicks Install. No more auto-start.
