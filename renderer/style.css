@@ -55,6 +55,14 @@ body {
   --signal-yellow: #FBBF24;
 }
 
+[data-theme="dark"] .launch-btn {
+  background: var(--text-primary);
+  color: var(--surface);
+}
+[data-theme="dark"] .launch-btn:hover {
+  background: #D4D2CD;
+}
+
 /* ── App Shell ── */
 #app { height: 100vh; display: flex; flex-direction: column; position: relative; background: var(--canvas); }
 
