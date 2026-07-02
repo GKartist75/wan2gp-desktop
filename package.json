@@ -1,7 +1,7 @@
 {
-  "name": "w2gp-desktop",
+  "name": "wan2gp-desktop",
   "version": "1.0.0",
-  "description": "Wan2GP Desktop - Install, update, maintain and run Wan2GP",
+  "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -9,8 +9,12 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
   },
-  "author": "Wan2GP",
+  "author": "GKartist75",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GKartist75/wan2gp-desktop"
+  },
   "devDependencies": {
     "electron": "^40.4.1",
     "electron-builder": "^26.7.0"

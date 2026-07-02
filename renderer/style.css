@@ -13,8 +13,9 @@ body {
 .logo { font-size: 4rem; font-weight: 800; letter-spacing: -2px; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .logo span { background: linear-gradient(135deg,#f093fb,#f5576c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .logo.small { font-size: 2rem; margin-bottom: 8px; }
-.logo.tiny { font-size: 1rem; -webkit-text-fill-color: #888; background: none; }
+.logo.tiny { font-size: 1rem; -webkit-text-fill-color: #888; background: none; display: flex; align-items: center; gap: 6px; }
 .logo.tiny span { -webkit-text-fill-color: #f5576c; background: none; }
+.app-version { font-size: 0.6rem; color: #555; -webkit-text-fill-color: #555; background: #1a1a1a; padding: 1px 6px; border-radius: 4px; }
 .subtitle { font-size: 1.1rem; color: #888; margin-top: 8px; }
 .splash-status { font-size: 0.85rem; color: #666; margin-top: 24px; }
 
