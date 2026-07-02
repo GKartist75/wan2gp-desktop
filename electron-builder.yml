@@ -1,0 +1,31 @@
+appId: com.wangp.desktop
+productName: Wan2GP Desktop
+directories:
+  buildResources: resources
+files:
+  - '**/*'
+  - '!**/.git/**'
+  - '!node_modules/**/*'
+win:
+  target: nsis
+  icon: resources/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+mac:
+  target: dmg
+  icon: resources/icon.png
+  category: public.app-category.creative-tools
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  category: Development
+publish:
+  provider: github
+  owner: deepbeepmeep
+  repo: Wan2GP-Desktop
+artifactName: Wan2GP-Desktop-${version}-${os}-${arch}.${ext}

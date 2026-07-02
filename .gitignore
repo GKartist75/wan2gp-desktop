@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+bootstrap-python/
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,18 @@
+{
+  "name": "w2gp-desktop",
+  "version": "1.0.0",
+  "description": "Wan2GP Desktop - Install, update, maintain and run Wan2GP",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "author": "Wan2GP",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0"
+  }
+}
