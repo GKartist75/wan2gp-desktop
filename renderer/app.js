@@ -248,7 +248,7 @@ async function doLaunch(){
     s1.className='launch-step done'; s1.querySelector('.step-icon').textContent='✓'
     s2.className='launch-step done'; s2.querySelector('.step-icon').textContent='✓'
     s3.className='launch-step active'; s3.querySelector('.step-icon').textContent='◌'
-    currentUrl=result.url; show('viewer'); $('wangpView').src=result.url
+    currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; try{ wv.setZoomFactor(0.5) }catch(e){}
     s3.className='launch-step done'; s3.querySelector('.step-icon').textContent='✓'
     toggleTerm('viewerTermPanel','viewerFollowBtn')
   } catch(e){
