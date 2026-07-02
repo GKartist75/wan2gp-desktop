@@ -87,6 +87,13 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.0.1 — 2026-07-02
+
+- **Env selector waits** — installer screen shows env type picker (venv/uv/conda) with Install button. User chooses first, then clicks Install. No more auto-start.
+- **Env selector disabled during install** — buttons grayed out once install starts.
+- **Task progress fixed** — tasks now show ○ (pending) → ◌ (running) → ✓ (done) correctly instead of jumping straight to done.
+- **Clone phase wired** — clone task properly marked done via IPC event from main.js.
+
 ### v1.0.0 — 2026-07-02
 
 Initial release.
