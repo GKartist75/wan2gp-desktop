@@ -198,22 +198,30 @@ async function refreshDashboard(){
   const status = await window.w2gp.getStatus()
   if(status.error||!status.env){
     $('envName').textContent='No active environment'
-    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub'].forEach(id=>$(id).textContent='—')
+    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub'].forEach(id=>{ const el=$(id); if(el) el.textContent='—' })
+    ;['dotPython','dotTorch','dotCuda','dotTriton','dotSage','dotFlash','dotDiffusers','dotTransformers','dotGradio','dotAccelerate','dotOnnx','dotOpencv','dotPeft','dotHfhub'].forEach(id=>{ const el=$(id); if(el) el.classList.remove('installed') })
   } else {
     $('envName').textContent=status.env.name; $('envType').textContent=status.env.type
-    $('specPython').textContent=status.versions?.python||'—'; $('specTorch').textContent=status.versions?.torch||'—'
-    const m=(status.versions?.torch||'').match(/cu(\d+)/); $('specCuda').textContent=m?`CUDA ${m[1]}`:'—'
-    $('specTriton').textContent=status.versions?.triton||'—'
-    $('specSage').textContent=status.versions?.sageattention||status.versions?.spas_sage_attn||'—'
-    $('specFlash').textContent=status.versions?.flash_attn||'—'
-    $('specDiffusers').textContent=status.versions?.diffusers||'—'
-    $('specTransformers').textContent=status.versions?.transformers||'—'
-    $('specGradio').textContent=status.versions?.gradio||'—'
-    $('specAccelerate').textContent=status.versions?.accelerate||'—'
-    $('specOnnx').textContent=status.versions?.onnxruntime||'—'
-    $('specOpencv').textContent=status.versions?.opencv||'—'
-    $('specPeft').textContent=status.versions?.peft||'—'
-    $('specHfhub').textContent=status.versions?.huggingface_hub||'—'
+
+    function setSpec(specId, dotId, val) {
+      const el=$(specId); if(el) el.textContent=val||'—'
+      const dot=$(dotId); if(dot){ if(val) dot.classList.add('installed'); else dot.classList.remove('installed') }
+    }
+    setSpec('specPython','dotPython', status.versions?.python)
+    setSpec('specTorch','dotTorch', status.versions?.torch)
+    const m=(status.versions?.torch||'').match(/cu(\d+)/)
+    setSpec('specCuda','dotCuda', m ? `CUDA ${m[1]}` : null)
+    setSpec('specTriton','dotTriton', status.versions?.triton)
+    setSpec('specSage','dotSage', status.versions?.sageattention||status.versions?.spas_sage_attn)
+    setSpec('specFlash','dotFlash', status.versions?.flash_attn)
+    setSpec('specDiffusers','dotDiffusers', status.versions?.diffusers)
+    setSpec('specTransformers','dotTransformers', status.versions?.transformers)
+    setSpec('specGradio','dotGradio', status.versions?.gradio)
+    setSpec('specAccelerate','dotAccelerate', status.versions?.accelerate)
+    setSpec('specOnnx','dotOnnx', status.versions?.onnxruntime)
+    setSpec('specOpencv','dotOpencv', status.versions?.opencv)
+    setSpec('specPeft','dotPeft', status.versions?.peft)
+    setSpec('specHfhub','dotHfhub', status.versions?.huggingface_hub)
   }
   const envs = await window.w2gp.manageList()
   const list=$('envList'); list.innerHTML=''
