@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   detectGpu: () => ipcRenderer.invoke('detect-gpu'),
   install: (envType) => ipcRenderer.invoke('install', envType),
+  reinstall: () => ipcRenderer.invoke('reinstall'),
 
   // Status
   getStatus: () => ipcRenderer.invoke('get-status'),

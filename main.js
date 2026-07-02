@@ -75,8 +75,8 @@ function runSetup(args) {
       const phase = detectPhase(text)
       if (phase) send('setup-phase', phase)
     }
-    proc.stdout.on('data', (d) => emit(d.toString()))
-    proc.stderr.on('data', (d) => emit('[stderr] ' + d.toString()))
+    proc.stdout.on('data', (d) => { const s = d.toString(); emit(s); process.stdout.write(s) })
+    proc.stderr.on('data', (d) => { const s = d.toString(); emit(s); process.stderr.write(s) })
     proc.on('close', (code) => {
       setupProc = null
       if (code === 0) resolve(buf)
@@ -113,10 +113,12 @@ function getActiveEnv() {
 
 function getPythonForEnv(env) {
   if (!env || !env.path) return null
+  // Resolve relative paths against REPO_DIR
+  const envPath = path.isAbsolute(env.path) ? env.path : path.join(REPO_DIR, env.path)
   if (env.type === 'none') return sysPython()
   return IS_WIN
-    ? path.join(env.path, 'Scripts', 'python.exe')
-    : path.join(env.path, 'bin', 'python')
+    ? path.join(envPath, 'Scripts', 'python.exe')
+    : path.join(envPath, 'bin', 'python')
 }
 
 // ── IPC ──
@@ -138,7 +140,7 @@ except:
     if sys.platform == 'darwin': n, v = 'Apple Silicon', 'APPLE'
     elif sys.platform == 'win32':
         try:
-            o = subprocess.check_output('wmic path win32_VideoController get name', shell=True, encoding='utf-8', stderr=subprocess.DEVNULL).replace('Name','').strip().split(chr(10))[0].strip()
+            o = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', shell=True, encoding='utf-8', stderr=subprocess.DEVNULL).strip()
             if o: n, v = o, 'AMD' if 'Radeon' in o or 'AMD' in o else 'INTEL'
         except: pass
     else:
@@ -177,6 +179,16 @@ ipcMain.handle('install', async (_, envType) => {
       if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: REPO_DIR, windowsHide: true })
     }
   } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
+  return true
+})
+
+ipcMain.handle('reinstall', async () => {
+  // Remove repo and envs so fresh install runs clean
+  send('setup-output', '[*] Removing existing installation...\n')
+  const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
+  try { execSync(`${rmCmd} "${REPO_DIR}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
+  try { execSync(`${rmCmd} "${ENVS_FILE}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
+  send('setup-output', '[*] Ready for fresh install.\n')
   return true
 })
 
@@ -224,12 +236,12 @@ ipcMain.handle('launch', async () => {
   wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
     cwd: REPO_DIR,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, GRADIO_LANG: 'en' },
+    env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1' },
     windowsHide: true
   })
 
-  wangpProc.stdout.on('data', (d) => { send('launch-log', d.toString()) })
-  wangpProc.stderr.on('data', (d) => { send('launch-log', '[e] ' + d.toString()) })
+  wangpProc.stdout.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stdout.write(s) })
+  wangpProc.stderr.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stderr.write(s) })
 
   let exited = false
   wangpProc.on('exit', (code) => {
@@ -348,41 +360,41 @@ ipcMain.handle('detect-hardware', () => {
   try {
     if (IS_WIN) {
       try {
-        const cpuOut = execSync('wmic cpu get name', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
+        const cpuOut = execSync('powershell -Command "Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
         info.cpu = cpuOut.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Name'))[0] || '—'
         if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
       } catch {}
       try {
-        const ramOut = execSync('wmic memorychip get capacity', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
-        const capacities = ramOut.split('\n').map(l => l.trim()).filter(l => l && !isNaN(Number(l)))
-        if (capacities.length > 0) {
-          const totalGB = capacities.reduce((s, c) => s + Number(c), 0) / (1024**3)
-          info.ram = Math.round(totalGB) + ' GB'
-        }
+        const ramOut = execSync('powershell -Command "Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum | ForEach-Object { [math]::Round($_.Sum / 1GB) }"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
+        const val = ramOut.trim()
+        if (val && !isNaN(Number(val))) info.ram = Number(val) + ' GB'
       } catch {}
       if (info.ram === '—') {
         try {
-          const totalOut = execSync('wmic computersystem get TotalPhysicalMemory', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
-          const n = totalOut.split('\n').map(l => l.trim()).filter(l => l && !isNaN(Number(l)))[0]
-          if (n) info.ram = Math.round(Number(n) / (1024**3)) + ' GB'
+          const totalOut = execSync('powershell -Command "Get-CimInstance Win32_ComputerSystem | ForEach-Object { [math]::Round($_.TotalPhysicalMemory / 1GB) }"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
+          const val = totalOut.trim()
+          if (val && !isNaN(Number(val))) info.ram = Number(val) + ' GB'
         } catch {}
       }
       try {
-        const gpuOut = execSync('wmic path win32_VideoController get name,adapterram', { encoding: 'utf8', timeout: 5000, shell: true, windowsHide: true })
-        const lines = gpuOut.split('\n').filter(l => l.trim())
-        if (lines.length > 1) {
-          for (let i = lines.length - 1; i >= 1; i--) {
-            const parts = lines[i].trim().split(/\s{2,}/)
-            if (parts.length >= 1 && parts[0].length > 0) {
-              info.gpu = parts[0]
-              if (parts.length >= 2 && !isNaN(Number(parts[parts.length-1]))) {
-                const vramBytes = Number(parts[parts.length-1])
-                info.vram = (vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB'
-              }
-              break
+        const gpuOut = execSync(`powershell -Command "Get-CimInstance Win32_VideoController | Where-Object {$_.AdapterRAM -ne $null} | ForEach-Object {$_.Name + '|' + $_.AdapterRAM}"`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+        const lines = gpuOut.split('\n').map(l => l.trim()).filter(l => l)
+        const gpuList = []
+        const vramList = []
+        for (const line of lines) {
+          const [name, vramStr] = line.split('|')
+          if (name && name.trim()) {
+            gpuList.push(name.trim())
+            const vramBytes = parseInt(vramStr?.trim())
+            if (!isNaN(vramBytes)) {
+              vramList.push((vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB')
+            } else {
+              vramList.push('')
             }
           }
         }
+        info.gpu = gpuList.length > 0 ? gpuList.join(' + ') : '—'
+        info.vram = vramList.length > 0 ? vramList.join(' + ') : '—'
       } catch {}
       if (info.gpu === '—') {
         try {
@@ -442,19 +454,30 @@ ipcMain.handle('detect-hardware', () => {
 autoUpdater.autoDownload = false
 autoUpdater.allowPrerelease = false
 
-autoUpdater.on('checking-for-update', () => send('update-status', { status: 'checking' }))
-autoUpdater.on('update-available', (info) => {
-  send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes })
-})
-autoUpdater.on('update-not-available', () => send('update-status', { status: 'up-to-date' }))
-autoUpdater.on('download-progress', (p) => send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }))
-autoUpdater.on('update-downloaded', (info) => send('update-status', { status: 'downloaded', version: info.version }))
-autoUpdater.on('error', (err) => send('update-status', { status: 'error', message: err.message || err.toString() }))
+autoUpdater.on('checking-for-update', () => { console.log('[DEBUG] Checking for update...'); send('update-status', { status: 'checking' }) })
+autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes }) })
+autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date'); send('update-status', { status: 'up-to-date' }) })
+autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
+autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
+autoUpdater.on('error', (err) => { console.log('[DEBUG] Update error:', err.message); send('update-status', { status: 'error', message: err.message || err.toString() }) })
 
 ipcMain.handle('check-update', async () => {
   // Load token from config if available
   const cfg = loadConfig()
-  if (cfg.githubToken) process.env.GH_TOKEN = cfg.githubToken
+  console.log('[DEBUG] Config loaded:', JSON.stringify(cfg))
+  if (cfg.githubToken) {
+    console.log('[DEBUG] Setting GH_TOKEN:', cfg.githubToken.substring(0, 10) + '...')
+    process.env.GH_TOKEN = cfg.githubToken
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'GKartist75',
+      repo: 'wan2gp-desktop',
+      token: cfg.githubToken,
+      private: true
+    })
+  } else {
+    console.log('[DEBUG] No GitHub token in config')
+  }
   try { autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
 
@@ -486,7 +509,16 @@ app.whenReady().then(() => {
   setTimeout(() => {
     try {
       const cfg = loadConfig()
-      if (cfg.githubToken) process.env.GH_TOKEN = cfg.githubToken
+      if (cfg.githubToken) {
+        process.env.GH_TOKEN = cfg.githubToken
+        autoUpdater.setFeedURL({
+          provider: 'github',
+          owner: 'GKartist75',
+          repo: 'wan2gp-desktop',
+          token: cfg.githubToken,
+          private: true
+        })
+      }
       autoUpdater.checkForUpdates()
     } catch {}
   }, 5000)

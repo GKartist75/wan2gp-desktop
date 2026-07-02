@@ -1,9 +1,26 @@
 // ── Global Log Buffer ──
 const logBuffer = []
 const MAX_LOG = 5000
+let lastLine = ''
 function appendLog(text) {
   if (!text) return
-  text.split('\n').forEach(line => { if (line.trim()) logBuffer.push(line.trim()) })
+  // Handle carriage returns (\r) for progress bars (tqdm, hf_hub)
+  const parts = text.split(/(\r|\n)/)
+  for (const part of parts) {
+    if (part === '\r') {
+      // Carriage return: replace last line in buffer
+      if (lastLine && logBuffer.length > 0) {
+        logBuffer[logBuffer.length - 1] = lastLine
+      }
+      lastLine = ''
+    } else if (part === '\n') {
+      // Newline: commit lastLine
+      if (lastLine.trim()) logBuffer.push(lastLine.trim())
+      lastLine = ''
+    } else {
+      lastLine += part
+    }
+  }
   while (logBuffer.length > MAX_LOG) logBuffer.shift()
   renderTerminals()
 }
@@ -50,7 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.w2gp.onSetupOutput(t => appendLog(t))
   window.w2gp.onLaunchLog(t => appendLog(t))
   window.w2gp.onSetupOutput(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c){ log($('installLog'),c); log($('settingsLog'),c) } })
-  window.w2gp.onLaunchLog(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c) log($('launchLog'),c) })
+  window.w2gp.onLaunchLog(t => { const c=t.replace(/\x1b[[0-9;]*m/g,''); if(c.trim()) log($('launchLog'),c) })
   window.w2gp.onSetupPhase(p => {
     if (p.done) taskComplete(p.id)
     else taskStart(p.id)
@@ -113,6 +130,15 @@ async function startInstall(){
   $('installStartBtn').classList.add('hidden')
   $('installSubtitle').textContent='Setting up Wan2GP...'
   const installed = await window.w2gp.checkInstalled()
+  if(installed.repo) {
+    if(!confirm('Wan2GP is already installed. Reinstall? This will remove everything and start fresh.')) {
+      $('installSubtitle').textContent='Update instead of fresh install...'
+      installed.repo = false
+    } else {
+      $('installSubtitle').textContent='Removing existing installation...'
+      await window.w2gp.reinstall()
+    }
+  }
   if(installed.repo) taskComplete('clone'); else taskStart('clone')
   try {
     await window.w2gp.install(selectedEnvType)
@@ -330,7 +356,7 @@ $('settingsUpgradeBtn').addEventListener('click',async()=>{ $('settingsLog').tex
 $('settingsReinstallBtn').addEventListener('click',async()=>{ if(!confirm('Re-run the full installer?'))return; $('settingsLog').textContent='Reinstalling...\n'; try{ await window.w2gp.install(selectedEnvType); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 
 // ── GitHub token config in settings ──
-$('githubTokenSaveBtn')?.addEventListener('click', async () => {
+$('tokenSaveBtn')?.addEventListener('click', async () => {
   const token = $('githubTokenInput')?.value
   if (!token) return
   const cfg = await window.w2gp.configLoad()
@@ -338,7 +364,7 @@ $('githubTokenSaveBtn')?.addEventListener('click', async () => {
   await window.w2gp.configSave(cfg)
   log($('settingsLog'), 'GitHub token saved — app will now check for updates')
 })
-$('githubTokenClearBtn')?.addEventListener('click', async () => {
+$('tokenClearBtn')?.addEventListener('click', async () => {
   const cfg = await window.w2gp.configLoad()
   cfg.githubToken = null
   await window.w2gp.configSave(cfg)
