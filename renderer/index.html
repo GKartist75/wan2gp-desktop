@@ -64,6 +64,14 @@
             <div class="spec"><span class="spec-label">Triton</span><span class="spec-val" id="specTriton">—</span></div>
             <div class="spec"><span class="spec-label">Sage Attn</span><span class="spec-val" id="specSage">—</span></div>
             <div class="spec"><span class="spec-label">Flash Attn</span><span class="spec-val" id="specFlash">—</span></div>
+            <div class="spec"><span class="spec-label">Diffusers</span><span class="spec-val" id="specDiffusers">—</span></div>
+            <div class="spec"><span class="spec-label">Transformers</span><span class="spec-val" id="specTransformers">—</span></div>
+            <div class="spec"><span class="spec-label">Gradio</span><span class="spec-val" id="specGradio">—</span></div>
+            <div class="spec"><span class="spec-label">Accelerate</span><span class="spec-val" id="specAccelerate">—</span></div>
+            <div class="spec"><span class="spec-label">onnxruntime</span><span class="spec-val" id="specOnnx">—</span></div>
+            <div class="spec"><span class="spec-label">OpenCV</span><span class="spec-val" id="specOpencv">—</span></div>
+            <div class="spec"><span class="spec-label">PEFT</span><span class="spec-val" id="specPeft">—</span></div>
+            <div class="spec"><span class="spec-label">GGUF</span><span class="spec-val" id="specGguf">—</span></div>
           </div>
         </div>
         <div class="action-grid">
@@ -106,6 +114,20 @@
       </div>
       <h2>Setting up Wan2GP</h2>
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
+      <!-- Hardware info displayed during install -->
+      <div class="install-hw">
+        <div class="install-hw-row">
+          <span class="ihw-label">CPU:</span><span class="ihw-val" id="installCpu">—</span>
+          <span class="ihw-label">RAM:</span><span class="ihw-val" id="installRam">—</span>
+        </div>
+        <div class="install-hw-row">
+          <span class="ihw-label">GPU:</span><span class="ihw-val" id="installGpu">—</span>
+          <span class="ihw-label">VRAM:</span><span class="ihw-val" id="installVram">—</span>
+        </div>
+        <div class="install-hw-row install-profile" id="installProfileRow" style="display:none">
+          <span class="ihw-label">Profile:</span><span class="ihw-val profile-badge" id="installProfile">—</span>
+        </div>
+      </div>
       <div id="installTasks">
         <div class="task-list" id="taskList">
           <div class="task pending" data-id="clone"><span class="task-icon">○</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>

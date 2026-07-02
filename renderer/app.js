@@ -90,6 +90,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Phase events → task list
   window.w2gp.onSetupPhase((phase) => taskComplete(phase.id))
 
+  // Profile detection during install
+  window.w2gp.onSetupProfile((profile) => {
+    $('installProfile').textContent = profile
+    $('installProfileRow').style.display = 'flex'
+  })
+
   // Process exit → auto-return from viewer
   window.w2gp.onWangpExit((code) => {
     if ($('viewer').classList.contains('active')) { show('dashboard'); refreshDashboard() }
@@ -103,6 +109,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshDashboard()
   } else {
     $('splashStatus').textContent = 'First-time setup...'
+    // Detect and display hardware on install screen before showing it
+    const hw = await window.w2gp.detectHardware()
+    $('installCpu').textContent = hw.cpu || '—'
+    $('installRam').textContent = hw.ram || '—'
+    $('installGpu').textContent = hw.gpu || '—'
+    $('installVram').textContent = hw.vram || '—'
     setTimeout(startInstall, 500)
   }
 })
@@ -143,6 +155,23 @@ async function startInstall() {
   if (installed.repo) taskComplete('clone'); else taskStart('clone')
   try {
     await window.w2gp.install()
+    // Try to detect profile from hardware
+    try {
+      const gpu = await window.w2gp.detectGpu()
+      const hw = await window.w2gp.detectHardware()
+      const name = (gpu.name || hw.gpu || '').toUpperCase()
+      const vendor = gpu.vendor || ''
+      let profile = 'STANDARD'
+      if (vendor === 'APPLE') profile = 'MPS'
+      else if (name.includes('5090') || name.includes('RTX 50') || name.includes('5080') || name.includes('5070')) profile = 'RTX 50'
+      else if (name.includes('4090') || name.includes('RTX 40') || name.includes('4080') || name.includes('4070') || name.includes('4060')) profile = 'RTX 40'
+      else if (name.includes('3090') || name.includes('RTX 30') || name.includes('3080') || name.includes('3070') || name.includes('3060')) profile = 'RTX 30'
+      else if (name.includes('2080') || name.includes('RTX 20') || name.includes('2070') || name.includes('2060')) profile = 'RTX 20'
+      else if (name.includes('1080') || name.includes('1070') || name.includes('1060') || name.includes('GTX')) profile = 'GTX 10'
+      else if (vendor === 'AMD') profile = 'AMD'
+      $('installProfile').textContent = profile
+      $('installProfileRow').style.display = 'flex'
+    } catch {}
     taskComplete('done')
     $('installSubtitle').textContent = 'Wan2GP is ready!'
     setTimeout(() => { show('dashboard'); refreshDashboard() }, 1200)
@@ -157,7 +186,9 @@ async function refreshDashboard() {
   const status = await window.w2gp.getStatus()
   if (status.error || !status.env) {
     $('envName').textContent = 'No active environment'
-    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash'].forEach(id => $(id).textContent = '—')
+    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash',
+      'specDiffusers','specTransformers','specGradio','specAccelerate',
+      'specOnnx','specOpencv','specPeft','specGguf'].forEach(id => $(id).textContent = '—')
   } else {
     $('envName').textContent = status.env.name
     $('envType').textContent = status.env.type
@@ -166,8 +197,16 @@ async function refreshDashboard() {
     const m = (status.versions?.torch || '').match(/cu(\d+)/)
     $('specCuda').textContent = m ? `CUDA ${m[1]}` : '—'
     $('specTriton').textContent = status.versions?.triton || '—'
-    $('specSage').textContent = status.versions?.sageattention || '—'
+    $('specSage').textContent = status.versions?.sageattention || status.versions?.spas_sage_attn || '—'
     $('specFlash').textContent = status.versions?.flash_attn || '—'
+    $('specDiffusers').textContent = status.versions?.diffusers || '—'
+    $('specTransformers').textContent = status.versions?.transformers || '—'
+    $('specGradio').textContent = status.versions?.gradio || '—'
+    $('specAccelerate').textContent = status.versions?.accelerate || '—'
+    $('specOnnx').textContent = status.versions?.onnxruntime || '—'
+    $('specOpencv').textContent = status.versions?.opencv || '—'
+    $('specPeft').textContent = status.versions?.peft || '—'
+    $('specGguf').textContent = status.versions?.gguf || '—'
   }
   // Env list
   const envs = await window.w2gp.manageList()

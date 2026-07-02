@@ -42,6 +42,11 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('setup-phase', h)
     return () => ipcRenderer.removeListener('setup-phase', h)
   },
+  onSetupProfile: (cb) => {
+    const h = (_e, profile) => cb(profile)
+    ipcRenderer.on('setup-profile', h)
+    return () => ipcRenderer.removeListener('setup-profile', h)
+  },
   onLaunchLog: (cb) => {
     const h = (_e, d) => cb(d)
     ipcRenderer.on('launch-log', h)

@@ -29,6 +29,21 @@ body {
 .tab-btn { padding: 6px 16px; border: none; border-radius: 6px; background: transparent; color: #666; cursor: pointer; font-size: 0.8rem; }
 .tab-btn.active { background: #2a2a4e; color: #ccc; }
 .install-subtitle { color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+
+/* ── Install Hardware Display ── */
+.install-hw {
+  background: #0f0f1a; border: 1px solid #2a2a4e; border-radius: 8px;
+  padding: 8px 14px; margin-bottom: 12px; text-align: left;
+}
+.install-hw-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.72rem; }
+.install-hw-row:last-child { margin-bottom: 0; }
+.ihw-label { color: #666; min-width: 40px; }
+.ihw-val { color: #ccc; margin-right: 14px; }
+.profile-badge {
+  background: #2a2a5e; color: #667eea; padding: 1px 8px; border-radius: 4px;
+  font-weight: 600; font-size: 0.68rem; letter-spacing: 0.5px;
+}
+
 .hidden { display: none !important; }
 
 /* ── Task List ── */

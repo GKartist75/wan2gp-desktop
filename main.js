@@ -59,6 +59,9 @@ function runSetup(args) {
     const emit = (text) => {
       buf += text
       send('setup-output', text)
+      // Detect profile marker
+      const profileMatch = text.match(/Hardware Profile:\s*(\S+)/)
+      if (profileMatch) send('setup-profile', profileMatch[1])
       // Also emit structured phase events
       const phase = detectPhase(text)
       if (phase) send('setup-phase', phase)
@@ -74,19 +77,22 @@ function runSetup(args) {
   })
 }
 
-// Detect install phases from setup.py output
+// Detect install phases from setup.py output (matches actual setup.py format)
 function detectPhase(line) {
-  const l = line.toLowerCase()
-  if (l.includes('preparing environment')) return { id: 'venv', label: 'Creating Python venv', done: false }
-  if (l.includes('[2/3] installing torch')) return { id: 'torch', label: 'Installing PyTorch + CUDA wheels', done: false }
-  if (l.includes('[3/3] installing requirements')) return { id: 'reqs', label: 'Installing Python dependencies', done: false }
-  if (l.includes('installing triton')) return { id: 'triton', label: 'Installing Triton compiler', done: false }
-  if (l.includes('sage attention') && l.includes('installing')) return { id: 'sage', label: 'Installing Sage Attention', done: false }
-  if (l.includes('flash attention') && l.includes('installing')) return { id: 'flash', label: 'Installing Flash Attention', done: false }
-  if (l.includes('nunchaku') && (l.includes('installing') || l.includes('running'))) return { id: 'kernels', label: 'Installing GPU kernels (nunchaku/GGUF)', done: false }
-  if (l.includes('requirements for plugin')) return { id: 'plugins', label: 'Installing plugin requirements', done: false }
-  // Completion markers
-  if (l.includes('automatic install complete') || l.includes('installation complete')) return { id: 'done', label: 'Installation complete', done: true }
+  // Phase markers from setup.py's install_logic()
+  if (line.includes('[1/3] Preparing Environment')) return { id: 'venv', label: 'Creating Python venv', done: false }
+  if (line.includes('[2/3] Installing Torch')) return { id: 'torch', label: 'Installing PyTorch + CUDA wheels', done: false }
+  if (line.includes('[3/3] Installing Requirements')) return { id: 'reqs', label: 'Installing Python dependencies', done: false }
+  // Individual component installs (the >>> Running: lines)
+  if (line.includes('>>> Running') && (line.includes('triton-windows') || line.includes('triton<'))) return { id: 'triton', label: 'Installing Triton compiler', done: false }
+  if (line.includes('>>> Running') && (line.includes('sageattention') || line.includes('SageAttention'))) return { id: 'sage', label: 'Installing Sage Attention kernel', done: false }
+  if (line.includes('>>> Running') && (line.includes('flash_attn') || line.includes('flash-attn'))) return { id: 'flash', label: 'Installing Flash Attention', done: false }
+  if (line.includes('>>> Running') && (line.includes('nunchaku') || line.includes('gguf') || line.includes('lightx2v'))) return { id: 'kernels', label: 'Installing GPU kernels', done: false }
+  if (line.includes('>>> Running') && (line.includes('SpargeAttn') || line.includes('spas_sage'))) return { id: 'sage', label: 'Installing Sparge Attention', done: false }
+  if (line.includes('>>> Running') && line.includes('pip install -r requirements')) return { id: 'reqs', label: 'Installing dependencies from requirements.txt', done: false }
+  if (line.includes('>>> Running') && line.includes('plugins')) return { id: 'plugins', label: 'Installing plugin requirements', done: false }
+  // Completion marker from setup.py
+  if (line.includes('Automatic Install Complete') || line.includes('is now active')) return { id: 'done', label: 'Installation complete', done: true }
   return null
 }
 
@@ -165,10 +171,17 @@ ipcMain.handle('get-status', async () => {
   try {
     const out = execSync(`"${py}" -c "
 import sys, importlib.metadata
-r = [f'python={sys.version.split()[0]}']
-for p in ['torch','triton','sageattention','spas_sage_attn','flash_attn']:
-    try: r.append(f'{p}={importlib.metadata.version(p)}')
-    except: r.append(f'{p}=missing')
+pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',
+        'diffusers','transformers','gradio','accelerate','onnxruntime','xformers',
+        'nunchaku','gguf','mmgp','moviepy','opencv-python','insightface',
+        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio']
+r = []
+for p in pkgs:
+    try: 
+        if p == 'python': r.append(f'python={sys.version.split()[0]}')
+        elif p == 'opencv-python': r.append(f'opencv={importlib.metadata.version(\"opencv-python\")}')
+        else: r.append(f'{p}={importlib.metadata.version(p)}')
+    except: pass
 print('||'.join(r))
 "`, { encoding: 'utf8', timeout: 30000, cwd: REPO_DIR }).trim()
     const parts = out.split('||')
