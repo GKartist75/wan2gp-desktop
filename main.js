@@ -397,6 +397,20 @@ ipcMain.handle('get-install-paths', () => ({
   config: CONFIG_FILE
 }))
 
+ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
+  const configPath = path.join(getRepoDir(), 'wgp_config.json')
+  let cfg = {}
+  try {
+    if (fs.existsSync(configPath)) {
+      cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    }
+  } catch {}
+  if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
+  if (lorasRoot) cfg.loras_root = lorasRoot
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
+  return true
+})
+
 ipcMain.handle('select-folder', async () => {
   const { dialog } = require('electron')
   const result = await dialog.showOpenDialog(mainWin, { properties: ['openDirectory'] })

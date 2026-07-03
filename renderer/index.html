@@ -70,7 +70,7 @@
       <div class="topbar-left">
         <div class="brand-mark-small">GK<span> Artist</span></div>
         <span class="app-title">Wan2GP Desktop</span>
-        <span class="app-version">v1.1.7</span>
+        <span class="app-version">v1.1.8</span>
       </div>
       <div class="topbar-spacer"></div>
       <div class="topbar-right">
@@ -288,6 +288,24 @@
           <span class="ipath-val" id="installRepoPath">—</span>
           <button class="btn btn-ghost small" id="browseRepoPath">Browse</button>
         </div>
+      </div>
+
+      <!-- Model Folders -->
+      <div class="install-paths model-folders">
+        <div class="install-path-row">
+          <span class="ipath-label">Checkpoints:</span>
+          <span class="ipath-val" id="installCkptsPath">(default)</span>
+          <button class="btn btn-ghost small" id="browseCkptsPath">Browse</button>
+          <button class="btn btn-ghost small" id="clearCkptsPath" title="Reset to default">✕</button>
+        </div>
+        <p class="path-hint">Folder with existing model ckpts/safetensors — first path is default download dir</p>
+        <div class="install-path-row">
+          <span class="ipath-label">LoRAs:</span>
+          <span class="ipath-val" id="installLorasPath">(default)</span>
+          <button class="btn btn-ghost small" id="browseLorasPath">Browse</button>
+          <button class="btn btn-ghost small" id="clearLorasPath" title="Reset to default">✕</button>
+        </div>
+        <p class="path-hint">Root folder for all LoRA subfolders (wan/, hunyuan/, etc.)</p>
       </div>
 
       <button id="installStartBtn">Install</button>

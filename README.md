@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.8 — 2026-07-03
+
+**Model folder configuration** — assign existing ckpts and LoRAs folders during install.
+
+- **Checkpoints path** — browse + clear button to set folder with existing model ckpts/safetensors.
+- **LoRAs path** — browse + clear button to set root folder for LoRA subdirectories (wan/, hunyuan/, etc.).
+- **wgp_config.json** — paths written to Wan2GP config after install so existing models are reused.
+- **Persistent** — paths saved in desktop config, restored on page load.
+
 ### v1.1.7 — 2026-07-03
 
 **Auto-restart on crash** — Wan2GP server stays alive after generation inside desktop webview.

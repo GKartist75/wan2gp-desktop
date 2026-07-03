@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Paths
   getInstallPaths: () => ipcRenderer.invoke('get-install-paths'),
+  writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
 
   // Config

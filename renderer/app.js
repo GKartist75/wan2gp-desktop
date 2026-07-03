@@ -202,6 +202,54 @@ $('browseRepoPath')?.addEventListener('click', async () => {
   loadPaths()
 })
 
+// ── Model folder browsers ──
+let _modelCkpts = '', _modelLoras = ''
+
+function setModelPath(type, folder) {
+  const el = type === 'ckpts' ? $('installCkptsPath') : $('installLorasPath')
+  const clearBtn = type === 'ckpts' ? $('clearCkptsPath') : $('clearLorasPath')
+  if (!el) return
+  if (folder) {
+    el.textContent = folder
+    el.style.color = ''
+    if (clearBtn) clearBtn.style.display = ''
+    if (type === 'ckpts') _modelCkpts = folder
+    else _modelLoras = folder
+  } else {
+    el.textContent = '(default)'
+    el.style.color = 'var(--text-tertiary)'
+    if (clearBtn) clearBtn.style.display = 'none'
+    if (type === 'ckpts') _modelCkpts = ''
+    else _modelLoras = ''
+  }
+}
+
+async function browseModelFolder(type) {
+  const folder = await window.w2gp.selectFolder()
+  if (!folder) return
+  setModelPath(type, folder)
+  // Persist to desktop config
+  const cfg = await window.w2gp.configLoad()
+  if (type === 'ckpts') cfg.modelCkptsPath = folder
+  else cfg.modelLorasPath = folder
+  await window.w2gp.configSave(cfg)
+}
+
+$('browseCkptsPath')?.addEventListener('click', () => browseModelFolder('ckpts'))
+$('browseLorasPath')?.addEventListener('click', () => browseModelFolder('loras'))
+$('clearCkptsPath')?.addEventListener('click', async () => {
+  setModelPath('ckpts', '')
+  const cfg = await window.w2gp.configLoad()
+  delete cfg.modelCkptsPath
+  await window.w2gp.configSave(cfg)
+})
+$('clearLorasPath')?.addEventListener('click', async () => {
+  setModelPath('loras', '')
+  const cfg = await window.w2gp.configLoad()
+  delete cfg.modelLorasPath
+  await window.w2gp.configSave(cfg)
+})
+
 async function startInstall(){
   show('installer'); $('installLog').textContent=''; resetTasks()
   // Disable env selector + hide install button during install
@@ -235,6 +283,22 @@ async function startInstall(){
       else if(vendor==='AMD') profile='AMD'
       $('installProfile').textContent=profile; $('installProfileRow').style.display='flex'
     } catch {}
+    // Write model folders to wgp_config.json after install
+    try {
+      const modelCfg = {}
+      if (_modelCkpts || _modelLoras) {
+        if (_modelCkpts) {
+          modelCfg.checkpointsPaths = [_modelCkpts, '.']
+        }
+        if (_modelLoras) {
+          modelCfg.lorasRoot = _modelLoras
+        }
+        await window.w2gp.writeWgpConfig(modelCfg)
+        appendLog(`[*] wgp_config.json updated: ckpts=${_modelCkpts || '(default)'}, loras=${_modelLoras || '(default)'}`)
+      }
+    } catch (e) {
+      appendLog(`[!] Failed to write model config: ${e.message}`)
+    }
     taskComplete('done'); $('installSubtitle').textContent='Wan2GP is ready!'
     setTimeout(()=>{ show('dashboard'); refreshDashboard() }, 1200)
   } catch(e){ taskComplete('done',true); $('installSubtitle').textContent='Installation failed'; appendLog(`[ERROR] ${e.message}`) }
@@ -295,6 +359,10 @@ async function loadPaths() {
   set('pathRepo', p.repo)
   set('installAppDataPath', p.appData)
   set('installRepoPath', p.repo)
+  // Restore model paths from desktop config
+  const cfg = await window.w2gp.configLoad()
+  if (cfg.modelCkptsPath) setModelPath('ckpts', cfg.modelCkptsPath)
+  if (cfg.modelLorasPath) setModelPath('loras', cfg.modelLorasPath)
 }
 
 async function loadWangpChangelog() {
