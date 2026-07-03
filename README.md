@@ -87,6 +87,16 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.5 — 2026-07-03
+
+**Bug fixes & polish** — VRAM detection, task progress, dot alignment.
+
+- **VRAM fix** — tries `nvidia-smi` first (accurate), WMI fallback. No more wrong VRAM on modern GPUs.
+- **Task progress** — install steps now advance properly: clone → venv → torch → reqs → triton → sage → flash → kernels → done.
+- **Dots only when installed** — package indicator hidden when not installed, consistent green `#4ADE80` in both themes.
+- **Terminal completion messages** — `[*] Wan2GP update complete` / `[*] Wan2GP upgrade complete` shown after operations.
+- **Upstream version number** — Wan2GP version displayed in changelog card header (parsed from README).
+
 ### v1.1.4 — 2026-07-03
 
 **Wan2GP upstream changelog viewer** — see latest commits and update status directly in desktop.
