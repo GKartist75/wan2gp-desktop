@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.7 — 2026-07-03
+
+**Auto-restart on crash** — Wan2GP server stays alive after generation inside desktop webview.
+
+- **Auto-restart** — if Wan2GP process exits while viewer active, auto-restarts up to 3x with progress shown.
+- **Restart overlay** — shows "Server stopped" overlay instead of immediately dumping to dashboard.
+- **Manual fallback** — if all retries fail, user can click "Try Again" or "Dashboard".
+- **Exit tracking** — distinguishes user-initiated stop (clicking Dashboard) from unexpected crash.
+
 ### v1.1.6 — 2026-07-03
 
 **Configurable install paths** — choose where Wan2GP repo lives.

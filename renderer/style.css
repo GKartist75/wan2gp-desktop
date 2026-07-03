@@ -567,3 +567,23 @@ body {
 .changelog-link:hover { color: var(--text-primary); text-decoration: underline; }
 .update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--signal-green); flex-shrink: 0; margin-left: 2px; }
 .action-item.has-update { border-color: var(--signal-green); }
+
+/* ── Server Restart Overlay ── */
+.server-restart-overlay {
+  position: absolute; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.server-restart-overlay.hidden { display: none; }
+.restart-card {
+  background: var(--surface); border-radius: 12px;
+  padding: 32px 40px; max-width: 380px; width: 90%;
+  text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.restart-icon { margin-bottom: 16px; color: var(--text-secondary); }
+.restart-card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; }
+.restart-msg { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.4; }
+.restart-actions { display: flex; gap: 10px; justify-content: center; }
+.restart-actions .btn { min-width: 120px; }
+.viewer-stack { position: relative; flex: 1; display: flex; flex-direction: column; }

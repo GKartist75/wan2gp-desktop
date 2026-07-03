@@ -15,6 +15,10 @@ const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
 let mainWin = null, wangpProc = null, setupProc = null
+let isViewerActive = false
+let userStoppedProcess = false
+let restartAttempts = 0
+const MAX_RESTART_ATTEMPTS = 3
 
 function sysPython() {
   try {
@@ -275,6 +279,10 @@ ipcMain.handle('launch', async () => {
     exited = true
     wangpProc = null
     send('wangp-exit', code)
+    if (isViewerActive && !userStoppedProcess) {
+      send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
+      setTimeout(() => restartWan2GP(), 1500)
+    }
   })
 
   send('launch-log', '[*] Waiting for Gradio server...\n')
@@ -289,6 +297,7 @@ ipcMain.handle('launch', async () => {
 })
 
 ipcMain.handle('stop', () => {
+  userStoppedProcess = true
   if (wangpProc) { wangpProc.kill('SIGTERM'); setTimeout(() => { if (wangpProc) wangpProc.kill('SIGKILL') }, 5000); wangpProc = null }
   return true
 })
@@ -421,6 +430,15 @@ ipcMain.handle('get-wangp-changelog', async () => {
     } catch {}
   }
   return null
+})
+
+ipcMain.handle('set-viewer-active', (_, active) => {
+  isViewerActive = active
+  if (!active) {
+    userStoppedProcess = false
+    restartAttempts = 0
+  }
+  return true
 })
 
 ipcMain.handle('get-wangp-version', async () => {
@@ -601,6 +619,53 @@ app.whenReady().then(() => {
     } catch {}
   }, 5000)
 })
+async function restartWan2GP() {
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    send('launch-log', `[!] Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached.\n`)
+    send('wangp-restart-failed', 'Max restart attempts exceeded')
+    isViewerActive = false
+    return
+  }
+  restartAttempts++
+  send('launch-log', `[*] Restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS}...\n`)
+  send('wangp-restarting', restartAttempts)
+
+  try {
+    const env = getActiveEnv()
+    if (!env) throw new Error('No active environment')
+    const py = getPythonForEnv(env)
+    if (!py) throw new Error('Cannot find python for env')
+
+    const port = 17861
+    wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
+      cwd: getRepoDir(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
+      windowsHide: true
+    })
+
+    wangpProc.stdout.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stdout.write(s) })
+    wangpProc.stderr.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stderr.write(s) })
+
+    wangpProc.on('exit', (code) => {
+      wangpProc = null
+      send('wangp-exit', code)
+      if (isViewerActive && !userStoppedProcess) {
+        send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
+        setTimeout(() => restartWan2GP(), 1500)
+      }
+    })
+
+    await waitForPort('127.0.0.1', port, 180000)
+    send('launch-log', '[*] Wan2GP restarted successfully!\n')
+    restartAttempts = 0
+    send('wangp-restarted', `http://127.0.0.1:${port}`)
+  } catch (err) {
+    send('launch-log', `[!] Restart failed: ${err.message}\n`)
+    send('wangp-restart-failed', err.message)
+  }
+}
+
 app.on('window-all-closed', () => {
   if (wangpProc) wangpProc.kill()
   if (PLATFORM !== 'darwin') app.quit()

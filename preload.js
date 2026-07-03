@@ -79,4 +79,20 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('wangp-exit', h)
     return () => ipcRenderer.removeListener('wangp-exit', h)
   },
+  setViewerActive: (active) => ipcRenderer.invoke('set-viewer-active', active),
+  onWangpRestarting: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('wangp-restarting', h)
+    return () => ipcRenderer.removeListener('wangp-restarting', h)
+  },
+  onWangpRestarted: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('wangp-restarted', h)
+    return () => ipcRenderer.removeListener('wangp-restarted', h)
+  },
+  onWangpRestartFailed: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('wangp-restart-failed', h)
+    return () => ipcRenderer.removeListener('wangp-restart-failed', h)
+  },
 })

@@ -107,7 +107,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   })
   window.w2gp.onSetupProfile(p => { $('installProfile').textContent=p; $('installProfileRow').style.display='flex' })
-  window.w2gp.onWangpExit(c => { if($('viewer').classList.contains('active')){ show('dashboard'); refreshDashboard() } })
+  window.w2gp.onWangpExit(c => {
+    if($('viewer').classList.contains('active')){
+      appendLog(`[!] Wan2GP process exited (code ${c})`)
+      // Show restart overlay instead of immediately navigating to dashboard
+      showRestartOverlay(c)
+    }
+  })
+
+  window.w2gp.onWangpRestarting((attempt) => {
+    $('restartTitle').textContent = `Restarting Wan2GP (attempt ${attempt}/3)...`
+    $('restartMessage').textContent = 'Please wait...'
+    $('restartNowBtn').classList.add('hidden')
+    $('restartDashboardBtn').classList.add('hidden')
+  })
+
+  window.w2gp.onWangpRestarted((url) => {
+    appendLog('[*] Wan2GP restarted, reloading...')
+    $('serverRestartOverlay').classList.add('hidden')
+    currentUrl = url
+    var wv = $('wangpView')
+    wv.src = url
+    try{ wv.setZoomFactor(0.5) }catch(e){}
+  })
+
+  window.w2gp.onWangpRestartFailed((err) => {
+    appendLog(`[!] Auto-restart failed: ${err}`)
+    $('restartTitle').textContent = 'Failed to restart'
+    $('restartMessage').textContent = `Could not restart Wan2GP: ${err}`
+    $('restartNowBtn').classList.remove('hidden')
+    $('restartNowBtn').textContent = 'Try Again'
+    $('restartDashboardBtn').classList.remove('hidden')
+  })
 
   // Load theme
   const cfg = await window.w2gp.configLoad()
@@ -337,6 +368,7 @@ async function doLaunch(){
     s2.className='launch-step done'; s2.querySelector('.step-icon').textContent='✓'
     s3.className='launch-step active'; s3.querySelector('.step-icon').textContent='◌'
     currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; try{ wv.setZoomFactor(0.5) }catch(e){}
+    window.w2gp.setViewerActive(true)
     s3.className='launch-step done'; s3.querySelector('.step-icon').textContent='✓'
     toggleTerm('viewerTermPanel','viewerFollowBtn')
   } catch(e){
@@ -479,8 +511,44 @@ $('installTasksTab').addEventListener('click',()=>{ $('installTasks').classList.
 $('installTermTab').addEventListener('click',()=>{ $('installTasks').classList.add('hidden'); $('installTerm').classList.remove('hidden'); $('installTasksTab').classList.remove('active'); $('installTermTab').classList.add('active'); renderTerminals() })
 
 // ── Viewer ──
-$('viewBackBtn').addEventListener('click',async()=>{ await window.w2gp.stop(); show('dashboard'); refreshDashboard() })
+$('viewBackBtn').addEventListener('click',async()=>{ await window.w2gp.stop(); window.w2gp.setViewerActive(false); show('dashboard'); refreshDashboard() })
 $('viewBrowserBtn').addEventListener('click',()=>{ if(currentUrl) openBrowserPicker(currentUrl) })
+
+// ── Server restart overlay ──
+function showRestartOverlay(exitCode) {
+  const ov = $('serverRestartOverlay')
+  if (!ov) return
+  $('restartTitle').textContent = 'Wan2GP server stopped'
+  $('restartMessage').textContent = `Process exited (code ${exitCode}). Auto-restarting...`
+  $('restartNowBtn').classList.add('hidden')
+  $('restartDashboardBtn').classList.add('hidden')
+  ov.classList.remove('hidden')
+}
+
+$('restartNowBtn').addEventListener('click', async () => {
+  $('restartTitle').textContent = 'Starting...'
+  $('restartMessage').textContent = 'Please wait...'
+  $('restartNowBtn').disabled = true
+  try {
+    const result = await window.w2gp.launch()
+    currentUrl = result.url
+    $('serverRestartOverlay').classList.add('hidden')
+    var wv = $('wangpView')
+    wv.src = result.url
+    try{ wv.setZoomFactor(0.5) }catch(e){}
+  } catch(e) {
+    $('restartTitle').textContent = 'Restart failed'
+    $('restartMessage').textContent = e.message
+    $('restartNowBtn').disabled = false
+  }
+})
+
+$('restartDashboardBtn').addEventListener('click', async () => {
+  await window.w2gp.stop()
+  window.w2gp.setViewerActive(false)
+  show('dashboard')
+  refreshDashboard()
+})
 
 // ── Settings ──
 $('settingsBackBtn').addEventListener('click',closeSettings)

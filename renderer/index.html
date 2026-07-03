@@ -70,7 +70,7 @@
       <div class="topbar-left">
         <div class="brand-mark-small">GK<span> Artist</span></div>
         <span class="app-title">Wan2GP Desktop</span>
-        <span class="app-version">v1.1.6</span>
+        <span class="app-version">v1.1.7</span>
       </div>
       <div class="topbar-spacer"></div>
       <div class="topbar-right">
@@ -364,6 +364,20 @@
       </button>
     </div>
     <div class="viewer-stack">
+      <!-- Server restart overlay -->
+      <div id="serverRestartOverlay" class="server-restart-overlay hidden">
+        <div class="restart-card">
+          <div class="restart-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48"><circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="1.5"/><path d="M12 6v6l4 2" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+          <h3 id="restartTitle">Wan2GP server stopped</h3>
+          <p id="restartMessage" class="restart-msg">The process exited unexpectedly. Auto-restarting...</p>
+          <div class="restart-actions">
+            <button class="btn btn-primary" id="restartNowBtn">Restart Now</button>
+            <button class="btn btn-ghost" id="restartDashboardBtn">Dashboard</button>
+          </div>
+        </div>
+      </div>
       <webview id="wangpView" src="about:blank"></webview>
       <div class="terminal-panel viewer-term" id="viewerTermPanel">
         <div class="term-resize-handle" id="viewerTermResize"></div>
