@@ -87,6 +87,14 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.4 — 2026-07-03
+
+**Real-time RAM/VRAM stats enabled by default** — Wan2GP now shows live memory stats out of the box.
+
+- `display_stats=1` written to `wgp_config.json` on install and config writes.
+- Only set if not already disabled by user (respects explicit opt-out via Wan2GP UI).
+- Works alongside model folder configuration (checkpoints_paths, loras_root).
+
 ### v1.2.3 — 2026-07-03
 
 **Release build** — all fixes from this session shipped.

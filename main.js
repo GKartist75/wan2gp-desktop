@@ -422,6 +422,8 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
   } catch {}
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
   if (lorasRoot) cfg.loras_root = lorasRoot
+  // Enable real-time RAM/VRAM stats display in Wan2GP UI
+  if (cfg.display_stats === undefined || cfg.display_stats === 0) cfg.display_stats = 1
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
   return true
 })

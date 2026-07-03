@@ -307,19 +307,13 @@ async function startInstall(){
       else if(vendor==='AMD') profile='AMD'
       $('installProfile').textContent=profile; $('installProfileRow').style.display='flex'
     } catch {}
-    // Write model folders to wgp_config.json after install
+    // Write model config after install — enables display_stats + sets model paths
     try {
       const modelCfg = {}
-      if (_modelCkpts || _modelLoras) {
-        if (_modelCkpts) {
-          modelCfg.checkpointsPaths = [_modelCkpts, '.']
-        }
-        if (_modelLoras) {
-          modelCfg.lorasRoot = _modelLoras
-        }
-        await window.w2gp.writeWgpConfig(modelCfg)
-        appendLog(`[*] wgp_config.json updated: ckpts=${_modelCkpts || '(default)'}, loras=${_modelLoras || '(default)'}`)
-      }
+      if (_modelCkpts) modelCfg.checkpointsPaths = [_modelCkpts, '.']
+      if (_modelLoras) modelCfg.lorasRoot = _modelLoras
+      await window.w2gp.writeWgpConfig(modelCfg)
+      appendLog(`[*] wgp_config.json updated: ckpts=${_modelCkpts || '(default)'}, loras=${_modelLoras || '(default)'}, display_stats=1`)
     } catch (e) {
       appendLog(`[!] Failed to write model config: ${e.message}`)
     }
