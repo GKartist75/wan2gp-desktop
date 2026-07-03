@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.3 — 2026-07-03
+
+**Release build** — all fixes from this session shipped.
+
+- v1.2.0: 10 bugfixes (env dot, manage-delete paths, fetchUrl errors, listener leak, etc.)
+- v1.2.1: Webview crash fix (removed setZoomFactor, added crash handler)
+- v1.2.2: Zero VRAM for Electron (app.disableHardwareAcceleration)
+- v1.2.3: Release packaging
+
 ### v1.2.2 — 2026-07-03
 
 **Zero VRAM for Electron** — all GPU memory reserved for Wan2GP generation.
