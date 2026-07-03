@@ -38,6 +38,31 @@ function renderTerminals() {
   })
 }
 
+// ── Webview crash handler ──
+function setupWebviewCrashHandler() {
+  const wv = $('wangpView')
+  if (!wv) return
+  wv.removeEventListener('crashed', onWebviewCrash)
+  wv.addEventListener('crashed', onWebviewCrash)
+}
+
+let wvCrashRetry = 0
+const WV_CRASH_MAX = 3
+
+function onWebviewCrash(e) {
+  wvCrashRetry++
+  if (wvCrashRetry > WV_CRASH_MAX) {
+    appendLog(`[!] Webview crashed ${WV_CRASH_MAX} times — showing restart overlay`)
+    showRestartOverlay(-1)
+    return
+  }
+  appendLog(`[!] Webview ${e.type} crashed (${wvCrashRetry}/${WV_CRASH_MAX}) — reloading...`)
+  setTimeout(() => {
+    const wv = $('wangpView')
+    if (wv && currentUrl) wv.src = currentUrl
+  }, 2000)
+}
+
 function setupScrollUnfollow(bodyId, btnId) {
   const body = document.getElementById(bodyId)
   const btn = document.getElementById(btnId)
@@ -128,7 +153,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentUrl = url
     var wv = $('wangpView')
     wv.src = url
-    try{ wv.setZoomFactor(0.5) }catch(e){}
   })
 
   window.w2gp.onWangpRestartFailed((err) => {
@@ -495,7 +519,7 @@ async function doLaunch(){
     $('launchStepLabel').textContent = 'Ready'
     $('launchStatusFill').style.width = '100%'
     stopLaunchTimer()
-    currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; try{ wv.setZoomFactor(0.5) }catch(e){}
+    currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; setupWebviewCrashHandler()
     window.w2gp.setViewerActive(true)
     toggleTerm('viewerTermPanel','viewerFollowBtn')
   } catch(e){
@@ -666,7 +690,6 @@ $('restartNowBtn').addEventListener('click', async () => {
     $('serverRestartOverlay').classList.add('hidden')
     var wv = $('wangpView')
     wv.src = result.url
-    try{ wv.setZoomFactor(0.5) }catch(e){}
   } catch(e) {
     $('restartTitle').textContent = 'Restart failed'
     $('restartMessage').textContent = e.message

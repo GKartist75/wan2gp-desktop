@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.1 — 2026-07-03
+
+**Webview crash fix** — embedded viewer no longer crashes during GPU-intensive generation.
+
+- **Root cause** — `setZoomFactor(0.5)` forced a non-standard GPU compositing path that crashed under GPU memory pressure during generation.
+- **Removed** `setZoomFactor(0.5)` from all three locations (launch, restart, auto-restart).
+- **Added** webview crash handler — auto-reloads up to 3x with log, then shows restart overlay.
+- External browser and standalone were never affected because Chrome has its own GPU process with proper OOM handling.
+
 ### v1.2.0 — 2026-07-03
 
 **Bugfix & hardening release** — 10 issues fixed across main, renderer, preload.
