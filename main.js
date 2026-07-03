@@ -6,6 +6,9 @@ const net = require('net')
 const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
+// Ponytail: software rendering = zero VRAM for Electron. GPU reserved for Python process.
+app.disableHardwareAcceleration()
+
 const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
 function getRepoDir() { const c = loadConfig(); return c.repoDir || path.join(DATA_DIR, 'repo') }
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }

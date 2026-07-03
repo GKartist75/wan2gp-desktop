@@ -87,6 +87,14 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.2 — 2026-07-03
+
+**Zero VRAM for Electron** — all GPU memory reserved for Wan2GP generation.
+
+- `app.disableHardwareAcceleration()` forces Electron to use SwiftShader (CPU software rendering).
+- Electron + webview consume **0 MB VRAM** — all GPU RAM goes to the Python process.
+- Webview rendering is imperceptibly slower (Gradio UI is mostly static between generations).
+
 ### v1.2.1 — 2026-07-03
 
 **Webview crash fix** — embedded viewer no longer crashes during GPU-intensive generation.
