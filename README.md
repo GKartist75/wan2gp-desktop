@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.6 — 2026-07-03
+
+**Configurable install paths** — choose where Wan2GP repo lives.
+
+- **Path picker** — Browse button in installer to set Wan2GP repo directory before install.
+- **Paths card** — dashboard shows App data + Wan2GP repo locations.
+- **Backend** — `getRepoDir()` reads `repoDir` from config, all git/Python ops follow.
+- **Native folder dialog** — `select-folder` IPC handler uses Electron's directory picker.
+
 ### v1.1.5 — 2026-07-03
 
 **Bug fixes & polish** — VRAM detection, task progress, dot alignment.
