@@ -534,3 +534,22 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* ── Wan2GP Changelog Card ── */
+.changelog-card { margin-top: 10px; }
+.changelog-list { max-height: 180px; overflow-y: auto; font-size: 0.625rem; }
+.changelog-loading, .changelog-error { padding: 10px; text-align: center; color: var(--text-tertiary); font-size: 0.625rem; }
+.cl-item {
+  display: flex; gap: 6px; padding: 5px 8px;
+  border-bottom: 1px solid var(--border); align-items: flex-start;
+}
+.cl-item:last-child { border-bottom: none; }
+.cl-date { flex-shrink: 0; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; min-width: 50px; font-size: 0.5625rem; }
+.cl-msg { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-author { flex-shrink: 0; color: var(--text-tertiary); font-size: 0.5625rem; display: none; }
+.local-commit { font-family: 'Geist Mono', monospace; font-size: 0.5rem; color: var(--text-tertiary); }
+.changelog-footer { padding: 4px 8px; border-top: 1px solid var(--border); text-align: right; }
+.changelog-link { font-size: 0.5625rem; color: var(--text-secondary); text-decoration: none; cursor: pointer; }
+.changelog-link:hover { color: var(--text-primary); text-decoration: underline; }
+.update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--signal-green); flex-shrink: 0; margin-left: 2px; }
+.action-item.has-update { border-color: var(--signal-green); }

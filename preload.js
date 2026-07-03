@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Hardware
   detectHardware: () => ipcRenderer.invoke('detect-hardware'),
 
+  // Wan2GP upstream
+  getWangpLocalVersion: () => ipcRenderer.invoke('get-wangp-local-version'),
+  getWangpUpstreamInfo: () => ipcRenderer.invoke('get-wangp-upstream-info'),
+  getWangpChangelog: () => ipcRenderer.invoke('get-wangp-changelog'),
+
   // Events
   onSetupOutput: (cb) => {
     const h = (_e, d) => cb(d)

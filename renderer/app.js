@@ -233,7 +233,62 @@ async function refreshDashboard(){
     div.querySelector('.env-list-del').addEventListener('click',async(ev)=>{ ev.stopPropagation(); if(confirm(`Delete "${e.name}"?`)){ await window.w2gp.manageDelete(e.name); refreshDashboard() } })
     list.appendChild(div)
   })
+  loadWangpChangelog()
 }
+
+async function loadWangpChangelog() {
+  const localEl = $('localCommit')
+  const listEl = $('updatesList')
+  if (!listEl) return
+
+  const local = await window.w2gp.getWangpLocalVersion()
+  if (local && localEl) localEl.textContent = local.hash.substring(0, 7)
+
+  const upstream = await window.w2gp.getWangpUpstreamInfo()
+  if (!upstream || !upstream.commits) {
+    listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
+    return
+  }
+
+  const updateBtn = $('updateBtn')
+  const hasUpdate = local && upstream.commits[0]?.hash !== local.hash
+  if (hasUpdate) {
+    updateBtn?.classList.add('has-update')
+    if (!updateBtn?.querySelector('.update-dot')) {
+      const dot = document.createElement('span')
+      dot.className = 'update-dot'
+      updateBtn.appendChild(dot)
+    }
+  } else {
+    updateBtn?.classList.remove('has-update')
+    updateBtn?.querySelector('.update-dot')?.remove()
+  }
+
+  listEl.innerHTML = upstream.commits.map(c =>
+    `<div class="cl-item">
+      <span class="cl-date">${fmtDate(c.date)}</span>
+      <span class="cl-msg">${c.message}</span>
+      <span class="cl-author">${c.author}</span>
+    </div>`
+  ).join('')
+}
+
+function fmtDate(s) {
+  if (!s) return ''
+  const d = new Date(s)
+  const days = (Date.now() - d) / 864e5
+  if (days < 1) return 'today'
+  if (days < 2) return 'yesterday'
+  return days < 7 ? `${Math.floor(days)}d ago` : d.toLocaleDateString('en-US', {month:'short',day:'numeric'})
+}
+
+// ── Changelog link ──
+document.addEventListener('DOMContentLoaded', () => {
+  $('changelogLink')?.addEventListener('click', (e) => {
+    e.preventDefault()
+    window.w2gp.openExternal('https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/CHANGELOG.md')
+  })
+})
 
 // ── Launch (desktop) ──
 let launchCancelled = false

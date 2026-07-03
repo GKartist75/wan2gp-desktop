@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execSync } = require('child_process')
 const net = require('net')
+const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
 const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
@@ -55,6 +56,31 @@ function waitForPort(host, port, timeoutMs = 180000) {
       else setTimeout(check, 800)
     }
     check()
+  })
+}
+
+// ── Wan2GP Upstream Version Check ──
+const WAN2GP_UPSTREAM = 'deepbeepmeep/Wan2GP'
+
+function getLocalWangpHead() {
+  if (!fs.existsSync(path.join(REPO_DIR, '.git'))) return null
+  try {
+    const hash = execSync('git rev-parse HEAD', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
+    const date = execSync('git log -1 --format=%cI', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
+    const msg = execSync('git log -1 --format=%s', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
+    return { hash, date, message: msg }
+  } catch { return null }
+}
+
+function fetchUrl(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'wan2gp-desktop' }, timeout: 10000 }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => resolve(data))
+    })
+    req.on('error', reject)
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
   })
 }
 
@@ -353,6 +379,35 @@ ipcMain.handle('open-in-browser', (_, { url, browserPath }) => {
 // ── Desktop config (token, browser preference) ──
 ipcMain.handle('config-load', () => loadConfig())
 ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
+
+// ── Wan2GP upstream version ──
+ipcMain.handle('get-wangp-local-version', () => getLocalWangpHead())
+
+ipcMain.handle('get-wangp-upstream-info', async () => {
+  try {
+    const body = await fetchUrl(`https://api.github.com/repos/${WAN2GP_UPSTREAM}/commits?per_page=5&sha=main`)
+    const data = JSON.parse(body)
+    if (!Array.isArray(data)) return { error: 'Invalid response' }
+    return {
+      commits: data.map(c => ({
+        hash: c.sha,
+        date: c.commit.author.date,
+        message: c.commit.message.split('\n')[0],
+        author: c.commit.author.name
+      }))
+    }
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('get-wangp-changelog', async () => {
+  for (const file of ['docs/CHANGELOG.md', 'README.md']) {
+    try {
+      const body = await fetchUrl(`https://raw.githubusercontent.com/${WAN2GP_UPSTREAM}/main/${file}`)
+      if (body && !body.includes('404:')) return body.substring(0, 5000)
+    } catch {}
+  }
+  return null
+})
 
 // ── Hardware detection ──
 ipcMain.handle('detect-hardware', () => {

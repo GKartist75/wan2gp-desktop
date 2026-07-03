@@ -87,6 +87,16 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.4 — 2026-07-03
+
+**Wan2GP upstream changelog viewer** — see latest commits and update status directly in desktop.
+
+- **Upstream commit feed** — latest 5 commits from deepbeepmeep/Wan2GP shown in dashboard card, fetched live from GitHub API.
+- **Update indicator** — green dot on "Update Wan2GP" button when local repo is behind upstream HEAD.
+- **Changelog link** — "Full changelog on GitHub →" opens upstream CHANGELOG.md in browser.
+- **Local commit display** — short hash shows which commit is currently checked out.
+- **GitHub API integration** — new IPC handlers fetch upstream commits and compare with local `git rev-parse HEAD`.
+
 ### v1.1.0 — 2026-07-02
 
 **Complete visual redesign** — warm monochrome editorial UI with light/dark mode toggle.
