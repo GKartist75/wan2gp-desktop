@@ -10,11 +10,11 @@ Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the vi
 
 ## Features
 
-- **Zero VRAM** — Electron uses 0 MB GPU memory via `app.disableHardwareAcceleration()`. All VRAM reserved for generation.
 - **One-click install** — clones Wan2GP, creates env, detects GPU, installs correct PyTorch/CUDA/ROCm + attention kernels automatically
 - **Environment choice** — pick `venv`, `uv` (faster), or `conda` before install
 - **Hardware-aware** — auto-detects GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the right wheels from Wan2GP's `setup_config.json`
 - **Real-time RAM/VRAM stats** — live memory display in Wan2GP UI, enabled by default
+- **Zero VRAM** — Electron uses 0 MB GPU memory via `app.disableHardwareAcceleration()`. All VRAM reserved for generation.
 - **Embedded viewer** — runs Wan2GP Gradio UI inside a webview tab in the desktop app
 - **External browser** — pick any installed browser (Chrome, Firefox, Edge, Brave, Opera, Vivaldi) with optional default preference
 - **Webview crash resilience** — auto-reloads on GPU crash, no more frozen screens
