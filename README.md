@@ -95,6 +95,16 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.6 — 2026-07-04
+
+**One folder for everything** — no more AppData roaming clutter, install paths simplified.
+
+- **Merged data dir + repo** — Wan2GP install location is one browse button. Repo lives at `Repo_Wan2GP/` inside it automatically. Removed separate repo path picker.
+- **Zero AppData roaming** — Electron runtime data (Cache, blob_storage, etc.) redirected into `.electron/` subfolder under chosen install location. Nothing left in `%APPDATA%`.
+- **Renamed "App data" → "Wan2GP install location"** — clearer label in installer and dashboard.
+- **Renamed `repo/` → `Repo_Wan2GP/`** — more descriptive subfolder name.
+- **Phase detection fix** — `emit()` now buffers lines before checking for phase markers. Fixes tasks stuck on "pending" when stdout chunks split across data events.
+
 ### v1.2.5 — 2026-07-03
 
 **Public repo** — auto-updater works without auth token now.

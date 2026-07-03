@@ -9,10 +9,33 @@ const { autoUpdater } = require('electron-updater')
 // Ponytail: software rendering = zero VRAM for Electron. GPU reserved for Python process.
 app.disableHardwareAcceleration()
 
-const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
-function getRepoDir() { const c = loadConfig(); return c.repoDir || path.join(DATA_DIR, 'repo') }
+const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
+
+// Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
+try {
+  if (fs.existsSync(DATA_DIR_OVERRIDE)) {
+    const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
+    if (d) {
+      const ed = path.join(d, '.electron')
+      fs.mkdirSync(ed, { recursive: true })
+      app.setPath('userData', ed)
+    }
+  }
+} catch {}
+
+function getDataDir() {
+  try {
+    if (fs.existsSync(DATA_DIR_OVERRIDE)) {
+      const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
+      if (d) return d
+    }
+  } catch {}
+  return path.join(app.getPath('userData'), 'Wan2GP')
+}
+
+function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
+function getRepoDir() { return path.join(getDataDir(), 'Repo_Wan2GP') }
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
-const CONFIG_FILE = path.join(DATA_DIR, 'desktop-config.json')
 
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
@@ -34,14 +57,14 @@ function send(ch, data) { mainWin?.webContents.send(ch, data) }
 
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_FILE)) return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+    if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch {}
   return { githubToken: '', defaultBrowser: '' }
 }
 
 function saveConfig(cfg) {
-  fs.mkdirSync(DATA_DIR, { recursive: true })
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2))
+  fs.mkdirSync(getDataDir(), { recursive: true })
+  fs.writeFileSync(getConfigFile(), JSON.stringify(cfg, null, 2))
 }
 
 // ── TCP port check ──
@@ -105,14 +128,19 @@ function runSetup(args) {
       cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
     })
     setupProc = proc
-    let buf = ''
+    let buf = '', lineBuf = ''
     const emit = (text) => {
       buf += text
       send('setup-output', text)
-      const profileMatch = text.match(/Hardware Profile:\s*(\S+)/)
-      if (profileMatch) send('setup-profile', profileMatch[1])
-      const phase = detectPhase(text)
-      if (phase) send('setup-phase', phase)
+      lineBuf += text
+      const lines = lineBuf.split('\n')
+      lineBuf = lines.pop()
+      for (const line of lines) {
+        const profileMatch = line.match(/Hardware Profile:\s*(\S+)/)
+        if (profileMatch) send('setup-profile', profileMatch[1])
+        const phase = detectPhase(line)
+        if (phase) send('setup-phase', phase)
+      }
     }
     proc.stdout.on('data', (d) => { const s = d.toString(); emit(s); process.stdout.write(s) })
     proc.stderr.on('data', (d) => { const s = d.toString(); emit(s); process.stderr.write(s) })
@@ -199,7 +227,7 @@ ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
-    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.mkdirSync(getDataDir(), { recursive: true })
     execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"`, {
       stdio: 'pipe', timeout: 120000, windowsHide: true
     })
@@ -407,10 +435,22 @@ ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
 
 // ── Install paths ──
 ipcMain.handle('get-install-paths', () => ({
-  appData: DATA_DIR,
+  appData: getDataDir(),
   repo: getRepoDir(),
-  config: CONFIG_FILE
+  config: getConfigFile()
 }))
+
+ipcMain.handle('get-data-dir', () => getDataDir())
+ipcMain.handle('set-data-dir', (_, dir) => {
+  fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
+  // Redirect Electron runtime cache to new location
+  try {
+    const ed = path.join(dir, '.electron')
+    fs.mkdirSync(ed, { recursive: true })
+    app.setPath('userData', ed)
+  } catch {}
+  return true
+})
 
 ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
   const configPath = path.join(getRepoDir(), 'wgp_config.json')

@@ -217,12 +217,10 @@ document.querySelectorAll('.env-type-btn').forEach(btn => {
 $('installStartBtn').addEventListener('click', startInstall)
 
 // ── Browse repo path ──
-$('browseRepoPath')?.addEventListener('click', async () => {
+$('browseAppDataPath')?.addEventListener('click', async () => {
   const folder = await window.w2gp.selectFolder()
   if (!folder) return
-  const cfg = await window.w2gp.configLoad()
-  cfg.repoDir = folder
-  await window.w2gp.configSave(cfg)
+  await window.w2gp.setDataDir(folder)
   loadPaths()
 })
 
@@ -374,9 +372,7 @@ async function loadPaths() {
   if (!p) return
   const set = (id, val) => { const e = $(id); if (e) e.textContent = val || '—' }
   set('pathAppData', p.appData)
-  set('pathRepo', p.repo)
   set('installAppDataPath', p.appData)
-  set('installRepoPath', p.repo)
   // Restore model paths from desktop config
   const cfg = await window.w2gp.configLoad()
   if (cfg.modelCkptsPath) setModelPath('ckpts', cfg.modelCkptsPath)
