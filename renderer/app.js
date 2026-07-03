@@ -409,13 +409,13 @@ $('launchBtn').addEventListener('click', doLaunch)
 $('cancelLaunchBtn').addEventListener('click',()=>{ launchCancelled=true; window.w2gp.stop(); show('dashboard') })
 $('updateBtn').addEventListener('click',async()=>{
   $('updateBtn').disabled=true; $('updateBtn').textContent='Working...'
-  try{ await window.w2gp.update(); refreshDashboard() }catch(e){ alert('Update: '+e.message) }
+  try{ await window.w2gp.update(); appendLog('[*] Wan2GP update complete'); refreshDashboard() }catch(e){ appendLog('[!] Update failed: '+e.message); alert('Update: '+e.message) }
   $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP'
 })
 document.querySelectorAll('.theme-toggle').forEach(btn => btn.addEventListener('click', toggleTheme))
 $('upgradeBtn').addEventListener('click',async()=>{
   openSettings(); $('settingsLog').textContent='Upgrade running (check Terminal for output)...\n'
-  try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) }
+  try{ await window.w2gp.upgrade(); appendLog('[*] Wan2GP upgrade complete'); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ appendLog('[!] Upgrade failed: '+e.message); log($('settingsLog'),'\n[!] '+e.message) }
 })
 $('refreshBtn').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
 $('refreshBtn2').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
