@@ -1,6 +1,6 @@
 # Wan2GP Desktop
 
-Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the video generation AI toolkit. Built with Electron + Vue 3 pattern (inspired by ComfyUI Desktop).
+Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the video generation AI toolkit. **Uses 0 MB VRAM — all GPU memory stays free for generation.**
 
 [![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)]()
@@ -10,16 +10,43 @@ Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the vi
 
 ## Features
 
-- **One-click install** — clones Wan2GP, creates env, detects GPU, installs correct PyTorch/CUDA/ROCm + attention kernels automatically
-- **Environment choice** — pick `venv`, `uv` (faster), or `conda` before install
-- **Hardware-aware** — auto-detects GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the right wheels from Wan2GP's `setup_config.json`
-- **Embedded viewer** — runs Wan2GP Gradio UI inside a webview tab in the desktop app
-- **External browser** — pick any installed browser (Chrome, Firefox, Edge, Brave, Opera, Vivaldi) with optional default preference
-- **Resizable terminal** — live log panel with auto-scroll follow, pause on manual scroll, drag-to-resize
-- **System info** — CPU, RAM, GPU, VRAM displayed on dashboard
-- **Package versions** — 14 core Python packages shown in the environment card
-- **Self-updating** — checks GitHub Releases for new desktop app versions, downloads and installs with one click
-- **Settings/Manage** — update Wan2GP, upgrade components, switch environments, manage git branches
+### 🎮 Zero VRAM Overhead
+Electron uses **0 MB of GPU memory**. `app.disableHardwareAcceleration()` forces CPU software rendering — every byte of VRAM goes to generating images and videos, not drawing the UI. No more webview GPU crashes either.
+
+### 🚀 One-Click Install
+Clones Wan2GP, creates a Python env (venv/uv/conda), detects your GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon), and installs the correct PyTorch, CUDA, and attention kernels — all automatically.
+
+### 📊 Live RAM/VRAM Stats
+Real-time memory usage displayed in the Wan2GP UI header — enabled by default so you always know where your VRAM stands.
+
+### 🖥️ Embedded Viewer + Browser Fallback
+Run Wan2GP's Gradio UI inside the desktop app, or launch it in any installed browser (Chrome, Firefox, Edge, Brave, Opera, Vivaldi) with a saved default preference. External browser never crashes — it has its own GPU process.
+
+### 🔁 Crash-Resilient
+- Webview crash auto-reloads (up to 3 tries)
+- Wan2GP server process auto-restarts on unexpected exit
+- Restart overlay with manual fallback instead of silent failure
+
+### 📦 Environment Management
+Switch between multiple Python environments, update Wan2GP (`git pull` + deps), upgrade PyTorch and attention kernels, or reinstall from scratch — all from the dashboard.
+
+### 📋 Model Folder Configuration
+Set custom checkpoints and LoRAs paths during install. Written to `wgp_config.json` so existing models are reused immediately.
+
+### 🔧 Configurable Install Path
+Choose where the Wan2GP repo lives on disk before installing — no more stuck-in-AppData checkpoints.
+
+### 🔄 Self-Updating
+Checks GitHub Releases for new versions on startup. One-click download and install. Works without a token now that the repo is public.
+
+### 📰 Upstream Changelog
+See the latest 5 Wan2GP commits from deepbeepmeep/Wan2GP in the dashboard — knows when you're behind and shows a green update dot.
+
+### 🖥️ Live Launch Progress
+Real-time progress bar, status messages, and elapsed timer during Wan2GP startup. No more staring at a blank screen wondering if it's working.
+
+### 📟 Resizable Terminal
+Live log panel with auto-scroll follow, pause-on-manual-scroll, and drag-to-resize. Present on dashboard, installer, and viewer.
 
 ## Screenshots
 
