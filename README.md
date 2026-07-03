@@ -87,6 +87,20 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.0 — 2026-07-03
+
+**Bugfix & hardening release** — 10 issues fixed across main, renderer, preload.
+
+- **Env dot fix** — environment list indicator was invisible (CSS class mismatch `env-list-dot` vs `env-dot`).
+- **Orphaned env dirs** — `manage-delete` now resolves relative env paths against repo dir before cleanup (was checking CWD).
+- **Listener leak** — `doLaunch()` registered a new `onLaunchLog` listener per launch without cleanup. Now cleaned in `finally`.
+- **Update banner dismiss** — race condition could leave update banner stuck after re-check.
+- **fetchUrl error handling** — rejects on non-2xx HTTP responses instead of silently parsing 404/403 bodies.
+- **uncaughtException handlers** — added process-level error handlers for crash resilience.
+- **URL validation** — `open-external` IPC validates URL format before opening.
+- **Dead code removed** — unused `#browserModal` DOM (~40 lines), `fs-extra` dependency (200KB), `nul` artifact.
+- **package.json** — trailing comma fix, fs-extra removed.
+
 ### v1.1.9 — 2026-07-03
 
 **Live launch progress** — real-time startup status with progress bar and timer.

@@ -342,7 +342,7 @@ async function refreshDashboard(){
   envs.forEach(e=>{
     const div=document.createElement('div')
     div.className='env-list-item'+(e.active?' active':'')
-    div.innerHTML=`<span class="env-list-dot"></span><span class="env-list-name">${e.name}</span><span style="font-size:0.65rem;color:#666;flex-shrink:0">${e.type}</span><button class="env-list-del" data-name="${e.name}">✕</button>`
+    div.innerHTML=`<span class="env-dot"></span><span class="env-list-name">${e.name}</span><span style="font-size:0.65rem;color:#666;flex-shrink:0">${e.type}</span><button class="env-list-del" data-name="${e.name}">✕</button>`
     if(!e.active) div.addEventListener('click',async()=>{ await window.w2gp.manageSetActive(e.name); refreshDashboard() })
     div.querySelector('.env-list-del').addEventListener('click',async(ev)=>{ ev.stopPropagation(); if(confirm(`Delete "${e.name}"?`)){ await window.w2gp.manageDelete(e.name); refreshDashboard() } })
     list.appendChild(div)
@@ -483,13 +483,10 @@ async function doLaunch(){
   startLaunchTimer()
 
   // Parse incoming launch logs for progress
-  let unsubLaunchLog = null
   const launchLogHandler = (text) => {
     if (text) updateLaunchProgress(text)
   }
-  // Hook into existing launch-log handler — appendLog already captures it
-  // We'll register a one-time listener via the raw IPC
-  window.w2gp.onLaunchLog(launchLogHandler)
+  let unsubLaunchLog = window.w2gp.onLaunchLog(launchLogHandler)
 
   try {
     const result = await window.w2gp.launch()
@@ -509,6 +506,8 @@ async function doLaunch(){
       log($('launchLog'),`\n[!] ${e.message}`); appendLog(`[LAUNCH ERROR] ${e.message}`)
       setTimeout(()=>show('dashboard'),3000)
     }
+  } finally {
+    unsubLaunchLog()
   }
 }
 
@@ -736,7 +735,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateProgress').classList.add('hidden')
       $('updateBanner').classList.remove('hidden')
       $('updateDismissBtn').classList.remove('hidden')
-      setTimeout(() => { if (updateState?.status !== 'available') $('updateBanner').classList.add('hidden') }, 3000)
+      setTimeout(() => $('updateBanner').classList.add('hidden'), 3000)
       break
     case 'downloading':
       $('updateText').textContent = 'Downloading...'

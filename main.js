@@ -80,6 +80,11 @@ function getLocalWangpHead() {
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'wan2gp-desktop' }, timeout: 10000 }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+        res.resume()
+        return
+      }
       let data = ''
       res.on('data', chunk => data += chunk)
       res.on('end', () => resolve(data))
@@ -323,8 +328,11 @@ ipcMain.handle('manage-set-active', (_, name) => {
 ipcMain.handle('manage-delete', async (_, name) => {
   const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
   const entry = d.envs[name]
-  if (entry?.path && fs.existsSync(entry.path) && entry.type !== 'none') {
-    execSync(IS_WIN ? `rmdir /s /q "${entry.path}"` : `rm -rf "${entry.path}"`, { stdio: 'pipe' })
+  if (entry?.path && entry.type !== 'none') {
+    const envPath = path.isAbsolute(entry.path) ? entry.path : path.join(getRepoDir(), entry.path)
+    if (fs.existsSync(envPath)) {
+      execSync(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+    }
   }
   delete d.envs[name]
   if (d.active === name) {
@@ -335,7 +343,11 @@ ipcMain.handle('manage-delete', async (_, name) => {
   return true
 })
 
-ipcMain.handle('open-external', (_, url) => shell.openExternal(url))
+ipcMain.handle('open-external', (_, url) => {
+  if (typeof url !== 'string' || !url.startsWith('http')) return
+  try { new URL(url) } catch { return }
+  shell.openExternal(url)
+})
 
 // ── Browser detection ──
 ipcMain.handle('detect-browsers', () => {
@@ -613,6 +625,9 @@ function createWindow() {
   mainWin.once('ready-to-show', () => mainWin.show())
   mainWin.on('closed', () => { mainWin = null })
 }
+
+process.on('uncaughtException', err => console.error('[FATAL]', err))
+process.on('unhandledRejection', reason => console.error('[FATAL] Unhandled Rejection:', reason))
 
 app.whenReady().then(() => {
   createWindow()
