@@ -87,6 +87,16 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.1.9 — 2026-07-03
+
+**Live launch progress** — real-time startup status with progress bar and timer.
+
+- **Progress bar** — fills as Python process reports milestones (loading models, starting server).
+- **Live status** — shows current step: "Initializing engine", "Loading models", "Starting server", "Ready".
+- **Elapsed timer** — counts up so user knows how long startup takes.
+- **First-run notice** — explains that initial model load + CUDA compilation is normal.
+- **Pattern parsing** — reads actual Python stdout to drive progress instead of fixed steps.
+
 ### v1.1.8 — 2026-07-03
 
 **Model folder configuration** — assign existing ckpts and LoRAs folders during install.

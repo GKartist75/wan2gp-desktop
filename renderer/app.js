@@ -424,24 +424,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Launch (desktop) ──
 let launchCancelled = false
+let launchStartTime = 0
+let launchTimerInterval = null
+
+function startLaunchTimer() {
+  launchStartTime = Date.now()
+  clearInterval(launchTimerInterval)
+  launchTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - launchStartTime) / 1000)
+    const el = $('launchTimer')
+    if (el) {
+      const min = Math.floor(elapsed / 60)
+      const sec = elapsed % 60
+      el.textContent = min > 0 ? `${min}m ${sec}s` : `${sec}s`
+    }
+  }, 1000)
+}
+
+function stopLaunchTimer() {
+  clearInterval(launchTimerInterval)
+}
+
+// Patterns in Python output that indicate progress during startup
+const LAUNCH_PATTERNS = [
+  { re: /WanGP v/i,                    label: 'Initializing Wan2GP engine...',          pct: 10 },
+  { re: /Loading.*model|loading model/i, label: 'Loading AI models...',                 pct: 30 },
+  { re: /Running on local|Uvicorn running|gradio.*start|server.*start|started on/i, label: 'Starting Gradio web server...', pct: 70 },
+  { re: /Wan2GP is ready|gradio.*ready/i, label: 'Wan2GP is ready!',                   pct: 100 },
+]
+
+function updateLaunchProgress(text) {
+  for (const p of LAUNCH_PATTERNS) {
+    if (p.re.test(text)) {
+      $('launchStatusText').textContent = p.label
+      $('launchStepLabel').textContent = p.label
+      const fill = $('launchStatusFill')
+      if (fill && fill.style.width !== '100%') {
+        fill.style.width = Math.max(parseInt(fill.style.width) || 0, p.pct) + '%'
+      }
+      // Hide first-run notice once we're past model loading
+      if (p.pct >= 70) {
+        const notice = $('launchFirstRunNotice')
+        if (notice) notice.style.display = 'none'
+      }
+      return true
+    }
+  }
+  return false
+}
+
 async function doLaunch(){
-  launchCancelled = false; show('launching'); $('launchLog').textContent=''
-  const s1=$('launchStep1'),s2=$('launchStep2'),s3=$('launchStep3')
-  ;[s1,s2,s3].forEach(s=>{ s.className='launch-step'; s.querySelector('.step-icon').textContent='○' })
-  s1.className='launch-step active'; s1.querySelector('.step-icon').textContent='◌'
+  launchCancelled = false; show('launching')
+  $('launchLog').textContent=''
+  $('launchStatusText').textContent = 'Starting Python process...'
+  $('launchStepLabel').textContent = 'Starting...'
+  $('launchStatusFill').style.width = '0%'
+  $('launchFirstRunNotice').style.display = 'flex'
+  startLaunchTimer()
+
+  // Parse incoming launch logs for progress
+  let unsubLaunchLog = null
+  const launchLogHandler = (text) => {
+    if (text) updateLaunchProgress(text)
+  }
+  // Hook into existing launch-log handler — appendLog already captures it
+  // We'll register a one-time listener via the raw IPC
+  window.w2gp.onLaunchLog(launchLogHandler)
+
   try {
     const result = await window.w2gp.launch()
-    if(launchCancelled){ await window.w2gp.stop(); show('dashboard'); return }
-    s1.className='launch-step done'; s1.querySelector('.step-icon').textContent='✓'
-    s2.className='launch-step done'; s2.querySelector('.step-icon').textContent='✓'
-    s3.className='launch-step active'; s3.querySelector('.step-icon').textContent='◌'
+    if(launchCancelled){ await window.w2gp.stop(); show('dashboard'); stopLaunchTimer(); return }
+    $('launchStatusText').textContent = 'Wan2GP is ready!'
+    $('launchStepLabel').textContent = 'Ready'
+    $('launchStatusFill').style.width = '100%'
+    stopLaunchTimer()
     currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; try{ wv.setZoomFactor(0.5) }catch(e){}
     window.w2gp.setViewerActive(true)
-    s3.className='launch-step done'; s3.querySelector('.step-icon').textContent='✓'
     toggleTerm('viewerTermPanel','viewerFollowBtn')
   } catch(e){
+    stopLaunchTimer()
     if(!launchCancelled){
-      s1.className='launch-step done'; s1.querySelector('.step-icon').textContent='✕'
+      $('launchStatusText').textContent = 'Launch failed'
+      $('launchStatusFill').style.width = '0%'
       log($('launchLog'),`\n[!] ${e.message}`); appendLog(`[LAUNCH ERROR] ${e.message}`)
       setTimeout(()=>show('dashboard'),3000)
     }

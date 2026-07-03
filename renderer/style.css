@@ -568,6 +568,29 @@ body {
 .update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--signal-green); flex-shrink: 0; margin-left: 2px; }
 .action-item.has-update { border-color: var(--signal-green); }
 
+/* ── Launch Status ── */
+.launch-status { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; text-align: center; }
+.launch-status-bar {
+  width: 100%; height: 4px; background: var(--border); border-radius: 2px;
+  margin-bottom: 8px; overflow: hidden;
+}
+.launch-status-fill {
+  height: 100%; width: 0%; background: var(--accent); border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.launch-step-detail {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.625rem; color: var(--text-secondary); margin-bottom: 8px;
+}
+.launch-timer { font-family: 'Geist Mono', monospace; color: var(--text-tertiary); }
+.launch-firstrun-notice {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 8px 10px; margin-bottom: 6px;
+  background: var(--signal-yellow-bg); border-radius: var(--radius-sm);
+  font-size: 0.625rem; color: var(--signal-yellow); line-height: 1.4;
+}
+.launch-firstrun-notice svg { margin-top: 1px; }
+
 /* ── Model Folder Picker ── */
 .model-folders { margin-top: 0; }
 .path-hint { font-size: 0.5625rem; color: var(--text-tertiary); margin: -2px 0 6px 0; line-height: 1.3; padding-left: 2px; }

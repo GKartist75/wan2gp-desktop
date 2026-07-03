@@ -70,7 +70,7 @@
       <div class="topbar-left">
         <div class="brand-mark-small">GK<span> Artist</span></div>
         <span class="app-title">Wan2GP Desktop</span>
-        <span class="app-version">v1.1.8</span>
+        <span class="app-version">v1.1.9</span>
       </div>
       <div class="topbar-spacer"></div>
       <div class="topbar-right">
@@ -350,10 +350,17 @@
     <div class="launch-card">
       <div class="brand-mark-small">GK<span> Artist</span></div>
       <h2>Starting Wan2GP</h2>
-      <div class="launch-progress">
-        <div class="launch-step" id="launchStep1"><span class="step-icon">&#9675;</span> Starting Python process...</div>
-        <div class="launch-step" id="launchStep2"><span class="step-icon">&#9675;</span> Waiting for Gradio server...</div>
-        <div class="launch-step" id="launchStep3"><span class="step-icon">&#9675;</span> Loading Wan2GP interface...</div>
+      <p class="launch-status" id="launchStatusText">Starting Python process...</p>
+      <div class="launch-status-bar" id="launchStatusBar">
+        <div class="launch-status-fill" id="launchStatusFill"></div>
+      </div>
+      <div class="launch-step-detail" id="launchStepDetail">
+        <span id="launchStepLabel">Starting...</span>
+        <span class="launch-timer" id="launchTimer">0s</span>
+      </div>
+      <div class="launch-firstrun-notice" id="launchFirstRunNotice">
+        <svg viewBox="0 0 24 24" width="14" height="14" style="flex-shrink:0"><circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="1.5"/><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="currentColor"/></svg>
+        <span>First launch loads models + compiles CUDA kernels — this is normal. Subsequent starts are faster.</span>
       </div>
       <div class="log" id="launchLog"></div>
       <button class="btn btn-ghost" id="cancelLaunchBtn" style="margin-top:12px">Cancel</button>
