@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   getWangpLocalVersion: () => ipcRenderer.invoke('get-wangp-local-version'),
   getWangpUpstreamInfo: () => ipcRenderer.invoke('get-wangp-upstream-info'),
   getWangpChangelog: () => ipcRenderer.invoke('get-wangp-changelog'),
+  getWangpVersion: () => ipcRenderer.invoke('get-wangp-version'),
 
   // Events
   onSetupOutput: (cb) => {

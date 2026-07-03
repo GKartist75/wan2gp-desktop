@@ -547,7 +547,8 @@ body {
 .cl-date { flex-shrink: 0; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; min-width: 50px; font-size: 0.5625rem; }
 .cl-msg { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cl-author { flex-shrink: 0; color: var(--text-tertiary); font-size: 0.5625rem; display: none; }
-.local-commit { font-family: 'Geist Mono', monospace; font-size: 0.5rem; color: var(--text-tertiary); }
+.local-commit { font-family: 'Geist Mono', monospace; font-size: 0.5rem; color: var(--text-tertiary); display: flex; align-items: center; gap: 3px; }
+#wangpVersion { color: var(--text-secondary); font-weight: 600; }
 .changelog-footer { padding: 4px 8px; border-top: 1px solid var(--border); text-align: right; }
 .changelog-link { font-size: 0.5625rem; color: var(--text-secondary); text-decoration: none; cursor: pointer; }
 .changelog-link:hover { color: var(--text-primary); text-decoration: underline; }

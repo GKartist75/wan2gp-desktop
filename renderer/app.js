@@ -239,10 +239,13 @@ async function refreshDashboard(){
 async function loadWangpChangelog() {
   const localEl = $('localCommit')
   const listEl = $('updatesList')
+  const verEl = $('wangpVersion')
   if (!listEl) return
 
   const local = await window.w2gp.getWangpLocalVersion()
   if (local && localEl) localEl.textContent = local.hash.substring(0, 7)
+
+  window.w2gp.getWangpVersion().then(v => { if (v && verEl) verEl.textContent = v })
 
   const upstream = await window.w2gp.getWangpUpstreamInfo()
   if (!upstream || !upstream.commits) {

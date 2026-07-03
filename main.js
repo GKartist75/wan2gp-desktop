@@ -409,6 +409,15 @@ ipcMain.handle('get-wangp-changelog', async () => {
   return null
 })
 
+ipcMain.handle('get-wangp-version', async () => {
+  try {
+    const body = await fetchUrl(`https://raw.githubusercontent.com/${WAN2GP_UPSTREAM}/main/README.md`)
+    if (!body) return null
+    const m = body.match(/WanGP\s+v?(\d+\.\d+(?:\.\d+)?)/i)
+    return m ? m[1] : null
+  } catch { return null }
+})
+
 // ── Hardware detection ──
 ipcMain.handle('detect-hardware', () => {
   const info = { cpu: '—', ram: '—', gpu: '—', vram: '—' }
