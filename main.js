@@ -440,35 +440,35 @@ ipcMain.handle('detect-hardware', () => {
           if (val && !isNaN(Number(val))) info.ram = Number(val) + ' GB'
         } catch {}
       }
+      // Try nvidia-smi first (most accurate for NVIDIA GPUs)
       try {
-        const gpuOut = execSync(`powershell -Command "Get-CimInstance Win32_VideoController | Where-Object {$_.AdapterRAM -ne $null} | ForEach-Object {$_.Name + '|' + $_.AdapterRAM}"`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
-        const lines = gpuOut.split('\n').map(l => l.trim()).filter(l => l)
-        const gpuList = []
-        const vramList = []
-        for (const line of lines) {
-          const [name, vramStr] = line.split('|')
-          if (name && name.trim()) {
-            gpuList.push(name.trim())
-            const vramBytes = parseInt(vramStr?.trim())
-            if (!isNaN(vramBytes)) {
-              vramList.push((vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB')
-            } else {
-              vramList.push('')
+        const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
+        const [nvName, memStr] = nvOut.trim().split(', ')
+        if (nvName) info.gpu = nvName
+        if (memStr) {
+          const mem = parseFloat(memStr)
+          info.vram = mem >= 1024 ? Math.round(mem / 1024) + ' GB' : Math.round(mem) + ' MB'
+        }
+      } catch {
+        // Fallback to WMI for non-NVIDIA GPUs
+        try {
+          const gpuOut = execSync(`powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ForEach-Object {$_.Name + '|' + ($_.AdapterRAM -or '0')}"`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+          const lines = gpuOut.split('\n').map(l => l.trim()).filter(l => l)
+          const gpuList = []
+          const vramList = []
+          for (const line of lines) {
+            const [name, vramStr] = line.split('|')
+            if (name && name.trim() && name !== 'Name') {
+              gpuList.push(name.trim())
+              const vramBytes = parseInt(vramStr?.trim())
+              if (!isNaN(vramBytes) && vramBytes > 0) {
+                vramList.push((vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB')
+              }
             }
           }
-        }
-        info.gpu = gpuList.length > 0 ? gpuList.join(' + ') : '—'
-        info.vram = vramList.length > 0 ? vramList.join(' + ') : '—'
-      } catch {}
-      if (info.gpu === '—') {
-        try {
-          const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
-          const [nvName, memStr] = nvOut.trim().split(', ')
-          if (nvName) info.gpu = nvName
-          if (memStr) {
-            const mem = parseFloat(memStr)
-            info.vram = Math.round(mem) + ' MB'
-            if (mem >= 1024) info.vram = Math.round(mem / 1024) + ' GB'
+          if (gpuList.length > 0) {
+            info.gpu = gpuList.join(' + ')
+            if (vramList.length > 0) info.vram = vramList.join(' + ')
           }
         } catch {}
       }

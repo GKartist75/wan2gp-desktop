@@ -185,10 +185,9 @@ body {
 .env-detail { margin-top: 10px; }
 .env-detail .spec-row { font-size: 0.625rem; padding: 4px 6px; gap: 4px; }
 .spec-dot {
-  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
-  background: var(--text-tertiary);
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: none;
 }
-.spec-dot.installed { background: var(--signal-green); }
+.spec-dot.installed { display: inline-block; background: #4ADE80; }
 .env-name-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .env-name { font-size: 0.8125rem; font-weight: 500; }
 .env-type-tag {
