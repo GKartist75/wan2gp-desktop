@@ -27,5 +27,4 @@ publish:
   provider: github
   owner: GKartist75
   repo: wan2gp-desktop
-  private: true
 artifactName: Wan2GP-Desktop-${version}-${os}-${arch}.${ext}

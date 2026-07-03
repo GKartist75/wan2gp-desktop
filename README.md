@@ -87,6 +87,15 @@ wan2gp-desktop/
 
 ## Changelog
 
+### v1.2.5 — 2026-07-03
+
+**Public repo** — auto-updater works without auth token now.
+
+- Removed `private: true` from publish config and `setFeedURL` calls.
+- Token is now optional (avoids rate limits, not required for auth).
+- Error message updated from "Private repo" to "GitHub rate limited".
+- Settings label/hint updated to reflect public repo.
+
 ### v1.2.4 — 2026-07-03
 
 **Real-time RAM/VRAM stats enabled by default** — Wan2GP now shows live memory stats out of the box.

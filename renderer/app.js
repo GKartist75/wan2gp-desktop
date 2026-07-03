@@ -775,9 +775,9 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateDismissBtn').classList.remove('hidden')
       break
     case 'error':
-      // Private repo = auth error. Show help text.
+      // Auth/rate-limit error. Suggest token.
       $('updateText').textContent = status.message.includes('401') || status.message.includes('403') || status.message.includes('authentication')
-        ? 'Private repo — need GitHub token in Manage settings'
+        ? 'GitHub rate limited — add token in Manage settings'
         : `Update error: ${status.message}`
       $('updateDownloadBtn').classList.add('hidden')
       $('updateInstallBtn').classList.add('hidden')

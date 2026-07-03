@@ -599,11 +599,14 @@ ipcMain.handle('check-update', async () => {
       provider: 'github',
       owner: 'GKartist75',
       repo: 'wan2gp-desktop',
-      token: cfg.githubToken,
-      private: true
+      token: cfg.githubToken
     })
   } else {
-    console.log('[DEBUG] No GitHub token in config')
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'GKartist75',
+      repo: 'wan2gp-desktop'
+    })
   }
   try { autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
@@ -645,8 +648,7 @@ app.whenReady().then(() => {
           provider: 'github',
           owner: 'GKartist75',
           repo: 'wan2gp-desktop',
-          token: cfg.githubToken,
-          private: true
+          token: cfg.githubToken
         })
       }
       autoUpdater.checkForUpdates()
