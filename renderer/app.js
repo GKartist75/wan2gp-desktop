@@ -82,6 +82,7 @@ async function toggleTheme() {
 }
 
 let currentUrl = null
+let prevPhaseId = null
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
@@ -95,8 +96,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.w2gp.onSetupOutput(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c){ log($('installLog'),c); log($('settingsLog'),c) } })
   window.w2gp.onLaunchLog(t => { const c=t.replace(/\x1b[[0-9;]*m/g,''); if(c.trim()) log($('launchLog'),c) })
   window.w2gp.onSetupPhase(p => {
-    if (p.done) taskComplete(p.id)
-    else taskStart(p.id)
+    if (p.done) {
+      if (prevPhaseId && prevPhaseId !== p.id) taskComplete(prevPhaseId)
+      taskComplete(p.id)
+      prevPhaseId = null
+    } else {
+      if (prevPhaseId && prevPhaseId !== p.id) taskComplete(prevPhaseId)
+      taskStart(p.id)
+      prevPhaseId = p.id
+    }
   })
   window.w2gp.onSetupProfile(p => { $('installProfile').textContent=p; $('installProfileRow').style.display='flex' })
   window.w2gp.onWangpExit(c => { if($('viewer').classList.contains('active')){ show('dashboard'); refreshDashboard() } })
@@ -169,7 +177,7 @@ async function startInstall(){
       await window.w2gp.reinstall()
     }
   }
-  if(installed.repo) taskComplete('clone'); else taskStart('clone')
+  if(installed.repo) { taskComplete('clone'); prevPhaseId = 'clone' } else { taskStart('clone'); prevPhaseId = 'clone' }
   try {
     await window.w2gp.install(selectedEnvType)
     try {
