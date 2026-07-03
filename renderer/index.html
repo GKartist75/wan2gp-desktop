@@ -124,6 +124,15 @@
         </div>
         <div class="card">
           <div class="card-header">
+            <span class="card-title">Paths</span>
+          </div>
+          <div class="paths-grid">
+            <div class="spec-row"><span class="spec-label">App data</span><span class="spec-value path-val" id="pathAppData">—</span></div>
+            <div class="spec-row"><span class="spec-label">Wan2GP repo</span><span class="spec-value path-val" id="pathRepo">—</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
             <span class="card-title">Active Environment</span>
             <span class="env-type-tag" id="envType"></span>
           </div>
@@ -265,6 +274,19 @@
           <button class="env-type-btn selected" data-env="venv">venv <span class="env-type-desc">(bundled with Python)</span></button>
           <button class="env-type-btn" data-env="uv">uv <span class="env-type-desc">(faster, requires install)</span></button>
           <button class="env-type-btn" data-env="conda">conda <span class="env-type-desc">(Anaconda/Miniconda)</span></button>
+        </div>
+      </div>
+
+      <!-- Install Paths -->
+      <div class="install-paths">
+        <div class="install-path-row">
+          <span class="ipath-label">App data:</span>
+          <span class="ipath-val" id="installAppDataPath">—</span>
+        </div>
+        <div class="install-path-row">
+          <span class="ipath-label">Wan2GP repo:</span>
+          <span class="ipath-val" id="installRepoPath">—</span>
+          <button class="btn btn-ghost small" id="browseRepoPath">Browse</button>
         </div>
       </div>
 

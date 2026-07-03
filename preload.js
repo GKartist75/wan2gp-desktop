@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('w2gp', {
     return () => ipcRenderer.removeListener('update-status', h)
   },
 
+  // Paths
+  getInstallPaths: () => ipcRenderer.invoke('get-install-paths'),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
+
   // Config
   configLoad: () => ipcRenderer.invoke('config-load'),
   configSave: (cfg) => ipcRenderer.invoke('config-save', cfg),

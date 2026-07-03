@@ -547,6 +547,20 @@ body {
 .cl-msg { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cl-author { flex-shrink: 0; color: var(--text-tertiary); font-size: 0.5625rem; display: none; }
 .local-commit { font-family: 'Geist Mono', monospace; font-size: 0.5rem; color: var(--text-tertiary); display: flex; align-items: center; gap: 3px; }
+
+/* ── Install Paths ── */
+.install-paths {
+  background: var(--canvas); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 14px; margin-bottom: 8px; text-align: left;
+}
+.install-path-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.6875rem; }
+.install-path-row:last-child { margin-bottom: 0; }
+.ipath-label { color: var(--text-secondary); flex-shrink: 0; }
+.ipath-val { color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono', monospace; font-size: 0.625rem; }
+
+/* ── Dashboard Paths Card ── */
+.paths-grid { display: flex; flex-direction: column; gap: 3px; }
+.path-val { font-size: 0.625rem; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 #wangpVersion { color: var(--text-secondary); font-weight: 600; }
 .changelog-footer { padding: 4px 8px; border-top: 1px solid var(--border); text-align: right; }
 .changelog-link { font-size: 0.5625rem; color: var(--text-secondary); text-decoration: none; cursor: pointer; }

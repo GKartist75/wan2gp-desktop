@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const hw = await window.w2gp.detectHardware()
     $('installCpu').textContent=hw.cpu||'—'; $('installRam').textContent=hw.ram||'—'
     $('installGpu').textContent=hw.gpu||'—'; $('installVram').textContent=hw.vram||'—'
+    loadPaths()
     // Show installer with env selector, wait for user to press Install
     show('installer')
     $('installSubtitle').textContent = 'Select environment type, then click Install'
@@ -159,6 +160,16 @@ document.querySelectorAll('.env-type-btn').forEach(btn => {
 })
 
 $('installStartBtn').addEventListener('click', startInstall)
+
+// ── Browse repo path ──
+$('browseRepoPath')?.addEventListener('click', async () => {
+  const folder = await window.w2gp.selectFolder()
+  if (!folder) return
+  const cfg = await window.w2gp.configLoad()
+  cfg.repoDir = folder
+  await window.w2gp.configSave(cfg)
+  loadPaths()
+})
 
 async function startInstall(){
   show('installer'); $('installLog').textContent=''; resetTasks()
@@ -242,6 +253,17 @@ async function refreshDashboard(){
     list.appendChild(div)
   })
   loadWangpChangelog()
+  loadPaths()
+}
+
+async function loadPaths() {
+  const p = await window.w2gp.getInstallPaths()
+  if (!p) return
+  const set = (id, val) => { const e = $(id); if (e) e.textContent = val || '—' }
+  set('pathAppData', p.appData)
+  set('pathRepo', p.repo)
+  set('installAppDataPath', p.appData)
+  set('installRepoPath', p.repo)
 }
 
 async function loadWangpChangelog() {

@@ -7,9 +7,10 @@ const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
 const DATA_DIR = path.join(app.getPath('userData'), 'Wan2GP')
-const REPO_DIR = path.join(DATA_DIR, 'repo')
-const ENVS_FILE = path.join(REPO_DIR, 'envs.json')
+function getRepoDir() { const c = loadConfig(); return c.repoDir || path.join(DATA_DIR, 'repo') }
+function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
 const CONFIG_FILE = path.join(DATA_DIR, 'desktop-config.json')
+
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
@@ -63,11 +64,11 @@ function waitForPort(host, port, timeoutMs = 180000) {
 const WAN2GP_UPSTREAM = 'deepbeepmeep/Wan2GP'
 
 function getLocalWangpHead() {
-  if (!fs.existsSync(path.join(REPO_DIR, '.git'))) return null
+  if (!fs.existsSync(path.join(getRepoDir(), '.git'))) return null
   try {
-    const hash = execSync('git rev-parse HEAD', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
-    const date = execSync('git log -1 --format=%cI', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
-    const msg = execSync('git log -1 --format=%s', { cwd: REPO_DIR, encoding: 'utf8', timeout: 5000 }).trim()
+    const hash = execSync('git rev-parse HEAD', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
+    const date = execSync('git log -1 --format=%cI', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
+    const msg = execSync('git log -1 --format=%s', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
     return { hash, date, message: msg }
   } catch { return null }
 }
@@ -89,7 +90,7 @@ function runSetup(args) {
   return new Promise((resolve, reject) => {
     const py = sysPython()
     const proc = spawn(py, ['setup.py', ...args], {
-      cwd: REPO_DIR, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
+      cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
     })
     setupProc = proc
     let buf = ''
@@ -129,8 +130,8 @@ function detectPhase(line) {
 
 function getActiveEnv() {
   try {
-    if (!fs.existsSync(ENVS_FILE)) return null
-    const data = JSON.parse(fs.readFileSync(ENVS_FILE, 'utf8'))
+    if (!fs.existsSync(getEnvsFile())) return null
+    const data = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
     const active = data.active
     if (!active || !data.envs[active]) return null
     return { name: active, ...data.envs[active] }
@@ -139,8 +140,8 @@ function getActiveEnv() {
 
 function getPythonForEnv(env) {
   if (!env || !env.path) return null
-  // Resolve relative paths against REPO_DIR
-  const envPath = path.isAbsolute(env.path) ? env.path : path.join(REPO_DIR, env.path)
+  // Resolve relative paths against getRepoDir()
+  const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
   if (env.type === 'none') return sysPython()
   return IS_WIN
     ? path.join(envPath, 'Scripts', 'python.exe')
@@ -150,7 +151,7 @@ function getPythonForEnv(env) {
 // ── IPC ──
 
 ipcMain.handle('check-installed', () => ({
-  repo: fs.existsSync(path.join(REPO_DIR, 'wgp.py')),
+  repo: fs.existsSync(path.join(getRepoDir(), 'wgp.py')),
   env: getActiveEnv() !== null
 }))
 
@@ -184,10 +185,10 @@ print(f'{v}||{n}')
 
 ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
-  if (!fs.existsSync(path.join(REPO_DIR, 'wgp.py'))) {
+  if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     fs.mkdirSync(DATA_DIR, { recursive: true })
-    execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${REPO_DIR}"`, {
+    execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"`, {
       stdio: 'pipe', timeout: 120000, windowsHide: true
     })
     send('setup-output', '[*] Repository cloned.\n')
@@ -202,7 +203,7 @@ ipcMain.handle('install', async (_, envType) => {
     const envData = getActiveEnv()
     if (envData) {
       const py = getPythonForEnv(envData)
-      if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: REPO_DIR, windowsHide: true })
+      if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: getRepoDir(), windowsHide: true })
     }
   } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
   return true
@@ -212,8 +213,8 @@ ipcMain.handle('reinstall', async () => {
   // Remove repo and envs so fresh install runs clean
   send('setup-output', '[*] Removing existing installation...\n')
   const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
-  try { execSync(`${rmCmd} "${REPO_DIR}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
-  try { execSync(`${rmCmd} "${ENVS_FILE}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
+  try { execSync(`${rmCmd} "${getRepoDir()}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
+  try { execSync(`${rmCmd} "${getEnvsFile()}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
   send('setup-output', '[*] Ready for fresh install.\n')
   return true
 })
@@ -239,7 +240,7 @@ for p in pkgs:
         else: r.append(f'{p}={importlib.metadata.version(p)}')
     except: pass
 print('||'.join(r))
-"`, { encoding: 'utf8', timeout: 30000, cwd: REPO_DIR }).trim()
+"`, { encoding: 'utf8', timeout: 30000, cwd: getRepoDir() }).trim()
     const parts = out.split('||')
     const versions = {}
     parts.forEach(p => { const [k, v] = p.split('='); versions[k] = v })
@@ -260,7 +261,7 @@ ipcMain.handle('launch', async () => {
   send('launch-log', `[*] Port: ${port}\n`)
 
   wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
-    cwd: REPO_DIR,
+    cwd: getRepoDir(),
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
     windowsHide: true
@@ -297,21 +298,21 @@ ipcMain.handle('upgrade', async () => await runSetup(['upgrade']))
 
 ipcMain.handle('manage-list', () => {
   try {
-    if (!fs.existsSync(ENVS_FILE)) return []
-    const d = JSON.parse(fs.readFileSync(ENVS_FILE, 'utf8'))
+    if (!fs.existsSync(getEnvsFile())) return []
+    const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
     return Object.entries(d.envs).map(([name, info]) => ({ name, ...info, active: name === d.active }))
   } catch { return [] }
 })
 
 ipcMain.handle('manage-set-active', (_, name) => {
-  const d = JSON.parse(fs.readFileSync(ENVS_FILE, 'utf8'))
+  const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
   d.active = name
-  fs.writeFileSync(ENVS_FILE, JSON.stringify(d, null, 4))
+  fs.writeFileSync(getEnvsFile(), JSON.stringify(d, null, 4))
   return true
 })
 
 ipcMain.handle('manage-delete', async (_, name) => {
-  const d = JSON.parse(fs.readFileSync(ENVS_FILE, 'utf8'))
+  const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
   const entry = d.envs[name]
   if (entry?.path && fs.existsSync(entry.path) && entry.type !== 'none') {
     execSync(IS_WIN ? `rmdir /s /q "${entry.path}"` : `rm -rf "${entry.path}"`, { stdio: 'pipe' })
@@ -321,7 +322,7 @@ ipcMain.handle('manage-delete', async (_, name) => {
     const keys = Object.keys(d.envs)
     d.active = keys.length > 0 ? keys[0] : null
   }
-  fs.writeFileSync(ENVS_FILE, JSON.stringify(d, null, 4))
+  fs.writeFileSync(getEnvsFile(), JSON.stringify(d, null, 4))
   return true
 })
 
@@ -379,6 +380,19 @@ ipcMain.handle('open-in-browser', (_, { url, browserPath }) => {
 // ── Desktop config (token, browser preference) ──
 ipcMain.handle('config-load', () => loadConfig())
 ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
+
+// ── Install paths ──
+ipcMain.handle('get-install-paths', () => ({
+  appData: DATA_DIR,
+  repo: getRepoDir(),
+  config: CONFIG_FILE
+}))
+
+ipcMain.handle('select-folder', async () => {
+  const { dialog } = require('electron')
+  const result = await dialog.showOpenDialog(mainWin, { properties: ['openDirectory'] })
+  return result.canceled ? null : result.filePaths[0]
+})
 
 // ── Wan2GP upstream version ──
 ipcMain.handle('get-wangp-local-version', () => getLocalWangpHead())
