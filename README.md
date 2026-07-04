@@ -298,105 +298,50 @@ Initial release.
 - Environment list with activation, deletion
 - GitHub token configuration
 
-## Development History
+## Changelog
 
-This project was built across two development sessions. Here's the full timeline from initial prototype to v1.0.0.
+### v1.2.7 — 2026-07-04
 
-### Session 1 — Initial Prototype
+#### Issues Solved
+- **Preview close freeze** — execSync Python spawn blocked main process for 1-2s. Fixed: replaced with async exec() wrapped in Promise. Main process stays responsive during metadata loading
+- **Async callback race condition** — After user closed preview, late IPC responses set img.src to 13MB data URL, freezing Chromium render thread. Fixed: _previewAlive flag drops all stale callbacks after close
+- **Massive data URLs** — data: URLs embedded entire file as base64 inline (13MB), causing synchronous parsing freeze. Fixed: switched to URL.createObjectURL(blob) for both images and videos
+- **Unbounded thumbnail memory leak** — thumbCache stored full data: URLs for every file. 50+ AI images = 250-500MB permanently retained. Fixed: LRU cache capped at 20 entries, blob URLs instead of data URLs, evicted entries properly revoked
+- **h265 video / WebSocket crashes** — app.disableHardwareAcceleration() disabled GPU decode and caused connection drops. Fixed: removed the flag
+- **Thumbnail load storm** — 200 concurrent fs.readFileSync IPC calls on each sidebar refresh froze main process. Fixed: throttled to 5 at a time, 100ms apart
+- **Sidebar auto-poll** — setInterval(refreshSidebar, 3000) caused 3s flash and 200x IPC flood. Fixed: removed auto-poll entirely, replaced with fs.watch + manual Reload button
+- **dragover getData() blocked** — Security spec returns empty string during dragover. Fixed: use e.dataTransfer.types array instead
 
-**Goal:** Create a desktop version of Wan2GP using the same installer pattern as ComfyUI Desktop (Electron + Vue 3 architecture).
+#### Installer Improved
+- NSIS Welcome page shows app description, no license/agreement page
+- Layout redesigned: tasks in left column, terminal always visible on right
+- Install button white text fix
+- Reinstall choice UI with three buttons instead of raw confirm()
+- autoDownload enabled — updates auto-download in background
+- Shift+click for local update testing
+- Uninstall Wan2GP with native dialogs for backup + keep/delete prompts, cancel at any step
+- Uninstall Environment removes venv only, keeps repo/data
 
-**Exploration & Architecture**
-- Explored both [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) and [ComfyUI Desktop](https://github.com/Comfy-Org/Comfy-Desktop) repositories to understand their architecture
-- Wan2GP's `setup.py` handles all GPU detection and hardware-specific wheel selection (NVIDIA CUDA 12.8/13.0, AMD ROCm, Apple Silicon MPS)
-- ComfyUI Desktop uses Electron + Vue 3 with a structured installer task list
-- Decision: **delegate all hardware detection to Wan2GP's setup.py** — the desktop app runs `python setup.py install --env venv --auto` and displays progress
+#### Dashboard Improved
+- Desktop App info card with version, commit hash, repo link
+- Model Folders card with checkpoint + LoRA paths and edit buttons
+- Clearer button labels: Launch Wan2GP in Desktop, Launch Wan2GP in Browser, Check Desktop Updates
+- Removed redundant Refresh from Environments card
+- Check Updates moved to center action grid
+- Desktop App card restyled to match Wan2GP Updates format
+- Dark theme default with white-flash prevention
 
-**Initial Electron Wrapper**
-- Created `w2gp-desktop/` with Electron main process, preload IPC bridge, and 5-screen renderer UI
-- Screens: splash, dashboard (env card + actions), installer (task list), viewer (webview), settings
-- Implemented IPC handlers for: install, launch, stop, update, upgrade, manage environments
-- Environment management via `envs.json` (written by setup.py) — tracks active env, type, path
-- Windows NSIS installer via electron-builder (first build: 90MB)
-
-**Launch Timeout Bug**
-- Original launch used `http.get` to detect Gradio server — timed out because TCP port opens before HTTP is ready
-- Fix: replaced with `net.connect` TCP port check, increased timeout to 3 minutes, added process death detection, live launch log, and cancel button
-
-**Browser Launch Fix**
-- "Launch in Browser" button was broken after an update
-- Fix: separated from desktop launch flow into its own handler, uses `shell.openExternal`, reuses `currentUrl` if already running
-
-**Terminal UI (split turn)**
-- Three terminal panels added: dashboard bottom dock, installer tab toggle (Tasks / Terminal), viewer overlay
-- Global log buffer (`logBuffer` array, 5000 line cap) — all `setup-output` and `launch-log` events feed in
-- All three terminal bodies render from the same buffer
-- Dark monospace styling with scrollable body, header, clear button
-
-### Session 2 — Polish & Features (9 commits)
-
-**Terminal Enhancements**
-- Resize handle — drag the blue bar to resize terminal (80px min, 70vh max)
-- Follow mode — auto-scrolls to bottom by default, pauses when user scrolls up, re-enables with ▼ Follow button
-- Works on both dashboard and viewer terminals independently
-
-**System Hardware Card**
-- CPU, RAM, GPU, VRAM detection on dashboard
-- Windows: WMI (`wmic cpu`, `wmic memorychip`, `wmic path win32_VideoController`) + `nvidia-smi` fallback
-- macOS: `sysctl` + `system_profiler`
-- Linux: `/proc/cpuinfo`, `free -h`, `lspci`, `nvidia-smi`
-
-**Auto-Updater**
-- `electron-updater` wired to GitHub releases at `GKartist75/wan2gp-desktop`
-- Auto-checks for updates on startup (5s delay)
-- Update banner with Download button and live progress bar
-- Install & Restart flow
-- GitHub token config in Settings for private repo auto-updates
-
-**Bug Fixes**
-- `electron-builder.yml` had `'!node_modules/**/*'` excluding all node_modules — removed
-- `extraResources` for `electron-updater` put it outside app asar — removed
-- Added `fs-extra` as direct dependency
-
-**Task Progress Fix**
-- `detectPhase()` was using `.toLowerCase()` patterns that didn't match actual `setup.py` output
-- Rewritten to match exact format: `[1/3] Preparing Environment:`, `[2/3] Installing Torch:`, `>>> Running: ...triton...`, `Automatic Install Complete!`
-- Tasks now properly advance from pending → running → done
-
-**Hardware Display During Install**
-- CPU, RAM, GPU, VRAM shown in a card above the task list during install
-- GPU profile detected and displayed (`RTX_40`, `MPS`, etc.) from setup.py's `Hardware Profile:` output
-
-**Expanded Env Card**
-- From 6 to 14 package versions: Python, Torch, CUDA, Triton, Sage Attn, Flash Attn, Diffusers, Transformers, Gradio, Accelerate, onnxruntime, OpenCV, PEFT, huggingface_hub
-- All detected via `importlib.metadata.version()` in the active Python environment
-
-**Browser Picker**
-- Clicking "↗ Launch in Browser" opens a modal listing all detected browsers
-- Detection: Chrome, Firefox, Edge, Brave, Opera, Vivaldi + Yandex (Windows); Safari, Chrome, Firefox, Brave (macOS); google-chrome, chromium-browser, firefox, brave-browser (Linux)
-- "Remember my choice" saves browser preference to `desktop-config.json`
-- Launches via direct executable path (bypasses OS default)
-
-**Private Repo Auth Handling**
-- `electron-updater` fails with 401/403 for private repos without a token
-- Error banner shows *"Private repo — need GitHub token in Manage settings"* instead of raw error
-- Settings page has GitHub token input with link to create a classic token with `repo` scope
-
-**Environment Type Selector**
-- Before install starts, user picks: `venv` (default, bundled with Python), `uv` (faster), or `conda`
-- Selection passed as `--env` arg to `setup.py install --env $TYPE --auto`
-- Mirrors the same choice from Wan2GP's `install.bat` / `install.sh` scripts
-
-**HuggingFace Fix**
-- Warning *"hf_xet package is not installed"* appeared when downloading models from repos with Xet storage enabled
-- Fix: post-install step runs `pip install huggingface_hub -q` after setup.py completes
-- `huggingface_hub` is a transitive dependency of diffusers/transformers but sometimes gets skipped
-
-**README & Release**
-- Full README.md with docs, architecture, changelog
-- Version badge `v1.0.0` in app title bar
-- Package.json metadata set (author, repo, description)
-- GitHub Release v1.0.0 published with installer `.exe` + `.blockmap`
+#### Enhanced Functionality
+- **Output sidebar** — collapsible left panel with folder navigation, file list with thumbnails, folder browse
+- **Preview overlay** — double-click to preview images/videos, zoom/pan/reset, close via X or backdrop click
+- **Metadata viewer** — collapsible JSON section from PNG iTXt chunk (zero deps), JSON sidecar, or async Python get_settings_from_file()
+- **Async Python metadata reader** — no more main process blocking during metadata extraction
+- **fs.watch on output directory** — sidebar refreshes automatically when new files are generated (500ms debounce)
+- **Keep Wan2GP process alive** — Back to Dashboard no longer kills the generation process
+- **Native right-click context menu** in webview
+- **Hardware-tuned defaults** — auto-detects GPU/RAM/VRAM, sets optimal attention/compile/profile/hierarchy
+- **Maximized window** on launch
+- **Drag-drop prep** — synthetic DragEvent('drop') on Gradio native Upload component (code ready, disabled for later testing)
 
 ## License
 
