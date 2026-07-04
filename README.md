@@ -404,6 +404,6 @@ MIT
 
 ## Testing & Feedback
 
-Special thanks to everyone who tested v1.2.7 beta builds and reported issues that directly shaped this release. Your feedback on freezes, crashes, and usability made the desktop launcher significantly more stable.
+Special thanks to everyone who tested v1.2.6 beta builds and reported issues that directly shaped the v1.2.7 release. Your feedback on freezes, crashes, and usability made the desktop launcher significantly more stable.
 
 Want to help test future builds? Join the [Wan2GP Discord](https://discord.gg/wan2gp).
