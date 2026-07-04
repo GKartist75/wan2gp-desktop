@@ -148,11 +148,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   })
 
   window.w2gp.onWangpRestarted((url) => {
-    appendLog('[*] Wan2GP restarted, reloading...')
+    appendLog('[*] Wan2GP restarted, webview stays — Gradio reconnects via WebSocket')
     $('serverRestartOverlay').classList.add('hidden')
     currentUrl = url
-    var wv = $('wangpView')
-    wv.src = url
   })
 
   window.w2gp.onWangpRestartFailed((err) => {
@@ -510,6 +508,16 @@ async function doLaunch(){
     $('launchStatusFill').style.width = '100%'
     stopLaunchTimer()
     currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; setupWebviewCrashHandler()
+    wv.addEventListener('did-navigate', e => appendLog(`[nav] ${e.url}`))
+    wv.addEventListener('did-navigate-in-page', e => appendLog(`[nav-inpage] ${e.url}`))
+    wv.addEventListener('did-start-loading', () => appendLog('[load] START'))
+    wv.addEventListener('did-stop-loading', () => appendLog('[load] STOP'))
+    // ponytail: one reload after load completes to force clean WebSocket handshake
+    wv.addEventListener('did-finish-load', () => {
+      setTimeout(() => {
+        if (wv.getURL() !== 'about:blank') wv.reloadIgnoringCache()
+      }, 2000)
+    }, { once: true })
     window.w2gp.setViewerActive(true)
     toggleTerm('viewerTermPanel','viewerFollowBtn')
   } catch(e){
@@ -664,9 +672,10 @@ function showRestartOverlay(exitCode) {
   const ov = $('serverRestartOverlay')
   if (!ov) return
   $('restartTitle').textContent = 'Wan2GP server stopped'
-  $('restartMessage').textContent = `Process exited (code ${exitCode}). Auto-restarting...`
-  $('restartNowBtn').classList.add('hidden')
-  $('restartDashboardBtn').classList.add('hidden')
+  $('restartMessage').textContent = `Process exited (code ${exitCode}). Click "Try Again" to restart.`
+  $('restartNowBtn').classList.remove('hidden')
+  $('restartNowBtn').disabled = false
+  $('restartDashboardBtn').classList.remove('hidden')
   ov.classList.remove('hidden')
 }
 
