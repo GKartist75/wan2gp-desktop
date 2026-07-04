@@ -12,19 +12,23 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Run
   launch: () => ipcRenderer.invoke('launch'),
+  isRunning: () => ipcRenderer.invoke('is-running'),
   stop: () => ipcRenderer.invoke('stop'),
 
   // Manage
   update: () => ipcRenderer.invoke('update'),
   upgrade: () => ipcRenderer.invoke('upgrade'),
   manageList: () => ipcRenderer.invoke('manage-list'),
+  manageActive: () => ipcRenderer.invoke('manage-active'),
   manageSetActive: (name) => ipcRenderer.invoke('manage-set-active', name),
   manageDelete: (name) => ipcRenderer.invoke('manage-delete', name),
+  uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
+  uninstallWangp: () => ipcRenderer.invoke('uninstall-wangp'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openInBrowser: (url, browserPath) => ipcRenderer.invoke('open-in-browser', { url, browserPath }),
 
   // Update (desktop app itself)
-  checkUpdate: () => ipcRenderer.invoke('check-update'),
+  checkUpdate: (opts) => ipcRenderer.invoke('check-update', opts),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   onUpdateStatus: (cb) => {
@@ -39,6 +43,20 @@ contextBridge.exposeInMainWorld('w2gp', {
   setDataDir: (dir) => ipcRenderer.invoke('set-data-dir', dir),
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  detectModelFolders: () => ipcRenderer.invoke('detect-model-folders'),
+  getModelPaths: () => ipcRenderer.invoke('get-model-paths'),
+
+  // File system
+  readLocalFile: (filePath) => ipcRenderer.invoke('read-local-file', filePath),
+
+  // Output folder
+  listOutputFiles: (subdir) => ipcRenderer.invoke('list-output-files', subdir),
+  setOutputPath: () => ipcRenderer.invoke('set-output-path'),
+  readFileMetadata: (filePath) => ipcRenderer.invoke('read-file-metadata', filePath),
+  readFileMetadataPython: (filePath) => ipcRenderer.invoke('read-file-metadata-python', filePath),
+  uploadToGradio: (filePath) => ipcRenderer.invoke('upload-to-gradio', filePath),
+  deleteFiles: (filePaths) => ipcRenderer.invoke('delete-files', filePaths),
+  copyFilesToOutput: (filePaths) => ipcRenderer.invoke('copy-files-to-output', filePaths),
 
   // Config
   configLoad: () => ipcRenderer.invoke('config-load'),
@@ -54,6 +72,13 @@ contextBridge.exposeInMainWorld('w2gp', {
   getWangpLocalVersion: () => ipcRenderer.invoke('get-wangp-local-version'),
   getWangpUpstreamInfo: () => ipcRenderer.invoke('get-wangp-upstream-info'),
   getWangpChangelog: () => ipcRenderer.invoke('get-wangp-changelog'),
+  getDesktopGitInfo: () => ipcRenderer.invoke('get-desktop-git-info'),
+  onOutputFilesChanged: (cb) => {
+    const h = (_e) => cb()
+    ipcRenderer.on('output-files-changed', h)
+    return () => ipcRenderer.removeListener('output-files-changed', h)
+  },
+  setPendingDragPath: (p) => ipcRenderer.invoke('set-pending-drag-path', p),
   getWangpVersion: () => ipcRenderer.invoke('get-wangp-version'),
 
   // Events

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1280">
-<title>Wan2GP Desktop</title>
+<title>Wan2GP Desktop [TEST BUILD v1.2.7]</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -16,6 +16,7 @@
   <div id="splash" class="screen active">
     <div class="brand-mark">GK<span> Artist</span></div>
     <div class="brand-sub">Wan2GP Deepbeepmeep</div>
+    <div class="test-badge">⚠ TEST BUILD — for testing only, may be unstable</div>
     <p class="splash-status"><span class="dot">&#9679;</span> <span id="splashStatus">Checking installation...</span></p>
   </div>
 
@@ -34,17 +35,23 @@
       <div class="settings-section">
         <h3>Actions</h3>
         <div class="settings-actions">
-          <button class="settings-action" id="settingsUpdateBtn">
-            <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-            Update Wan2GP (git pull + deps)
-          </button>
-          <button class="settings-action" id="settingsUpgradeBtn">
-            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
-            Upgrade PyTorch / Attention Kernels
-          </button>
           <button class="settings-action" id="settingsReinstallBtn">
             <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Reinstall environment
+          </button>
+          <hr class="settings-divider">
+          <button class="settings-action" id="settingsUninstallEnvBtn">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+            Uninstall environment
+          </button>
+          <button class="settings-action" id="settingsUninstallWangpBtn">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+            Uninstall Wan2GP
+          </button>
+          <hr class="settings-divider">
+          <button class="settings-action" id="settingsUpgradeBtn">
+            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+            Upgrade PyTorch / Attention Kernels
           </button>
         </div>
       </div>
@@ -70,7 +77,8 @@
       <div class="topbar-left">
         <div class="brand-mark-small">GK<span> Artist</span></div>
         <span class="app-title">Wan2GP Desktop</span>
-        <span class="app-version">v1.2.6</span>
+        <span class="app-version">v1.2.7</span>
+        <span class="test-badge topbar-badge">TEST</span>
       </div>
       <div class="topbar-spacer"></div>
       <div class="topbar-right">
@@ -132,6 +140,15 @@
         </div>
         <div class="card">
           <div class="card-header">
+            <span class="card-title">Model Folders</span>
+          </div>
+          <div class="paths-grid">
+            <div class="spec-row"><span class="spec-label">Checkpoints</span><span class="spec-value path-val" id="dashCkptPath">—</span><button class="btn btn-ghost small" id="dashBrowseCkpt" title="Change checkpoints folder">✎</button></div>
+            <div class="spec-row"><span class="spec-label">LoRAs</span><span class="spec-value path-val" id="dashLoraPath">—</span><button class="btn btn-ghost small" id="dashBrowseLora" title="Change LoRAs folder">✎</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
             <span class="card-title">Active Environment</span>
             <span class="env-type-tag" id="envType"></span>
           </div>
@@ -161,22 +178,22 @@
 
       <!-- Center column: Actions -->
       <div class="col-actions">
-        <button class="launch-btn" id="launchBtn">
+        <button class="launch-btn primary-sub" id="launchBtn">
           <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Launch in Desktop
+          Launch Wan2GP in Desktop
         </button>
         <div class="action-grid-2">
-          <button class="action-item primary-sub" id="browserBtn">
+          <button class="action-item" id="browserBtn">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            Launch in Browser
+            Launch Wan2GP in Browser
           </button>
           <button class="action-item" id="updateBtn">
             <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             Update Wan2GP
           </button>
-          <button class="action-item" id="upgradeBtn">
-            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
-            Upgrade Components
+          <button class="action-item" id="updateCheckBtn">
+            <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Check Desktop Updates
           </button>
           <button class="action-item" id="refreshBtn">
             <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
@@ -198,6 +215,23 @@
           </div>
         </div>
 
+        <!-- Desktop App Info -->
+        <div class="card changelog-card">
+          <div class="card-header">
+            <span class="card-title">Desktop App</span>
+            <span class="local-commit">v<span id="desktopVersionNum">1.2.7</span> <span id="desktopLocalCommit"></span></span>
+          </div>
+          <div class="changelog-list" id="desktopUpdatesList">
+            <div class="cl-item">
+              <span class="cl-date">Commit</span>
+              <span class="cl-msg" id="desktopCommitMsg">—</span>
+            </div>
+          </div>
+          <div class="changelog-footer">
+            <a href="#" id="desktopRepoLink" class="changelog-link">GKartist75/wan2gp-desktop →</a>
+          </div>
+        </div>
+
       </div>
 
       <!-- Right column: Environments -->
@@ -208,14 +242,6 @@
           </div>
           <div class="env-list" id="envList"></div>
           <div class="env-actions" style="margin-top:auto;padding-top:8px">
-            <button class="btn btn-ghost small" id="refreshBtn2">
-              <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-              Refresh
-            </button>
-            <button class="btn btn-ghost small" id="updateCheckBtn">
-              <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              Updates
-            </button>
           </div>
         </div>
       </div>
@@ -237,7 +263,7 @@
     </div>
 
     <!-- Terminal panel -->
-    <div class="terminal-panel open" id="termPanel" style="height:160px">
+    <div class="terminal-panel open" id="termPanel" style="height:70px">
       <div class="term-resize-handle" id="termResize"></div>
       <div class="term-header">
         <span class="term-title">Terminal</span>
@@ -258,13 +284,12 @@
     <div class="install-card">
       <div class="install-top">
         <div class="brand-mark-small">GK<span> Artist</span></div>
-        <div class="install-tabs">
-          <button class="tab-btn active" id="installTasksTab">Tasks</button>
-          <button class="tab-btn" id="installTermTab">Terminal</button>
-        </div>
+
       </div>
       <h2>Setting up Wan2GP</h2>
+      <div class="test-badge install-badge">⚠ TEST BUILD — for testing only</div>
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
+      <p class="install-info">This installs Wan2GP inside the Desktop app. Once installed, you can launch, update, change settings, and browse generated files — all from the Dashboard.</p>
 
       <!-- Environment type selector -->
       <div class="env-type-select" id="envTypeSelect">
@@ -320,22 +345,32 @@
         </div>
       </div>
 
-      <div id="installTasks">
-        <div class="task-list" id="taskList">
-          <div class="task pending" data-id="clone"><span class="task-icon">&#9675;</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="venv"><span class="task-icon">&#9675;</span><span class="task-label">Create Python virtual environment</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="torch"><span class="task-icon">&#9675;</span><span class="task-label">Install PyTorch + CUDA</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="reqs"><span class="task-icon">&#9675;</span><span class="task-label">Install Python dependencies</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="triton"><span class="task-icon">&#9675;</span><span class="task-label">Install Triton compiler</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="sage"><span class="task-icon">&#9675;</span><span class="task-label">Install Sage Attention kernel</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="flash"><span class="task-icon">&#9675;</span><span class="task-label">Install Flash Attention</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="kernels"><span class="task-icon">&#9675;</span><span class="task-label">Install GPU kernels (nunchaku/GGUF)</span><span class="task-status">pending</span></div>
-          <div class="task pending" data-id="done"><span class="task-icon">&#9675;</span><span class="task-label">Finalize installation</span><span class="task-status">pending</span></div>
+      <div class="install-bottom">
+        <div class="install-task-col">
+          <div class="task-list" id="taskList">
+            <div class="task pending" data-id="clone"><span class="task-icon">&#9675;</span><span class="task-label">Clone Wan2GP repository</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="venv"><span class="task-icon">&#9675;</span><span class="task-label">Create Python virtual environment</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="torch"><span class="task-icon">&#9675;</span><span class="task-label">Install PyTorch + CUDA</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="reqs"><span class="task-icon">&#9675;</span><span class="task-label">Install Python dependencies</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="triton"><span class="task-icon">&#9675;</span><span class="task-label">Install Triton compiler</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="sage"><span class="task-icon">&#9675;</span><span class="task-label">Install Sage Attention kernel</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="flash"><span class="task-icon">&#9675;</span><span class="task-label">Install Flash Attention</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="kernels"><span class="task-icon">&#9675;</span><span class="task-label">Install GPU kernels (nunchaku/GGUF)</span><span class="task-status">pending</span></div>
+            <div class="task pending" data-id="done"><span class="task-icon">&#9675;</span><span class="task-label">Finalize installation</span><span class="task-status">pending</span></div>
+          </div>
         </div>
-        <div class="log" id="installLog"></div>
+        <div class="install-term-col">
+          <div class="term-body" id="installTermBody"></div>
+        </div>
       </div>
-      <div id="installTerm" class="term-view hidden">
-        <div class="term-body" id="installTermBody"></div>
+      <!-- Reinstall choice (shown when Wan2GP already installed) -->
+      <div id="reinstallChoice" class="reinstall-choice hidden">
+        <p class="reinstall-prompt">Wan2GP is already installed. What do you want to do?</p>
+        <div class="reinstall-buttons">
+          <button id="reinstallFreshBtn" class="btn btn-primary">Reinstall (fresh)</button>
+          <button id="reinstallUpdateBtn" class="btn btn-ghost">Update &amp; keep files</button>
+          <button id="reinstallSkipBtn" class="btn btn-ghost">Use existing &amp; go to Dashboard</button>
+        </div>
       </div>
     </div>
   </div>
@@ -374,14 +409,35 @@
         <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         Terminal
       </button>
-      <button class="toolbar-btn" id="viewBrowserBtn">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        Open in Browser
-      </button>
       <button class="toolbar-btn theme-toggle" id="viewThemeToggleBtn" title="Toggle dark/light mode">
         <svg viewBox="0 0 24 24" class="sun-icon"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         <svg viewBox="0 0 24 24" class="moon-icon" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+    </div>
+    <div class="viewer-body">
+    <!-- Output sidebar -->
+    <div id="sidebarWrap" class="sidebar-wrap">
+    <div id="outputSidebar" class="output-sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Outputs</span>
+      </div>
+      <div class="sidebar-path">
+        <span class="sidebar-path-label" id="sidebarPathLabel">—</span>
+        <button class="btn btn-ghost small" id="sidebarChangeFolderBtn">Change</button>
+      </div>
+      <div class="sidebar-files" id="sidebarFiles"></div>
+      <div class="sidebar-actions" id="sidebarActions" style="display:none">
+        <button class="sidebar-action-btn" id="sidebarDeleteBtn" title="Delete selected file">🗑 Delete</button>
+        <button class="sidebar-action-btn" id="sidebarSendBtn" title="Load metadata into WanGP generator">📤 Load in WanGP</button>
+        <button class="sidebar-action-btn" id="sidebarReloadBtn" title="Refresh file list">⟳ Reload</button>
+      </div>
+      <div class="sidebar-dropzone" id="sidebarDropzone" style="display:none">
+        <span>+ Drop files here to add</span>
+      </div>
+    </div>
+    <div class="sidebar-tab" id="sidebarTab" title="Toggle sidebar">
+      <svg viewBox="0 0 16 16" width="10" height="10" id="sidebarTabArrow"><polyline points="10 3 5 8 10 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
     </div>
     <div class="viewer-stack">
       <!-- Server restart overlay -->
@@ -398,8 +454,8 @@
           </div>
         </div>
       </div>
-      <webview id="wangpView" src="about:blank"></webview>
-      <div class="terminal-panel viewer-term" id="viewerTermPanel">
+      <webview id="wangpView" src="about:blank" disablewebsecurity partition="persist:wan2gp" preload="./webview-preload.js"></webview>
+      <div class="terminal-panel viewer-term" id="viewerTermPanel" style="height:70px">
         <div class="term-resize-handle" id="viewerTermResize"></div>
         <div class="term-header">
           <span class="term-title">Wan2GP Output</span>
@@ -416,6 +472,39 @@
           </div>
         </div>
         <div class="term-body" id="viewerTermBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- File preview overlay -->
+  <div id="previewOverlay" class="preview-overlay hidden">
+    <div class="preview-backdrop" id="previewBackdrop"></div>
+    <div class="preview-card">
+      <div class="preview-header">
+        <span class="preview-title" id="previewTitle"></span>
+        <div class="preview-actions">
+          <button class="preview-btn" id="previewZoomIn" title="Zoom in">
+            <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="21" y1="21" x2="16.65" y2="16.65" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="8" x2="11" y2="14" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="11" x2="14" y2="11" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+          <button class="preview-btn" id="previewZoomOut" title="Zoom out">
+            <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="21" y1="21" x2="16.65" y2="16.65" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="11" x2="14" y2="11" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+          <button class="preview-btn" id="previewZoomReset" title="Reset zoom">1:1</button>
+          <button class="preview-btn preview-close" id="previewCloseBtn" title="Close">
+            <svg viewBox="0 0 24 24" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="6" x2="18" y2="18" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="preview-body" id="previewBody">
+        <img id="previewImage" class="preview-media" style="display:none" draggable="false">
+        <video id="previewVideo" class="preview-media" style="display:none" controls draggable="false"></video>
+      </div>
+      <div class="preview-metadata" id="previewMetadata">
+        <div class="preview-meta-header">
+          <span class="preview-meta-title">Metadata</span>
+          <button class="preview-meta-toggle" id="previewMetaToggle">▼</button>
+        </div>
+        <pre class="preview-meta-content" id="previewMetaContent"></pre>
       </div>
     </div>
   </div>

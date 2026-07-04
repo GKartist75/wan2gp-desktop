@@ -46,6 +46,8 @@ function setupWebviewCrashHandler() {
   wv.addEventListener('crashed', onWebviewCrash)
 }
 
+
+
 let wvCrashRetry = 0
 const WV_CRASH_MAX = 3
 
@@ -59,7 +61,7 @@ function onWebviewCrash(e) {
   appendLog(`[!] Webview ${e.type} crashed (${wvCrashRetry}/${WV_CRASH_MAX}) — reloading...`)
   setTimeout(() => {
     const wv = $('wangpView')
-    if (wv && currentUrl) wv.src = currentUrl
+    if (wv && currentUrl) { wv.src = currentUrl; setTimeout(injectWebviewDropHandler, 2000) }
   }, 2000)
 }
 
@@ -118,8 +120,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   window.w2gp.onSetupOutput(t => appendLog(t))
   window.w2gp.onLaunchLog(t => appendLog(t))
-  window.w2gp.onSetupOutput(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c){ log($('installLog'),c); log($('settingsLog'),c) } })
-  window.w2gp.onLaunchLog(t => { const c=t.replace(/\x1b[[0-9;]*m/g,''); if(c.trim()) log($('launchLog'),c) })
+  window.w2gp.onSetupOutput(t => { const c=t.replace(/[\x00-\x1f]/g,'').trim(); if(c) log($('settingsLog'),c) })
+  window.w2gp.onLaunchLog(t => { const c=t.replace(/\x1b[[0-9;]*m/g,''); if(c.trim()) { log($('launchLog'),c); log($('viewerTermBody'),c) } })
   window.w2gp.onSetupPhase(p => {
     if (p.done) {
       if (prevPhaseId && prevPhaseId !== p.id) taskComplete(prevPhaseId)
@@ -153,6 +155,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentUrl = url
     var wv = $('wangpView')
     wv.src = url
+    // Re-inject drop handler after Gradio loads
+    setTimeout(() => injectWebviewDropHandler(), 2500)
   })
 
   window.w2gp.onWangpRestartFailed((err) => {
@@ -180,6 +184,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('installCpu').textContent=hw.cpu||'—'; $('installRam').textContent=hw.ram||'—'
     $('installGpu').textContent=hw.gpu||'—'; $('installVram').textContent=hw.vram||'—'
     loadPaths()
+    // Auto-detect model folders
+    try {
+      const mf = await window.w2gp.detectModelFolders()
+      if (mf.checkpointsPaths && mf.checkpointsPaths.length) {
+        _modelCkpts = mf.checkpointsPaths[0]
+        $('installCkptsPath').textContent = _modelCkpts
+      }
+      if (mf.lorasRoot) {
+        _modelLoras = mf.lorasRoot
+        $('installLorasPath').textContent = _modelLoras
+      }
+    } catch {}
     // Show installer with env selector, wait for user to press Install
     show('installer')
     $('installSubtitle').textContent = 'Select environment type, then click Install'
@@ -215,6 +231,9 @@ document.querySelectorAll('.env-type-btn').forEach(btn => {
 })
 
 $('installStartBtn').addEventListener('click', startInstall)
+$('reinstallFreshBtn').addEventListener('click', () => doInstall(null, 'reinstall'))
+$('reinstallUpdateBtn').addEventListener('click', () => doInstall(null, 'update'))
+$('reinstallSkipBtn').addEventListener('click', () => doInstall(null, 'skip'))
 
 // ── Browse repo path ──
 $('browseAppDataPath')?.addEventListener('click', async () => {
@@ -273,7 +292,7 @@ $('clearLorasPath')?.addEventListener('click', async () => {
 })
 
 async function startInstall(){
-  show('installer'); $('installLog').textContent=''; resetTasks()
+  show('installer'); resetTasks()
   // Disable env selector + hide install button during install
   $('envTypeSelect').classList.add('disabled')
   document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = true)
@@ -281,15 +300,29 @@ async function startInstall(){
   $('installSubtitle').textContent='Setting up Wan2GP...'
   const installed = await window.w2gp.checkInstalled()
   if(installed.repo) {
-    if(!confirm('Wan2GP is already installed. Reinstall? This will remove everything and start fresh.')) {
-      $('installSubtitle').textContent='Update instead of fresh install...'
-      installed.repo = false
-    } else {
-      $('installSubtitle').textContent='Removing existing installation...'
-      await window.w2gp.reinstall()
-    }
+    // Show reinstall choice UI
+    $('reinstallChoice').classList.remove('hidden')
+    $('installSubtitle').textContent='Wan2GP is already installed.'
+    return // wait for user to pick a button
   }
-  if(installed.repo) { taskComplete('clone'); prevPhaseId = 'clone' } else { taskStart('clone'); prevPhaseId = 'clone' }
+  doInstall(installed)
+}
+
+async function doInstall(installed, mode) {
+  $('reinstallChoice').classList.add('hidden')
+  if (mode === 'skip') {
+    show('dashboard'); refreshDashboard()
+    return
+  }
+  let skipClone = false
+  if (mode === 'reinstall') {
+    $('installSubtitle').textContent='Removing existing installation...'
+    await window.w2gp.reinstall()
+  } else {
+    $('installSubtitle').textContent='Update instead of fresh install...'
+    skipClone = true
+  }
+  if(!skipClone) { taskStart('clone'); prevPhaseId = 'clone' } else { taskComplete('clone'); prevPhaseId = 'clone' }
   try {
     await window.w2gp.install(selectedEnvType)
     try {
@@ -305,7 +338,6 @@ async function startInstall(){
       else if(vendor==='AMD') profile='AMD'
       $('installProfile').textContent=profile; $('installProfileRow').style.display='flex'
     } catch {}
-    // Write model config after install — enables display_stats + sets model paths
     try {
       const modelCfg = {}
       if (_modelCkpts) modelCfg.checkpointsPaths = [_modelCkpts, '.']
@@ -365,7 +397,46 @@ async function refreshDashboard(){
   })
   loadWangpChangelog()
   loadPaths()
+  loadDesktopInfo()
+  loadModelPaths()
 }
+
+async function loadModelPaths() {
+  const paths = await window.w2gp.getModelPaths()
+  $('dashCkptPath').textContent = paths?.checkpoints || '(default)'
+  $('dashLoraPath').textContent = paths?.loras || '(default)'
+}
+
+$('dashBrowseCkpt').addEventListener('click', async () => {
+  const dir = await window.w2gp.selectFolder()
+  if (!dir) return
+  $('dashCkptPath').textContent = dir
+  await window.w2gp.writeWgpConfig({ checkpointsPaths: [dir, '.'] })
+})
+$('dashBrowseLora').addEventListener('click', async () => {
+  const dir = await window.w2gp.selectFolder()
+  if (!dir) return
+  $('dashLoraPath').textContent = dir
+  await window.w2gp.writeWgpConfig({ lorasRoot: dir })
+})
+
+async function loadDesktopInfo() {
+  const info = await window.w2gp.getDesktopGitInfo()
+  const hashEl = $('desktopLocalCommit')
+  const msgEl = $('desktopCommitMsg')
+  if (info && info.hash) {
+    if (hashEl) hashEl.textContent = info.hash
+    if (msgEl) msgEl.textContent = info.message || ''
+  } else {
+    if (hashEl) hashEl.textContent = '(not in git)'
+    if (msgEl) msgEl.textContent = ''
+  }
+}
+
+$('desktopRepoLink').addEventListener('click', (e) => {
+  e.preventDefault()
+  window.w2gp.openExternal('https://github.com/GKartist75/wan2gp-desktop')
+})
 
 async function loadPaths() {
   const p = await window.w2gp.getInstallPaths()
@@ -488,6 +559,21 @@ function updateLaunchProgress(text) {
 }
 
 async function doLaunch(){
+  // If process already running, just show viewer
+  const running = await window.w2gp.isRunning()
+  if (running && currentUrl) {
+    show('viewer');
+    var wv = $('wangpView');
+    if (wv.src !== currentUrl) wv.src = currentUrl;
+    window.w2gp.setViewerActive(true);
+    setTimeout(refreshSidebar, 1500);
+    // setTimeout(injectWebviewDropHandler, 2000); // drag-drop disabled for investigation
+    updateLaunchProgress('');
+    toggleTerm('viewerTermPanel','viewerFollowBtn');
+    setTimeout(() => { const p=$('viewerTermPanel'); if(p&&p.classList.contains('open')) p.style.height='70px' }, 100);
+    return
+  }
+
   launchCancelled = false; show('launching')
   $('launchLog').textContent=''
   $('launchStatusText').textContent = 'Starting Python process...'
@@ -496,7 +582,6 @@ async function doLaunch(){
   $('launchFirstRunNotice').style.display = 'flex'
   startLaunchTimer()
 
-  // Parse incoming launch logs for progress
   const launchLogHandler = (text) => {
     if (text) updateLaunchProgress(text)
   }
@@ -511,7 +596,10 @@ async function doLaunch(){
     stopLaunchTimer()
     currentUrl=result.url; show('viewer'); var wv=$('wangpView'); wv.src=result.url; setupWebviewCrashHandler()
     window.w2gp.setViewerActive(true)
+    setTimeout(refreshSidebar, 1500)
+    // setTimeout(injectWebviewDropHandler, 2000) // drag-drop disabled
     toggleTerm('viewerTermPanel','viewerFollowBtn')
+    setTimeout(() => { const p=$('viewerTermPanel'); if(p&&p.classList.contains('open')) p.style.height='70px' }, 100)
   } catch(e){
     stopLaunchTimer()
     if(!launchCancelled){
@@ -607,9 +695,15 @@ function setupTermResize(handleId, panelId){
   const h=$(handleId); const p=$(panelId)
   if(!h||!p) return
   let drag=false, sy=0, sh=0
+  const endDrag = () => {
+    if(!drag) return
+    drag=false; h.classList.remove('dragging')
+    document.body.style.cursor=''; document.body.style.userSelect=''
+  }
   h.addEventListener('mousedown',e=>{ drag=true; sy=e.clientY; sh=p.offsetHeight; h.classList.add('dragging'); document.body.style.cursor='ns-resize'; document.body.style.userSelect='none' })
-  document.addEventListener('mousemove',e=>{ if(!drag)return; const nh=Math.max(80,Math.min(window.innerHeight*0.7,sh+sy-e.clientY)); p.style.height=nh+'px' })
-  document.addEventListener('mouseup',()=>{ if(!drag)return; drag=false; h.classList.remove('dragging'); document.body.style.cursor=''; document.body.style.userSelect='' })
+  window.addEventListener('mousemove',e=>{ if(!drag)return; const nh=Math.max(80,Math.min(window.innerHeight*0.7,sh+sy-e.clientY)); p.style.height=nh+'px' })
+  window.addEventListener('mouseup', endDrag)
+  window.addEventListener('mouseleave', endDrag)
 }
 
 document.addEventListener('DOMContentLoaded',()=>{ setupTermResize('termResize','termPanel'); setupTermResize('viewerTermResize','viewerTermPanel') })
@@ -623,12 +717,7 @@ $('updateBtn').addEventListener('click',async()=>{
   $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP'
 })
 document.querySelectorAll('.theme-toggle').forEach(btn => btn.addEventListener('click', toggleTheme))
-$('upgradeBtn').addEventListener('click',async()=>{
-  openSettings(); $('settingsLog').textContent='Upgrade running (check Terminal for output)...\n'
-  try{ await window.w2gp.upgrade(); appendLog('[*] Wan2GP upgrade complete'); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ appendLog('[!] Upgrade failed: '+e.message); log($('settingsLog'),'\n[!] '+e.message) }
-})
 $('refreshBtn').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
-$('refreshBtn2').addEventListener('click',()=>{ refreshDashboard(); loadHardware() })
 $('settingsBtn').addEventListener('click',()=>{ openSettings(); $('settingsLog').textContent='' })
 
 $('dashTermBtn').addEventListener('click',()=>toggleTerm('termPanel','termFollowBtn'))
@@ -652,12 +741,443 @@ $('viewerFollowBtn').addEventListener('click',()=>{
 $('viewerTermCloseBtn').addEventListener('click',(e)=>{ e.stopPropagation(); const p=$('viewerTermPanel'); if(p) p.classList.remove('open') })
 
 // ── Installer tabs ──
-$('installTasksTab').addEventListener('click',()=>{ $('installTasks').classList.remove('hidden'); $('installTerm').classList.add('hidden'); $('installTasksTab').classList.add('active'); $('installTermTab').classList.remove('active') })
-$('installTermTab').addEventListener('click',()=>{ $('installTasks').classList.add('hidden'); $('installTerm').classList.remove('hidden'); $('installTasksTab').classList.remove('active'); $('installTermTab').classList.add('active'); renderTerminals() })
-
 // ── Viewer ──
-$('viewBackBtn').addEventListener('click',async()=>{ await window.w2gp.stop(); window.w2gp.setViewerActive(false); show('dashboard'); refreshDashboard() })
-$('viewBrowserBtn').addEventListener('click',()=>{ if(currentUrl) openBrowserPicker(currentUrl) })
+$('viewBackBtn').addEventListener('click',async()=>{ window.w2gp.setViewerActive(false); show('dashboard'); refreshDashboard() })
+// ── Output sidebar ──
+
+
+let sidebarOpen = true
+let sidebarDir = ''
+
+// Thumbnail cache: path -> blob URL (LRU, max 20 entries to cap memory)
+var thumbCache = {} // path -> blob URL
+var thumbKeys = []   // LRU order
+function getThumbSrc(filePath, ext, cb) {
+  if (thumbCache[filePath]) {
+    // Move to end (most recently used)
+    var idx = thumbKeys.indexOf(filePath)
+    if (idx > -1) { thumbKeys.splice(idx, 1); thumbKeys.push(filePath) }
+    cb(thumbCache[filePath]); return
+  }
+  window.w2gp.readLocalFile(filePath).then(function(r) {
+    if (!r) { cb(''); return }
+    var mime = r.mime
+    if (mime === 'application/octet-stream') {
+      var mm = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'}[ext]
+      if (mm) mime = mm; else { cb(''); return }
+    }
+    var bin = atob(r.data), bytes = new Uint8Array(bin.length)
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    var blob = new Blob([bytes], { type: mime })
+    var url = URL.createObjectURL(blob)
+    // Evict oldest if over limit
+    if (thumbKeys.length >= 20) {
+      var old = thumbKeys.shift()
+      if (thumbCache[old]) { URL.revokeObjectURL(thumbCache[old]); delete thumbCache[old] }
+    }
+    thumbCache[filePath] = url
+    thumbKeys.push(filePath)
+    cb(url)
+  }).catch(function() { cb('') })
+}
+
+function refreshSidebar() {
+  window.w2gp.listOutputFiles(sidebarDir || undefined).then(function(r) {
+    var dir = r.dir, files = r.files, folders = r.folders
+    sidebarDir = dir
+    $('sidebarPathLabel').textContent = dir
+    var el = $('sidebarFiles')
+    if (!files.length && !folders.length) {
+      el.innerHTML = '<div class="sidebar-empty">No outputs yet</div>'
+      return
+    }
+    // Preserve selection across re-render
+    var oldSel = el.querySelector('.sidebar-file.selected')
+    var selectedPath = oldSel ? oldSel.dataset.path : null
+
+    // Build HTML
+    var items = ''
+    for (var i = 0; i < folders.length; i++) {
+      var fo = folders[i]
+      items += '<div class="sidebar-file sidebar-folder" data-path="' + fo.path.replace(/"/g,'&quot;') + '" data-type="folder" data-name="' + fo.name.replace(/"/g,'&quot;') + '">'
+      items += '<span class="sidebar-file-thumb" style="text-align:center;font-size:18px;line-height:32px">📁</span>'
+      items += '<span class="sidebar-file-name">' + fo.name + '</span>'
+      items += '<span class="sidebar-file-type">dir</span></div>'
+    }
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i]
+      var selCls = f.path === selectedPath ? ' selected' : ''
+      items += '<div class="sidebar-file' + selCls + '" draggable="true" data-path="' + f.path.replace(/"/g,'&quot;') + '" data-type="' + f.type + '" data-name="' + f.name.replace(/"/g,'&quot;') + '">'
+      items += '<img class="sidebar-file-thumb" src="' + (thumbCache[f.path] || '') + '" loading="lazy" onerror="this.style.display=\'none\'">'
+      items += '<span class="sidebar-file-name">' + f.name + '</span>'
+      items += '<span class="sidebar-file-type">' + (f.type === 'video' ? '🎬' : '🖼') + '</span></div>'
+    }
+    el.innerHTML = items
+
+    // Load thumbnails async, 5 at a time to avoid IPC flood
+    function loadThumbs(start) {
+      var batch = Math.min(start + 5, files.length)
+      for (var i = start; i < batch; i++) {
+        (function(f) {
+          var ext = f.name.substring(f.name.lastIndexOf('.')).toLowerCase()
+          getThumbSrc(f.path, ext, function(url) {
+            if (!url) return
+            var safePath = f.path.replace(/"/g, '\\"')
+            var imgs = el.querySelectorAll('.sidebar-file[data-path="' + safePath + '"] .sidebar-file-thumb')
+            for (var j = 0; j < imgs.length; j++) imgs[j].src = url
+          })
+        })(files[i])
+      }
+      if (batch < files.length) setTimeout(function() { loadThumbs(batch) }, 100)
+    }
+    loadThumbs(0)
+
+    // Event delegation via a single capture-phase handler (no listener leak on re-render)
+    if (!el._delegateHandler) {
+      el._delegateHandler = function(e) {
+        var item = e.target.closest('.sidebar-file')
+        if (!item) return
+        if (e.type === 'click') {
+          if (item.dataset.type === 'folder') {
+            sidebarDir = item.dataset.path
+            refreshSidebar()
+            return
+          }
+          el.querySelectorAll('.sidebar-file').forEach(function(x) { x.classList.remove('selected') })
+          item.classList.add('selected')
+          try { navigator.clipboard.writeText(item.dataset.path) } catch {}
+          var actionBar = $('sidebarActions')
+          if (actionBar) actionBar.style.display = 'flex'
+        } else if (e.type === 'dblclick') {
+          if (item.dataset.type === 'folder') return
+          openPreview(item.dataset.path, item.dataset.name)
+        } else if (e.type === 'dragstart') {
+          e.dataTransfer.setData('text/plain', item.dataset.path)
+          window.w2gp.setPendingDragPath(item.dataset.path)
+          item.classList.add('dragging')
+        } else if (e.type === 'dragend') {
+          item.classList.remove('dragging')
+        }
+      }
+      el.addEventListener('click', el._delegateHandler)
+      el.addEventListener('dblclick', el._delegateHandler)
+      el.addEventListener('dragstart', el._delegateHandler)
+      el.addEventListener('dragend', el._delegateHandler)
+    }
+  }).catch(function() {})
+}
+
+// Sidebar action buttons
+$('sidebarDeleteBtn').addEventListener('click', async () => {
+  const sel = $('sidebarFiles').querySelector('.sidebar-file.selected')
+  if (!sel) return
+  const path = sel.dataset.path
+  if (!confirm('Delete ' + sel.dataset.name + '?')) return
+  await window.w2gp.deleteFiles([path])
+  refreshSidebar()
+})
+
+// ── Inject drag-drop handler into webview to intercept drops on Gradio's settings_file ──
+function injectWebviewDropHandler() {
+  const wv = $('wangpView')
+  if (!wv || !wv.src || wv.src === 'about:blank') return
+  const js = `
+(function() {
+  console.log('[DD] inject');
+
+  function findComp() {
+    var app = document.querySelector('gradio-app');
+    if (!app) return null;
+    var root = app.shadowRoot || app;
+    var comp = root.querySelector('#settings_file, [elem_id=settings_file]');
+    if (!comp) {
+      var all = root.querySelectorAll('gr-file, [data-testid=file-upload]');
+      for (var i = 0; i < all.length; i++) {
+        var c = all[i].closest('gr-file') || all[i].parentElement;
+        var lbl = c && (c.querySelector('.label-text, label') || c);
+        if (lbl && (lbl.textContent || '').includes('Load Settings')) { comp = c; break; }
+      }
+    }
+    return comp;
+  }
+
+    function fileToDrop(filePath) {
+    // Read file via IPC, return DataTransfer with File ready for synthetic drop
+    return window.__readLocalFile(filePath).then(function(r) {
+      if (!r) return null;
+      var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var blob = new Blob([bytes], { type: r.mime || 'application/octet-stream' });
+      var dt = new DataTransfer();
+      dt.items.add(new File([blob], r.name, { type: r.mime || 'application/octet-stream' }));
+      return dt;
+    });
+  }
+
+  function dispatchDrop(comp, dt) {
+    if (!comp || !dt) return;
+    var btn = comp.querySelector('button[aria-dropeffect="copy"]');
+    if (!btn) btn = comp.querySelector('button');
+    if (!btn) { console.log('[DD] no button found'); return; }
+    btn.dispatchEvent(new DragEvent('drop', {
+      dataTransfer: dt,
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    }));
+    console.log('[DD] synthetic drop dispatched');
+  }
+
+  function attachHandler(comp) {
+    function onSidebarDrop(e) {
+      var p = e.dataTransfer.getData('text/plain');
+      if (!p || !p.match(/^[A-Z]:\\/)) {
+        if (window.__getPendingDragPath) {
+          window.__getPendingDragPath().then(function(pp) {
+            if (pp && pp.match(/^[A-Z]:\\/)) {
+              e.preventDefault(); e.stopPropagation();
+              fileToDrop(pp).then(function(dt) { dispatchDrop(comp, dt); });
+            }
+          });
+        }
+        return;
+      }
+      e.preventDefault(); e.stopPropagation();
+      fileToDrop(p).then(function(dt) { dispatchDrop(comp, dt); });
+    }
+    function onDragOver(e) {
+      if (!e.dataTransfer) return;
+      var types = e.dataTransfer.types || [];
+      var hasText = false;
+      for (var i = 0; i < types.length; i++) {
+        if (types[i] === 'text/plain') { hasText = true; break; }
+      }
+      if (!hasText) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+    }
+    comp.removeEventListener('drop', onSidebarDrop);
+    comp.removeEventListener('dragover', onDragOver);
+    comp.addEventListener('drop', onSidebarDrop);
+    comp.addEventListener('dragover', onDragOver);
+    console.log('[DD] attached');
+  }
+
+  // Poll every 1s — always re-attach so re-renders get fresh listeners
+  if (window.__ddPoll) clearTimeout(window.__ddPoll);
+  (function poll() {
+    var comp = findComp();
+    if (comp) attachHandler(comp);
+    window.__ddPoll = setTimeout(poll, 1000);
+  })();
+})()
+  `
+  wv.executeJavaScript(js).catch(function(e) { console.log('[DD] inject error:', e); })
+}
+
+// ── Load selected file into WanGP settings (button) ──
+$('sidebarSendBtn').addEventListener('click', async () => {
+  const sel = $('sidebarFiles').querySelector('.sidebar-file.selected')
+  if (!sel) return
+  const wv = $('wangpView')
+  if (!wv || !wv.src || wv.src === 'about:blank') { return }
+  const filePath = sel.dataset.path
+
+  const js = `
+(function() {
+  var p = ${JSON.stringify(filePath)};
+  if (!p) return;
+  var app = document.querySelector('gradio-app');
+  if (!app) return;
+  var root = app.shadowRoot || app;
+  var comp = root.querySelector('#settings_file, [elem_id=settings_file]') || root.querySelector('gr-file');
+  if (!comp) return console.log('[BTN] comp not found');
+  console.log('[BTN] loading:', p);
+  window.__readLocalFile(p).then(function(r) {
+    if (!r) return;
+    var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var blob = new Blob([bytes], { type: r.mime || 'application/octet-stream' });
+    var dt = new DataTransfer();
+    dt.items.add(new File([blob], r.name, { type: r.mime || 'application/octet-stream' }));
+    var btn = comp.querySelector('button[aria-dropeffect="copy"]');
+    if (!btn) btn = comp.querySelector('button');
+    if (btn) {
+      btn.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true, composed: true }));
+      console.log('[BTN] synthetic drop dispatched');
+    }
+  });
+})()
+  `
+  wv.executeJavaScript(js).catch(function(e) { console.log('[BTN] injection error:', e); })
+})
+
+$('sidebarReloadBtn').addEventListener('click', refreshSidebar)
+
+// ── Sidebar dropzone for adding files to output ──
+var dropzone = $('sidebarDropzone')
+dropzone.addEventListener('dragover', function(e) { e.preventDefault(); dropzone.classList.add('drag-over') })
+dropzone.addEventListener('dragleave', function() { dropzone.classList.remove('drag-over') })
+dropzone.addEventListener('drop', function(e) {
+  e.preventDefault(); dropzone.classList.remove('drag-over')
+  var files = Array.from(e.dataTransfer.files || []).map(function(f) { return f.path })
+  if (!files.length) return
+  window.w2gp.copyFilesToOutput(files).then(function(copied) {
+    if (copied && copied.length) refreshSidebar()
+  })
+})
+
+// ── Listen for output dir changes (generation finished, etc.) ──
+window.w2gp.onOutputFilesChanged(function() {
+  refreshSidebar()
+})
+
+$('sidebarTab').addEventListener('click', () => {
+  sidebarOpen = !sidebarOpen
+  $('sidebarWrap').classList.toggle('collapsed', !sidebarOpen)
+  if (sidebarOpen) refreshSidebar()
+})
+
+$('sidebarChangeFolderBtn').addEventListener('click', async () => {
+  const newDir = await window.w2gp.setOutputPath()
+  if (newDir) refreshSidebar()
+})
+
+// ── File preview overlay ──
+let previewZoom = 1, previewPanX = 0, previewPanY = 0
+let previewDrag = false, previewDragStartX, previewDragStartY, previewDragPanX, previewDragPanY
+
+var _previewFileUrl = '' // track current blob URL for cleanup
+var _previewAlive = false // guard against async callbacks after close
+
+function openPreview(filePath, fileName) {
+  _previewAlive = true
+  _previewFileUrl = ''
+  var ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase()
+  var isVideo = ['.mp4','.mov','.avi','.mkv','.webm','.m4v'].includes(ext)
+  $('previewTitle').textContent = fileName
+  var img = $('previewImage'); var vid = $('previewVideo')
+  img.style.display = 'none'; vid.style.display = 'none'
+  previewZoom = 1; previewPanX = 0; previewPanY = 0
+  applyPreviewTransform()
+  // Load via IPC → blob URL (avoids file:// stalls and huge data: URLs)
+  window.w2gp.readLocalFile(filePath).then(function(r) {
+    if (!r || !_previewAlive) return
+    var mime = r.mime || (isVideo ? 'video/mp4' : 'image/png')
+    if (mime === 'application/octet-stream') {
+      var m = {'.mp4':'video/mp4','.webm':'video/webm','.mkv':'video/x-matroska','.mov':'video/quicktime','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'}[ext]
+      if (m) mime = m
+    }
+    var bin = atob(r.data), bytes = new Uint8Array(bin.length)
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    var blob = new Blob([bytes], { type: mime })
+    var url = URL.createObjectURL(blob)
+    _previewFileUrl = url
+    if (!_previewAlive) { URL.revokeObjectURL(url); return }
+    if (isVideo) {
+      vid.src = url
+      vid.style.display = ''
+    } else {
+      img.src = url
+      img.style.display = ''
+    }
+  })
+  // Load metadata (async — guard with _previewAlive)
+  window.w2gp.readFileMetadata(filePath).then(function(meta) {
+    if (!_previewAlive) return
+    var el = $('previewMetaContent'); var toggle = $('previewMetaToggle')
+    if (meta && Object.keys(meta).length) {
+      el.textContent = JSON.stringify(meta, null, 2)
+    } else {
+      window.w2gp.readFileMetadataPython(filePath).then(function(pyMeta) {
+        if (!_previewAlive) return
+        if (pyMeta && Object.keys(pyMeta).length) {
+          el.textContent = JSON.stringify(pyMeta, null, 2)
+        } else {
+          el.textContent = 'No metadata found'
+        }
+      })
+    }
+    el.classList.remove('hidden')
+    toggle.textContent = '▼'
+  })
+  $('previewOverlay').classList.remove('hidden')
+}
+
+function closePreview() {
+  _previewAlive = false
+  $('previewOverlay').classList.add('hidden')
+  if (_previewFileUrl) { URL.revokeObjectURL(_previewFileUrl); _previewFileUrl = '' }
+  $('previewImage').removeAttribute('src')
+  $('previewVideo').removeAttribute('src')
+  var v = $('previewVideo'); v.pause && v.pause()
+}
+
+function applyPreviewTransform() {
+  const el = $('previewImage').style.display !== 'none' ? $('previewImage') : $('previewVideo')
+  if (el.style.display !== 'none') {
+    el.style.transform = 'translate(' + previewPanX + 'px,' + previewPanY + 'px) scale(' + previewZoom + ')'
+  }
+}
+
+$('previewZoomIn').addEventListener('click', () => {
+  previewZoom = Math.min(previewZoom * 1.25, 10)
+  applyPreviewTransform()
+})
+$('previewZoomOut').addEventListener('click', () => {
+  previewZoom = Math.max(previewZoom * 0.8, 0.1)
+  applyPreviewTransform()
+})
+$('previewZoomReset').addEventListener('click', () => {
+  previewZoom = 1; previewPanX = 0; previewPanY = 0
+  applyPreviewTransform()
+})
+$('previewCloseBtn').addEventListener('click', closePreview)
+$('previewBackdrop').addEventListener('click', closePreview)
+
+// Mouse wheel zoom on preview body
+$('previewBody').addEventListener('wheel', function(e) {
+  e.preventDefault()
+  var delta = e.deltaY > 0 ? 0.9 : 1.1
+  previewZoom = Math.max(0.1, Math.min(10, previewZoom * delta))
+  applyPreviewTransform()
+}, { passive: false })
+
+// Pan via click-drag on image
+$('previewBody').addEventListener('mousedown', function(e) {
+  if (e.target.tagName !== 'IMG' && e.target.tagName !== 'VIDEO') return
+  if (previewZoom <= 1) return
+  previewDrag = true
+  previewDragStartX = e.clientX
+  previewDragStartY = e.clientY
+  previewDragPanX = previewPanX
+  previewDragPanY = previewPanY
+  e.target.classList.add('dragging')
+  e.preventDefault()
+})
+window.addEventListener('mousemove', function(e) {
+  if (!previewDrag) return
+  previewPanX = previewDragPanX + (e.clientX - previewDragStartX)
+  previewPanY = previewDragPanY + (e.clientY - previewDragStartY)
+  applyPreviewTransform()
+})
+window.addEventListener('mouseup', function() {
+  if (!previewDrag) return
+  previewDrag = false
+  var el = $('previewImage').style.display !== 'none' ? $('previewImage') : $('previewVideo')
+  el.classList.remove('dragging')
+})
+
+// Metadata toggle
+$('previewMetaToggle').addEventListener('click', function() {
+  var content = $('previewMetaContent')
+  content.classList.toggle('hidden')
+  this.textContent = content.classList.contains('hidden') ? '▶' : '▼'
+})
+
+// Keyboard: Escape to close
+window.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && !$('previewOverlay').classList.contains('hidden')) closePreview()
+})
 
 // ── Server restart overlay ──
 function showRestartOverlay(exitCode) {
@@ -680,6 +1200,7 @@ $('restartNowBtn').addEventListener('click', async () => {
     $('serverRestartOverlay').classList.add('hidden')
     var wv = $('wangpView')
     wv.src = result.url
+    setTimeout(() => injectWebviewDropHandler(), 2500)
   } catch(e) {
     $('restartTitle').textContent = 'Restart failed'
     $('restartMessage').textContent = e.message
@@ -696,9 +1217,34 @@ $('restartDashboardBtn').addEventListener('click', async () => {
 
 // ── Settings ──
 $('settingsBackBtn').addEventListener('click',closeSettings)
-$('settingsUpdateBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Updating...\n'; try{ await window.w2gp.update(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
-$('settingsUpgradeBtn').addEventListener('click',async()=>{ $('settingsLog').textContent='Upgrading...\n'; try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
 $('settingsReinstallBtn').addEventListener('click',async()=>{ if(!confirm('Re-run the full installer?'))return; $('settingsLog').textContent='Reinstalling...\n'; try{ await window.w2gp.install(selectedEnvType); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) } })
+$('settingsUninstallEnvBtn').addEventListener('click',async()=>{
+  const active = await window.w2gp.manageActive()
+  if (!active || !confirm('Uninstall the active environment \"' + active + '\"? The Wan2GP installation (repos, config, models) will be kept.')) return
+  $('settingsLog').textContent='Uninstalling environment...\n'
+  try {
+    const r = await window.w2gp.uninstallEnv(active)
+    if (r.error) throw new Error(r.error)
+    log($('settingsLog'),'\n[*] Environment uninstalled.')
+    refreshDashboard()
+  } catch(e) { log($('settingsLog'),'\n[!] '+e.message) }
+})
+$('settingsUninstallWangpBtn').addEventListener('click',async()=>{
+  // Native dialogs in main.js handle backup and keep/delete prompts
+  $('settingsLog').textContent='Uninstalling Wan2GP...\n'
+  try {
+    const r = await window.w2gp.uninstallWangp()
+    if (r.error) throw new Error(r.error)
+    if (r.cancelled) { log($('settingsLog'),'\n[*] Cancelled.'); return }
+    log($('settingsLog'),'\n[*] Wan2GP uninstalled.')
+    refreshDashboard()
+  } catch(e) { log($('settingsLog'),'\n[!] '+e.message) }
+})
+
+$('settingsUpgradeBtn').addEventListener('click',async()=>{
+  $('settingsLog').textContent='Upgrade running...\n'
+  try{ await window.w2gp.upgrade(); log($('settingsLog'),'\n[*] Done'); refreshDashboard() }catch(e){ log($('settingsLog'),'\n[!] '+e.message) }
+})
 
 // ── GitHub token config in settings ──
 $('tokenSaveBtn')?.addEventListener('click', async () => {
@@ -733,13 +1279,16 @@ window.w2gp.onUpdateStatus((status) => {
       break
     case 'available':
       updateState = status
-      $('updateText').textContent = `v${status.version} available`
-      $('updateDownloadBtn').classList.remove('hidden')
+      // autoDownload is on — download starts immediately, show progress
+      $('updateText').textContent = `v${status.version} — downloading...`
+      $('updateDownloadBtn').classList.add('hidden')
       $('updateInstallBtn').classList.add('hidden')
-      $('updateActions').classList.remove('hidden')
-      $('updateProgress').classList.add('hidden')
+      $('updateActions').classList.add('hidden')
+      $('updateProgress').classList.remove('hidden')
+      $('progressFill').style.width = '0%'
+      $('progressText').textContent = '0%'
       $('updateBanner').classList.remove('hidden')
-      $('updateDismissBtn').classList.remove('hidden')
+      $('updateDismissBtn').classList.add('hidden')
       break
     case 'up-to-date':
       $('updateText').textContent = 'Up to date ✓'
@@ -786,10 +1335,11 @@ window.w2gp.onUpdateStatus((status) => {
   }
 })
 
-$('updateCheckBtn').addEventListener('click', () => {
-  $('updateCheckBtn').disabled = true; $('updateCheckBtn').textContent = 'Checking...'
-  window.w2gp.checkUpdate()
-  setTimeout(() => { $('updateCheckBtn').disabled = false; $('updateCheckBtn').textContent = '⬆ Check Updates' }, 10000)
+$('updateCheckBtn').addEventListener('click', (e) => {
+  $('updateCheckBtn').disabled = true
+  $('updateCheckBtn').textContent = e.shiftKey ? 'Local test...' : 'Checking...'
+  window.w2gp.checkUpdate(e.shiftKey ? { local: true } : undefined)
+  setTimeout(() => { $('updateCheckBtn').disabled = false; $('updateCheckBtn').textContent = '⬆ Check Desktop Updates' }, 10000)
 })
 
 $('updateDownloadBtn').addEventListener('click', () => window.w2gp.downloadUpdate())

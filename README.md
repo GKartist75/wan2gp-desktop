@@ -1,6 +1,6 @@
 # Wan2GP Desktop
 
-Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the video generation AI toolkit. **Uses 0 MB VRAM — all GPU memory stays free for generation.**
+Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the video generation AI toolkit.
 
 [![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)]()
@@ -9,6 +9,20 @@ Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the vi
 ---
 
 > **Pre-release / Test version** — Hi all, thanks for all your feedback. Even though I've tested this thoroughly and it has been running without issues for the past few days, some users are still bumping into a few bugs or points of confusion in practice. Therefore, I'm marking this as a pre-release / test version first. If you'd like to test it out and find any issues, please let me know!
+
+## ⚠ Disclaimer
+
+This is a **test build** intended for development and testing purposes only. It may contain bugs, incomplete features, or stability issues. Not recommended for production use. Use at your own risk.
+
+## What is this?
+
+Wan2GP Desktop is a **wrapper around Wan2GP** — it doesn't replace or modify Wan2GP itself. All generation, model loading, and UI rendering is done by Wan2GP's own Gradio server. The desktop app adds:
+
+- **Install** — one-click clone, GPU detection, env creation, correct PyTorch/attention kernel selection
+- **Maintain** — update, upgrade components, reinstall, auto-restart on crash, backup plugins/finetunes before wipe
+- **Use** — embedded webview with Wan2GP's native UI, output file sidebar with preview/metadata/drag-into-settings, real-time terminal output, hardware-tuned default config (attention mode, profile, compile)
+
+Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — works exactly as it does when run standalone.
 
 ## Features
 
@@ -138,7 +152,7 @@ wan2gp-desktop/
 **Zero VRAM for Electron** — all GPU memory reserved for Wan2GP generation.
 
 - `app.disableHardwareAcceleration()` forces Electron to use SwiftShader (CPU software rendering).
-- Electron + webview consume **0 MB VRAM** — all GPU RAM goes to the Python process.
+- Electron + webview use software rendering — no GPU VRAM overhead for the desktop shell itself.
 - Webview rendering is imperceptibly slower (Gradio UI is mostly static between generations).
 
 ### v1.2.1 — 2026-07-03
@@ -387,3 +401,9 @@ This project was built across two development sessions. Here's the full timeline
 ## License
 
 MIT
+
+## Testing & Feedback
+
+Special thanks to everyone who tested v1.2.7 beta builds and reported issues that directly shaped this release. Your feedback on freezes, crashes, and usability made the desktop launcher significantly more stable.
+
+Want to help test future builds? Join the [Wan2GP Discord](https://discord.gg/wan2gp).
