@@ -8,6 +8,8 @@ Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the vi
 
 ---
 
+> **Pre-release / Test version** — Hi all, thanks for all your feedback. Even though I've tested this thoroughly and it has been running without issues for the past few days, some users are still bumping into a few bugs or points of confusion in practice. Therefore, I'm marking this as a pre-release / test version first. If you'd like to test it out and find any issues, please let me know!
+
 ## Features
 
 - **One-click install** — clones Wan2GP, creates env, detects GPU, installs correct PyTorch/CUDA/ROCm + attention kernels automatically
