@@ -113,15 +113,14 @@ wan2gp-desktop/
 
 ### v1.2.7 — 2026-07-04
 
-#### Issues Solved
-- **Preview close freeze** — execSync Python spawn blocked main process for 1-2s. Fixed: replaced with async exec() wrapped in Promise. Main process stays responsive during metadata loading
-- **Async callback race condition** — After user closed preview, late IPC responses set img.src to 13MB data URL, freezing Chromium render thread. Fixed: _previewAlive flag drops all stale callbacks after close
-- **Massive data URLs** — data: URLs embedded entire file as base64 inline (13MB), causing synchronous parsing freeze. Fixed: switched to URL.createObjectURL(blob) for both images and videos
-- **Unbounded thumbnail memory leak** — thumbCache stored full data: URLs for every file. 50+ AI images = 250-500MB permanently retained. Fixed: LRU cache capped at 20 entries, blob URLs instead of data URLs, evicted entries properly revoked
-- **h265 video / WebSocket crashes** — app.disableHardwareAcceleration() disabled GPU decode and caused connection drops. Fixed: removed the flag
-- **Thumbnail load storm** — 200 concurrent fs.readFileSync IPC calls on each sidebar refresh froze main process. Fixed: throttled to 5 at a time, 100ms apart
-- **Sidebar auto-poll** — setInterval(refreshSidebar, 3000) caused 3s flash and 200x IPC flood. Fixed: removed auto-poll entirely, replaced with fs.watch + manual Reload button
-- **dragover getData() blocked** — Security spec returns empty string during dragover. Fixed: use e.dataTransfer.types array instead
+#### Dashboard & Installer Improved
+- Desktop App info card with version, commit hash, repo link
+- Model Folders card with checkpoint + LoRA paths and edit buttons
+- Clearer button labels: Launch Wan2GP in Desktop, Launch Wan2GP in Browser, Check Desktop Updates
+- Removed redundant Refresh from Environments card
+- Check Updates moved to center action grid
+- Desktop App card restyled to match Wan2GP Updates format
+- Dark theme default with white-flash prevention
 
 #### Installer Improved
 - NSIS Welcome page shows app description, no license/agreement page
@@ -132,15 +131,6 @@ wan2gp-desktop/
 - Shift+click for local update testing
 - Uninstall Wan2GP with native dialogs for backup + keep/delete prompts, cancel at any step
 - Uninstall Environment removes venv only, keeps repo/data
-
-#### Dashboard Improved
-- Desktop App info card with version, commit hash, repo link
-- Model Folders card with checkpoint + LoRA paths and edit buttons
-- Clearer button labels: Launch Wan2GP in Desktop, Launch Wan2GP in Browser, Check Desktop Updates
-- Removed redundant Refresh from Environments card
-- Check Updates moved to center action grid
-- Desktop App card restyled to match Wan2GP Updates format
-- Dark theme default with white-flash prevention
 
 #### Enhanced Functionality
 - **Output sidebar** — collapsible left panel with folder navigation, file list with thumbnails, folder browse
@@ -154,6 +144,17 @@ wan2gp-desktop/
 - **Maximized window** on launch
 - **Drag-drop prep** — synthetic DragEvent('drop') on Gradio native Upload component (code ready, disabled for later testing)
 
+#### Issues Solved
+
+#### Issues Solved
+- **Preview close freeze** — execSync Python spawn blocked main process for 1-2s. Fixed: replaced with async exec() wrapped in Promise. Main process stays responsive during metadata loading
+- **Async callback race condition** — After user closed preview, late IPC responses set img.src to 13MB data URL, freezing Chromium render thread. Fixed: _previewAlive flag drops all stale callbacks after close
+- **Massive data URLs** — data: URLs embedded entire file as base64 inline (13MB), causing synchronous parsing freeze. Fixed: switched to URL.createObjectURL(blob) for both images and videos
+- **Unbounded thumbnail memory leak** — thumbCache stored full data: URLs for every file. 50+ AI images = 250-500MB permanently retained. Fixed: LRU cache capped at 20 entries, blob URLs instead of data URLs, evicted entries properly revoked
+- **h265 video / WebSocket crashes** — app.disableHardwareAcceleration() disabled GPU decode and caused connection drops. Fixed: removed the flag
+- **Thumbnail load storm** — 200 concurrent fs.readFileSync IPC calls on each sidebar refresh froze main process. Fixed: throttled to 5 at a time, 100ms apart
+- **Sidebar auto-poll** — setInterval(refreshSidebar, 3000) caused 3s flash and 200x IPC flood. Fixed: removed auto-poll entirely, replaced with fs.watch + manual Reload button
+- **dragover getData() blocked** — Security spec returns empty string during dragover. Fixed: use e.dataTransfer.types array instead
 
 ### v1.2.6 — 2026-07-04
 
