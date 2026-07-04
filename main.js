@@ -6,8 +6,9 @@ const net = require('net')
 const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
-// Ponytail: zero VRAM — Electron uses SwiftShader by default, no need to force-disable GPU.
-// Keeping GPU enabled lets webview hardware-decode h265. VRAM usage stays ~0 MB.
+// Ponytail: software rendering = zero VRAM for Electron. GPU reserved for Python process.
+app.disableHardwareAcceleration()
+
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
 // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
@@ -33,14 +34,7 @@ function getDataDir() {
 }
 
 function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
-function getRepoDir() {
-  const d = getDataDir()
-  const nd = path.join(d, 'Repo_Wan2GP')
-  // ponytail: absorb old-style repo/ directory for upgrade path
-  if (!fs.existsSync(path.join(nd, 'wgp.py')) && fs.existsSync(path.join(d, 'repo', 'wgp.py')))
-    return path.join(d, 'repo')
-  return nd
-}
+function getRepoDir() { return path.join(getDataDir(), 'Repo_Wan2GP') }
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
 
 const PLATFORM = process.platform
@@ -50,7 +44,6 @@ let mainWin = null, wangpProc = null, setupProc = null
 let isViewerActive = false
 let userStoppedProcess = false
 let restartAttempts = 0
-let _reinstallBackups = {} // ponytail: restored after clone in install handler
 const MAX_RESTART_ATTEMPTS = 3
 
 function sysPython() {
@@ -240,14 +233,6 @@ ipcMain.handle('install', async (_, envType) => {
     })
     send('setup-output', '[*] Repository cloned.\n')
     send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
-    // ponytail: restore user-backed-up dirs after fresh clone
-    for (const [dir, tmp] of Object.entries(_reinstallBackups)) {
-      const dst = path.join(getRepoDir(), dir)
-      if (fs.existsSync(tmp) && !fs.existsSync(dst)) {
-        try { fs.renameSync(tmp, dst); send('setup-output', `[*] Restored ${dir}/ from backup\n`) } catch {}
-      }
-    }
-    _reinstallBackups = {}
   } else {
     send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
   }
@@ -267,16 +252,6 @@ ipcMain.handle('install', async (_, envType) => {
 ipcMain.handle('reinstall', async () => {
   // Remove repo and envs so fresh install runs clean
   send('setup-output', '[*] Removing existing installation...\n')
-  // ponytail: backup user-created dirs (finetune, plugin, default) before wipe
-  const USER_DIRS = ['finetune', 'plugin', 'default']
-  _reinstallBackups = {}
-  for (const dir of USER_DIRS) {
-    const src = path.join(getRepoDir(), dir)
-    if (fs.existsSync(src)) {
-      const tmp = path.join(app.getPath('temp'), `w2gp-backup-${dir}-${Date.now()}`)
-      try { fs.renameSync(src, tmp); _reinstallBackups[dir] = tmp } catch {}
-    }
-  }
   const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
   try { execSync(`${rmCmd} "${getRepoDir()}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
   try { execSync(`${rmCmd} "${getEnvsFile()}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
@@ -328,6 +303,7 @@ ipcMain.handle('launch', async () => {
   wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
     cwd: getRepoDir(),
     stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
     windowsHide: true
   })
 
@@ -340,7 +316,8 @@ ipcMain.handle('launch', async () => {
     wangpProc = null
     send('wangp-exit', code)
     if (isViewerActive && !userStoppedProcess) {
-      send('launch-log', `[!] Wan2GP exited (code ${code}). Click "Try Again" to restart.\n`)
+      send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
+      setTimeout(() => restartWan2GP(), 1500)
     }
   })
 
@@ -465,14 +442,7 @@ ipcMain.handle('get-install-paths', () => ({
 
 ipcMain.handle('get-data-dir', () => getDataDir())
 ipcMain.handle('set-data-dir', (_, dir) => {
-  const oldDir = getDataDir()
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
-  // ponytail: move existing repo to new location instead of leaving orphan
-  const oldRepo = path.join(oldDir, 'Repo_Wan2GP')
-  const newRepo = path.join(dir, 'Repo_Wan2GP')
-  if (oldDir !== dir && fs.existsSync(oldRepo) && !fs.existsSync(newRepo)) {
-    try { fs.renameSync(oldRepo, newRepo) } catch {}
-  }
   // Redirect Electron runtime cache to new location
   try {
     const ed = path.join(dir, '.electron')
@@ -490,24 +460,10 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
       cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     }
   } catch {}
-  // ponytail: auto-detect existing model dirs so user doesn't have to browse
-  if (!checkpointsPaths) {
-    const candidates = [path.join(getRepoDir(), 'models'), path.join(getRepoDir(), '..', 'models')]
-    for (const dir of candidates) {
-      const abs = path.resolve(dir)
-      if (fs.existsSync(abs)) { checkpointsPaths = [abs, '.']; break }
-    }
-  }
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
   if (lorasRoot) cfg.loras_root = lorasRoot
-  // Auto-save all generated media to disk
-  cfg.save_path = path.join(getDataDir(), 'outputs')
-  cfg.image_save_path = cfg.save_path
-  cfg.audio_save_path = cfg.save_path
   // Enable real-time RAM/VRAM stats display in Wan2GP UI
   if (cfg.display_stats === undefined || cfg.display_stats === 0) cfg.display_stats = 1
-  // ponytail: ensure all tensors default to cuda:0, prevents device mismatch errors
-  cfg.device = 'cuda:0'
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
   return true
 })
@@ -760,6 +716,7 @@ async function restartWan2GP() {
     wangpProc = spawn(py, ['wgp.py', '--server-port', String(port)], {
       cwd: getRepoDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '0', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
       windowsHide: true
     })
 
@@ -770,7 +727,8 @@ async function restartWan2GP() {
       wangpProc = null
       send('wangp-exit', code)
       if (isViewerActive && !userStoppedProcess) {
-        send('launch-log', `[!] Wan2GP exited (code ${code}). Click "Try Again" to restart.\n`)
+        send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
+        setTimeout(() => restartWan2GP(), 1500)
       }
     })
 
