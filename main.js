@@ -41,6 +41,8 @@ const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
 let mainWin = null, wangpProc = null, setupProc = null
+let _currentPort = 17861 // tracked across launches/restarts
+let _termLogBuffer = [] // buffer for terminal window init
 let isViewerActive = false
 let userStoppedProcess = false
 let restartAttempts = 0
@@ -53,18 +55,81 @@ function sysPython() {
   } catch { return IS_WIN ? 'python' : 'python3' }
 }
 
-function send(ch, data) { mainWin?.webContents.send(ch, data) }
+function send(ch, data) {
+  mainWin?.webContents.send(ch, data)
+  // Forward to floating terminal window if open
+  if (termWin && !termWin.isDestroyed()) {
+    try { termWin.webContents.send(ch, data) } catch {}
+  }
+  // Buffer launch logs for terminal window
+  if (ch === 'launch-log' || ch === 'setup-output') {
+    if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
+      _termLogBuffer.push(data)
+      if (_termLogBuffer.length > 2000) _termLogBuffer.splice(0, _termLogBuffer.length - 2000)
+    }
+  }
+}
 
 function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch {}
-  return { githubToken: '', defaultBrowser: '', theme: 'dark' }
+  return { githubToken: '', defaultBrowser: '', theme: 'dark', serverPort: 17861 }
 }
 
 function saveConfig(cfg) {
   fs.mkdirSync(getDataDir(), { recursive: true })
   fs.writeFileSync(getConfigFile(), JSON.stringify(cfg, null, 2))
+}
+
+// ── Read PNG comment chunk (handles tEXt, zTXt, iTXt) ──
+function readPngComment(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    const sig = Buffer.alloc(8); fs.readSync(fd, sig, 0, 8, 0)
+    if (sig.toString('hex') !== '89504e470d0a1a0a') { fs.closeSync(fd); return null }
+    let offset = 8
+    while (true) {
+      const h = Buffer.alloc(8)
+      if (fs.readSync(fd, h, 0, 8, offset) < 8) break
+      const len = h.readUInt32BE(0), type = h.toString('ascii', 4, 8)
+      offset += 8
+      if (type === 'IEND') break
+      if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
+        const data = Buffer.alloc(len); fs.readSync(fd, data, 0, len, offset)
+        const nullIdx = data.indexOf(0) // end of keyword
+        if (nullIdx < 0) { offset += len + 4; continue }
+        const keyword = data.toString('utf8', 0, nullIdx)
+        if (keyword !== 'comment' && keyword !== 'Description' && keyword !== 'parameters') {
+          offset += len + 4; continue
+        }
+        let textStart = nullIdx + 1
+        if (type === 'iTXt') {
+          textStart = nullIdx + 1 + 2 // skip flag + method
+          const langEnd = data.indexOf(0, textStart)
+          if (langEnd < 0) { offset += len + 4; continue }
+          textStart = langEnd + 1
+          const transEnd = data.indexOf(0, textStart)
+          if (transEnd < 0) { offset += len + 4; continue }
+          textStart = transEnd + 1
+        } else if (type === 'zTXt') {
+          textStart = nullIdx + 1 + 1 // skip compression method
+        }
+        let text
+        if (type === 'zTXt') {
+          try { text = require('zlib').unzipSync(data.slice(textStart)).toString('utf8') } catch { text = data.toString('utf8', textStart) }
+        } else {
+          text = data.toString('utf8', textStart)
+        }
+        fs.closeSync(fd)
+        try { return JSON.parse(text) } catch {}
+        return { text, _raw_comment: text }
+      }
+      offset += len + 4
+    }
+    fs.closeSync(fd)
+  } catch {}
+  return null
 }
 
 // ── TCP port check ──
@@ -90,6 +155,20 @@ function waitForPort(host, port, timeoutMs = 180000) {
   })
 }
 
+// Find a free port starting from startPort (increments if occupied)
+function findFreePort(startPort) {
+  return new Promise((resolve) => {
+    const server = require('net').createServer()
+    server.listen(startPort, '127.0.0.1', () => {
+      const port = server.address().port
+      server.close(() => resolve(port))
+    })
+    server.on('error', () => {
+      resolve(findFreePort(startPort + 1))
+    })
+  })
+}
+
 // ── Wan2GP Upstream Version Check ──
 const WAN2GP_UPSTREAM = 'deepbeepmeep/Wan2GP'
 
@@ -103,20 +182,35 @@ function getLocalWangpHead() {
   } catch { return null }
 }
 
-function fetchUrl(url) {
+function fetchUrl(url, opts = {}) {
+  const { method, body, headers, timeout } = opts
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'wan2gp-desktop' }, timeout: 10000 }, (res) => {
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        reject(new Error(`HTTP ${res.statusCode} for ${url}`))
-        res.resume()
-        return
-      }
+    const parsed = new URL(url)
+    const mod = parsed.protocol === 'https:' ? https : http
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: method || 'GET',
+      headers: { 'User-Agent': 'wan2gp-desktop', ...headers },
+      timeout: timeout || 15000
+    }
+    if (body) options.headers['Content-Length'] = Buffer.byteLength(body)
+    const req = mod.request(options, (res) => {
       let data = ''
       res.on('data', chunk => data += chunk)
-      res.on('end', () => resolve(data))
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+        } else {
+          try { resolve(JSON.parse(data)) } catch { resolve(data) }
+        }
+      })
     })
     req.on('error', reject)
     req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
+    if (body) req.write(body)
+    req.end()
   })
 }
 
@@ -336,12 +430,34 @@ ipcMain.handle('launch', async () => {
   const py = getPythonForEnv(env)
   if (!py) throw new Error('Cannot find python for env')
 
-  const port = 17861
+  // Kill old process before spawning new one (prevents stale exit handler race)
+  if (wangpProc) {
+    userStoppedProcess = true
+    wangpProc.kill('SIGKILL')
+    wangpProc = null
+    userStoppedProcess = false
+  }
+  restartAttempts = 0
+
+  const cfg = loadConfig()
+  let preferredPort = cfg.serverPort || 7860
+  // Check launchArgs for port override
+  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
+  for (let i = 0; i < extraArgs.length; i++) {
+    if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
+      preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
+    }
+  }
+  const port = await findFreePort(preferredPort)
+  if (port !== preferredPort) {
+    send('launch-log', `[*] Port ${preferredPort} in use, using ${port} instead.\n`)
+  }
+  _currentPort = port
   send('launch-log', '[*] Starting Wan2GP...\n')
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
 
-  wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port)], {
+  wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port), ...extraArgs], {
     cwd: getRepoDir(),
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1', GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '1', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
@@ -565,6 +681,10 @@ ipcMain.handle('open-external', (_, url) => {
   if (typeof url !== 'string' || !url.startsWith('http')) return
   try { new URL(url) } catch { return }
   shell.openExternal(url)
+})
+
+ipcMain.handle('open-task-manager', () => {
+  try { require('child_process').exec('taskmgr.exe') } catch {}
 })
 
 // ── Browser detection ──
@@ -851,6 +971,10 @@ function startOutputWatcher() {
     })
   } catch {}
 }
+function stopOutputWatcher() {
+  if (outputWatchDebounce) { clearTimeout(outputWatchDebounce); outputWatchDebounce = null }
+  if (outputWatcher) { outputWatcher.close(); outputWatcher = null }
+}
 
 // ── Copy files to output directory (dropped by user) ──
 ipcMain.handle('copy-files-to-output', (_, filePaths) => {
@@ -899,17 +1023,21 @@ ipcMain.handle('list-output-files', (_, subdir) => {
       if (!e.isFile()) return false
       const ext = path.extname(e.name).toLowerCase()
       return IMG_EXTS.has(ext) || VID_EXTS.has(ext)
-    }).sort((a, b) => fs.statSync(path.join(dir, b.name)).mtimeMs - fs.statSync(path.join(dir, a.name)).mtimeMs).slice(0, 200).map(e => ({
-      name: e.name,
-      path: path.join(dir, e.name),
-      type: IMG_EXTS.has(path.extname(e.name).toLowerCase()) ? 'image' : 'video'
-    }))
+    }).sort((a, b) => fs.statSync(path.join(dir, b.name)).mtimeMs - fs.statSync(path.join(dir, a.name)).mtimeMs).slice(0, 200).map(e => {
+      const st = fs.statSync(path.join(dir, e.name))
+      return {
+        name: e.name,
+        path: path.join(dir, e.name),
+        type: IMG_EXTS.has(path.extname(e.name).toLowerCase()) ? 'image' : 'video',
+        mtime: st.mtimeMs
+      }
+    })
     return { dir, files, folders }
   } catch { return { dir, files: [], folders: [] } }
 })
 
 ipcMain.handle('delete-files', (_, filePaths) => {
-  if (!Array.isArray(filePaths)) return false
+  if (!Array.isArray(filePaths)) return {ok: false}
   for (const fp of filePaths) {
     try {
       if (fs.existsSync(fp)) fs.rmSync(fp)
@@ -921,7 +1049,7 @@ ipcMain.handle('delete-files', (_, filePaths) => {
       }
     } catch {}
   }
-  return true
+  return {ok: true}
 })
 
 ipcMain.handle('set-output-path', async () => {
@@ -942,17 +1070,236 @@ ipcMain.handle('set-output-path', async () => {
   return newDir
 })
 
+ipcMain.handle('stop-output-watcher', () => { stopOutputWatcher() })
+ipcMain.handle('start-output-watcher', () => { startOutputWatcher() })
+
 // ── Read file metadata via WanGP's own Python (handles PNG/JPEG/MP4/MKV/audio) ──
 // ── Read file metadata via WanGP's own Python (handles PNG/JPEG/MP4/MKV/audio) ──
+// ── Legacy Python metadata reader (called by renderer fallback) ──
 ipcMain.handle('read-file-metadata-python', async (_, filePath) => {
-  const env = getActiveEnv()
-  if (!env) return null
-  const py = getPythonForEnv(env)
-  if (!py) return null
-  const repo = getRepoDir()
-  // Write a small Python helper to temp and run it (async, doesn't block main process)
-  const helperPath = path.join(getDataDir(), '.meta_reader.py')
-  const helperCode = `import sys, json
+  // Forward to the unified handler
+  const { ipcMain } = require('electron')
+  // We can't easily invoke ourselves, so replicate the Tier 3-4 logic
+  // Tier 3: lightweight Python reader
+  try {
+    const lightMeta = await _runMetaReader('python', filePath, __dirname)
+    if (lightMeta && Object.keys(lightMeta).length) return lightMeta
+  } catch {}
+  try {
+    const lightMeta3 = await _runMetaReader('python3', filePath, __dirname)
+    if (lightMeta3 && Object.keys(lightMeta3).length) return lightMeta3
+  } catch {}
+  // Tier 4: full Wan2GP env
+  try {
+    const env = getActiveEnv()
+    if (env) {
+      const py = getPythonForEnv(env)
+      const repo = getRepoDir()
+      if (py && repo) {
+        const helperPath = path.join(getDataDir(), '.meta_reader_wgp.py')
+        const helperCode = `import sys, json, os
+sys.path.insert(0, sys.argv[1])
+from wgp import get_settings_from_file
+fp = sys.argv[2]
+ext = os.path.splitext(fp)[1].lower()
+configs, any_video, any_audio = get_settings_from_file({'model_type': None}, fp, True, True, True, skip_validate_settings=True) or (None, False, False)
+if configs:
+    for k in list(configs.keys()):
+        if isinstance(configs[k], (dict, list, str, int, float, bool, type(None))): continue
+        del configs[k]
+# ── Phase 4: ALWAYS try to capture the raw comment JSON text ──
+_raw = None
+try:
+    if ext == '.png':
+        from PIL import Image
+        with Image.open(fp) as img:
+            _raw = (getattr(img, 'text', {}) or {}).get('comment', '') or img.info.get('comment', '')
+    elif ext in ('.jpg','.jpeg','.webp'):
+        try:
+            import piexif
+            exif = piexif.load(fp)
+            uc = exif.get('Exif', {}).get(piexif.ExifIFD.UserComment)
+            if uc:
+                _raw = uc.decode('utf-8', errors='replace').strip('\\x00').strip()
+        except:
+            from PIL import Image
+            with Image.open(fp) as img:
+                if hasattr(img, '_getexif'):
+                    exif = img._getexif()
+                    if exif and 37510 in exif:
+                        uc = exif[37510]
+                        if isinstance(uc, bytes):
+                            _raw = uc.decode('utf-8', errors='replace').strip('\\x00').strip()
+                        else:
+                            _raw = str(uc).strip()
+    elif ext in ('.mp4','.mkv','.mov','.webm','.avi'):
+        import subprocess
+        try:
+            probe = subprocess.run(['ffprobe','-v','quiet','-print_format','json','-show_format',fp],
+                capture_output=True, text=True, timeout=10)
+            tags = json.loads(probe.stdout).get('format',{}).get('tags',{})
+            for k in ('comment','COMMENT','description','DESCRIPTION','\\xa9cmt'):
+                v = tags.get(k)
+                if v: _raw = v; break
+        except:
+            pass
+except Exception as e:
+    sys.stderr.write('raw_commit_err: ' + str(e)[:200])
+if _raw:
+    if configs is None: configs = {}
+    configs['_raw_comment'] = _raw
+if configs:
+    sys.stdout.write('JSON_OK:' + json.dumps(configs, default=str))
+else:
+    sys.stdout.write('JSON_NULL')
+`
+        fs.writeFileSync(helperPath, helperCode)
+        const { exec } = require('child_process')
+        const envResult = await new Promise((resolve) => {
+          exec('"' + py + '" "' + helperPath + '" "' + repo + '" "' + filePath + '"',
+            { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
+            (err, stdout) => {
+              if (err) { resolve(null); return }
+              const out = stdout.trim()
+              if (out.startsWith('JSON_OK:')) {
+                try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
+              } else { resolve(null) }
+            }
+          )
+        })
+        if (envResult && Object.keys(envResult).length) return envResult
+      }
+    }
+  } catch {}
+  return null
+})
+
+// ── Unified metadata reader: tries sidecar → Node.js PNG → lightweight Python → full Wan2GP env ──
+// Lightweight Python reader path (no Wan2GP env required)
+const _metaReaderScript = path.join(__dirname, 'renderer', 'read_metadata.py')
+
+function _runMetaReader(py, filePath, cwd) {
+  return new Promise((resolve) => {
+    const { exec } = require('child_process')
+    exec('"' + py + '" "' + _metaReaderScript + '" "' + filePath + '"',
+      { cwd: cwd || __dirname, timeout: 15000, windowsHide: true, encoding: 'utf8' },
+      (err, stdout) => {
+        if (err) { resolve(null); return }
+        const out = stdout.trim()
+        if (out.startsWith('META_OK:')) {
+          try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
+        } else if (out.startsWith('JSON_OK:')) {
+          try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
+        } else {
+          resolve(null)
+        }
+      }
+    )
+  })
+}
+
+// Wan2GP metadata keys used to validate brute-force JSON hits
+const _wan2gpKeys = ['prompt','seed','model_type','model_filename','num_inference_steps','guidance_scale','negative_prompt','resolution','video_length','loras','type']
+
+// Brute-force binary JSON scan — works on ANY file format, no dependencies
+function scanBufferForJson(buf) {
+  const results = []
+  const maxScan = Math.min(buf.length, 5 * 1024 * 1024)
+  for (let pos = 0; pos < maxScan; pos++) {
+    if (buf[pos] !== 0x7b) continue // look for '{'
+    // Find matching '}'
+    let depth = 1, inStr = false, esc = false
+    for (let end = pos + 1; end < maxScan && end < pos + 100000; end++) {
+      const c = buf[end]
+      if (esc) { esc = false; continue }
+      if (c === 0x5c) { esc = true; continue } // backslash
+      if (c === 0x22) { inStr = !inStr; continue } // double quote
+      if (inStr) continue
+      if (c === 0x7b) depth++
+      else if (c === 0x7d) depth--
+      if (depth === 0) {
+        try {
+          const slice = buf.toString('utf8', pos, end + 1)
+          const parsed = JSON.parse(slice)
+          if (parsed && typeof parsed === 'object') {
+            // Validate: must have at least 2 Wan2GP-typical keys
+            const matchKeys = _wan2gpKeys.filter(k => parsed[k] !== undefined && parsed[k] !== null)
+            if (matchKeys.length >= 2) {
+              parsed._raw_comment = slice.substring(0, 5000)
+              results.push(parsed)
+            }
+          }
+        } catch {}
+        break
+      }
+    }
+  }
+  return results
+}
+
+function scanFileForJson(filePath) {
+  const fd = fs.openSync(filePath, 'r')
+  const size = fs.statSync(filePath).size
+  const chunkSize = Math.min(5 * 1024 * 1024, size)
+  try {
+    // Read head
+    const head = Buffer.alloc(chunkSize)
+    fs.readSync(fd, head, 0, chunkSize, 0)
+    let hits = scanBufferForJson(head)
+    if (hits.length) return hits[0]
+    // Read tail if file > 5MB
+    if (size > chunkSize) {
+      const tail = Buffer.alloc(chunkSize)
+      fs.readSync(fd, tail, 0, chunkSize, size - chunkSize)
+      hits = scanBufferForJson(tail)
+      if (hits.length) return hits[0]
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+  return null
+}
+
+ipcMain.handle('read-file-metadata', async (_, filePath) => {
+  const ext = path.extname(filePath).toLowerCase()
+  // Tier 1: sidecar files (fastest)
+  try {
+    const sidecar = filePath + '.json'
+    if (fs.existsSync(sidecar)) return JSON.parse(fs.readFileSync(sidecar, 'utf8'))
+    const txtSidecar = filePath.replace(ext, '.txt')
+    if (fs.existsSync(txtSidecar)) return { prompt: fs.readFileSync(txtSidecar, 'utf8').trim() }
+  } catch {}
+  // Tier 2: PNG chunk reader (targeted, handles iTXt/zTXt/tEXt)
+  if (ext === '.png') {
+    try {
+      const pngMeta = readPngComment(filePath)
+      if (pngMeta && Object.keys(pngMeta).length) return pngMeta
+    } catch {}
+  }
+  // Tier 3: brute-force binary JSON scan (ANY format, no deps)
+  // Reads first/last 5MB, finds {..} blocks, validates against Wan2GP keys
+  try {
+    const scanMeta = scanFileForJson(filePath)
+    if (scanMeta && Object.keys(scanMeta).length) return scanMeta
+  } catch {}
+  // Tier 4: lightweight Python reader (system Python + read_metadata.py)
+  try {
+    const lightMeta = await _runMetaReader('python', filePath, __dirname)
+    if (lightMeta && Object.keys(lightMeta).length) return lightMeta
+  } catch {}
+  try {
+    const lightMeta3 = await _runMetaReader('python3', filePath, __dirname)
+    if (lightMeta3 && Object.keys(lightMeta3).length) return lightMeta3
+  } catch {}
+  // Tier 5: full Wan2GP env Python reader (requires active environment)
+  try {
+    const env = getActiveEnv()
+    if (env) {
+      const py = getPythonForEnv(env)
+      const repo = getRepoDir()
+      if (py && repo) {
+        const helperPath = path.join(getDataDir(), '.meta_reader_wgp.py')
+        const helperCode = `import sys, json
 sys.path.insert(0, sys.argv[1])
 from wgp import get_settings_from_file
 fp = sys.argv[2]
@@ -965,30 +1312,23 @@ if configs:
 else:
     sys.stdout.write('JSON_NULL')
 `
-  try {
-    fs.writeFileSync(helperPath, helperCode)
-    const { exec } = require('child_process')
-    const result = await new Promise((resolve, reject) => {
-      exec('"' + py + '" "' + helperPath + '" "' + repo + '" "' + filePath + '"',
-        { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
-        (err, stdout) => { if (err) reject(err); else resolve(stdout.trim()) }
-      )
-    })
-    if (result.startsWith('JSON_OK:')) {
-      try { return JSON.parse(result.substring(8)) } catch {}
+        fs.writeFileSync(helperPath, helperCode)
+        const { exec } = require('child_process')
+        const envResult = await new Promise((resolve) => {
+          exec('"' + py + '" "' + helperPath + '" "' + repo + '" "' + filePath + '"',
+            { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
+            (err, stdout) => {
+              if (err) { resolve(null); return }
+              const out = stdout.trim()
+              if (out.startsWith('JSON_OK:')) {
+                try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
+              } else { resolve(null) }
+            }
+          )
+        })
+        if (envResult && Object.keys(envResult).length) return envResult
+      }
     }
-  } catch (e) { /* fallback to Node.js reader */ }
-  return null
-})
-
-ipcMain.handle('read-file-metadata', (_, filePath) => {
-  const ext = path.extname(filePath).toLowerCase()
-  try {
-    if (ext === '.png') return readPngComment(filePath)
-    const sidecar = filePath + '.json'
-    if (fs.existsSync(sidecar)) return JSON.parse(fs.readFileSync(sidecar, 'utf8'))
-    const txtSidecar = filePath.replace(ext, '.txt')
-    if (fs.existsSync(txtSidecar)) return { prompt: fs.readFileSync(txtSidecar, 'utf8').trim() }
   } catch {}
   return null
 })
@@ -1014,7 +1354,7 @@ ipcMain.handle('upload-to-gradio', (_, filePath) => {
 
       const options = {
         hostname: '127.0.0.1',
-        port: 17861,
+        port: _currentPort,
         path: '/upload',
         method: 'POST',
         headers: {
@@ -1033,11 +1373,322 @@ ipcMain.handle('upload-to-gradio', (_, filePath) => {
           } catch { resolve(null) }
         })
       })
-      req.on('error', () => resolve(null))
+      req.setTimeout(8000, () => { req.destroy(); resolve({ error: 'timeout' }) })
+      req.on('error', (e) => { resolve({ error: e.code || e.message }) })
       req.write(body)
       req.end()
-    } catch { resolve(null) }
+    } catch (e) { resolve({ error: 'read error: ' + (e.message || e) }) }
   })
+})
+
+// ── Send file to Wan2GP via Gradio API + Python API fallback ──
+function uploadFileToGradio(filePath, mime) {
+  return new Promise((resolve) => {
+    try {
+      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2)
+      const fileName = path.basename(filePath)
+      const fileData = fs.readFileSync(filePath)
+      const header = `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${fileName}"\r\nContent-Type: ${mime || 'application/octet-stream'}\r\n\r\n`
+      const footer = `\r\n--${boundary}--\r\n`
+      const body = Buffer.concat([Buffer.from(header), fileData, Buffer.from(footer)])
+
+      const options = {
+        hostname: '127.0.0.1',
+        port: _currentPort,
+        path: '/upload',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=' + boundary,
+          'Content-Length': body.length
+        }
+      }
+
+      const req = http.request(options, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data)
+            resolve(Array.isArray(parsed) ? parsed : null)
+          } catch (e) { resolve({ error: 'JSON parse: ' + (e.message || e) }) }
+        })
+      })
+      req.setTimeout(8000, () => { req.destroy(); resolve({ error: 'timeout' }) })
+      req.on('error', (e) => { resolve({ error: e.code || e.message }) })
+      req.write(body)
+      req.end()
+    } catch (e) { resolve({ error: 'read error: ' + (e.message || e) }) }
+  })
+}
+
+function readFileMetaData(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  try {
+    if (ext === '.png') return readPngComment(filePath)
+    const sidecar = filePath + '.json'
+    if (fs.existsSync(sidecar)) return JSON.parse(fs.readFileSync(sidecar, 'utf8'))
+    const txtSidecar = filePath.replace(ext, '.txt')
+    if (fs.existsSync(txtSidecar)) return { prompt: fs.readFileSync(txtSidecar, 'utf8').trim() }
+  } catch (e) { return { error: e.message } }
+  return null
+}
+
+ipcMain.handle('send-to-wangp', async (_, filePath) => {
+  console.log('[send-to-wangp] path=' + filePath + ' port=' + _currentPort)
+  try {
+    // Strategy 1: Try Gradio HTTP API (upload + predict)
+    try {
+      const gradioResult = await uploadFileToGradio(filePath)
+      console.log('[send-to-wangp] upload result:', JSON.stringify(gradioResult))
+      if (gradioResult && gradioResult.length) {
+        const fi = gradioResult[0]
+        const configText = await fetchUrl('http://127.0.0.1:' + _currentPort + '/config')
+        const config = typeof configText === 'string' ? JSON.parse(configText) : configText
+        let fileCompId = null
+        for (const c of (config.components || [])) {
+          const p = c.props || {}
+          if (p.elem_id === 'settings_file' || (c.component === 'File' && (p.label || '').includes('Settings'))) {
+            fileCompId = c.id; break
+          }
+        }
+        if (fileCompId) {
+          let fnIdx = -1
+          for (const d of (config.dependencies || [])) {
+            if ((d.inputs || []).indexOf(fileCompId) >= 0) {
+              fnIdx = d.fn_index ?? d.id ?? -1; break
+            }
+          }
+          if (fnIdx >= 0) {
+            const payload = JSON.stringify({
+              fn_index: fnIdx,
+              data: [[{ path: fi.path, name: fi.name, size: fi.size, orig_name: fi.orig_name || fi.name }]]
+            })
+            const respText = await fetchUrl('http://127.0.0.1:' + _currentPort + '/api/predict/', {
+              method: 'POST',
+              body: payload,
+              headers: { 'Content-Type': 'application/json' }
+            })
+            const resp = typeof respText === 'string' ? JSON.parse(respText) : respText
+            if (resp && resp.success !== false) {
+              return { success: true, method: 'gradio-api' }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[send-to-wangp] Gradio API failed:', e.message)
+    }
+
+    // Strategy 2: Python API via Wan2GP's load_settings_from_file
+    try {
+      const env = getActiveEnv()
+      if (env) {
+        const py = getPythonForEnv(env)
+        if (py) {
+          const helper = path.join(__dirname, 'renderer', 'send_settings.py')
+          const repo = getRepoDir()
+          const { exec } = require('child_process')
+          const pyResult = await new Promise((resolve, reject) => {
+            exec('"' + py + '" "' + helper + '" "' + repo + '" "' + filePath + '" ' + _currentPort,
+              { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
+              (err, stdout) => {
+                if (err) { reject(err); return }
+                try { resolve(JSON.parse(stdout.trim())) }
+                catch { resolve({ error: 'Python script output not JSON: ' + stdout.substring(0, 200) }) }
+              }
+            )
+          })
+          if (pyResult && pyResult.success) {
+            return { success: true, method: 'python-api', model_type: pyResult.model_type }
+          }
+          if (pyResult && pyResult.error) {
+            return { error: 'Python API: ' + pyResult.error }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[send-to-wangp] Python API failed:', e.message)
+    }
+
+    return { error: 'Could not send to Wan2GP. Is it running on port ' + _currentPort + '?' }
+  } catch (e) {
+    return { error: e.message || String(e) }
+  }
+})
+
+ipcMain.handle('read-settings-and-upload', async (_, filePath) => {
+  try {
+    let meta = readFileMetaData(filePath)
+    if (!meta || meta.error) {
+      try {
+        const env = getActiveEnv()
+        const pyEnv = env ? getPythonForEnv(env) : null
+        const py = pyEnv || sysPython()
+        if (py) {
+          const repo = getRepoDir()
+          const hp = path.join(getDataDir(), '.meta_reader.py')
+          const hc = 'import sys,json\\nsys.path.insert(0,sys.argv[1])\\nfrom wgp import get_settings_from_file\\nfp=sys.argv[2]\\nc,a,v=get_settings_from_file({"model_type":None},fp,True,True,True,skip_validate_settings=True)or(None,False,False)\\nif c:\\n for k in list(c.keys()):\\n  if isinstance(c[k],(dict,list,str,int,float,bool,type(None))):continue\\n  del c[k]\\n sys.stdout.write("JSON_OK:"+json.dumps(c,default=str))\\nelse: sys.stdout.write("JSON_NULL")\\n'
+          fs.writeFileSync(hp, hc)
+          const { exec } = require('child_process')
+          const result = await new Promise((resolve, reject) => {
+            exec('"' + py + '" "' + hp + '" "' + repo + '" "' + filePath + '"',
+              { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
+              (err, stdout) => { if (err) reject(err); else resolve(stdout.trim()) }
+            )
+          })
+          if (result && result.startsWith('JSON_OK:')) {
+            try { meta = JSON.parse(result.substring(8)) } catch {}
+          }
+        }
+      } catch {}
+    }
+    const gradioResult = await uploadFileToGradio(filePath)
+    return { meta, gradioFile: gradioResult }
+  } catch (e) {
+    return { meta: null, gradioFile: null, error: e.message }
+  }
+})
+
+// ── Prompt Library ──
+function promptLibPath() { return path.join(getDataDir(), 'prompt-library.json') }
+
+ipcMain.handle('prompt-library-list', () => {
+  try {
+    const p = promptLibPath()
+    if (!fs.existsSync(p)) return []
+    const data = JSON.parse(fs.readFileSync(p, 'utf8'))
+    return Array.isArray(data) ? data : []
+  } catch { return [] }
+})
+
+ipcMain.handle('prompt-library-save', (_, entry) => {
+  try {
+    const p = promptLibPath()
+    let lib = []
+    if (fs.existsSync(p)) {
+      try { lib = JSON.parse(fs.readFileSync(p, 'utf8')) } catch { lib = [] }
+      if (!Array.isArray(lib)) lib = []
+    }
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    entry.id = id
+    entry.saved_at = new Date().toISOString()
+    lib.unshift(entry)
+    if (lib.length > 500) lib = lib.slice(0, 500)
+    fs.writeFileSync(p, JSON.stringify(lib, null, 2))
+    return entry
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('prompt-library-delete', (_, id) => {
+  try {
+    const p = promptLibPath()
+    if (!fs.existsSync(p)) return true
+    let lib = JSON.parse(fs.readFileSync(p, 'utf8'))
+    if (!Array.isArray(lib)) return true
+    lib = lib.filter(function(e) { return e.id !== id })
+    fs.writeFileSync(p, JSON.stringify(lib, null, 2))
+    return true
+  } catch { return false }
+})
+
+// ── Clipboard ──
+ipcMain.handle('clipboard-write', (_, text) => {
+  try {
+    const { clipboard } = require('electron')
+    clipboard.writeText(String(text))
+    return true
+  } catch { return false }
+})
+
+// ── Disk space ──
+// ── Check if the Wan2GP API (Gradio) is responding ──
+ipcMain.handle('check-api-status', async () => {
+  const url = 'http://127.0.0.1:' + _currentPort + '/config'
+  try {
+    const body = await fetchUrl(url, { method: 'GET', timeout: 5000 })
+    // Gradio /config returns JSON — body is parsed object or string
+    if (body) {
+      if (typeof body === 'object' && Object.keys(body).length > 0) return 'online'
+      if (typeof body === 'string' && body.length > 10) return 'online'
+    }
+  } catch (e) {
+    // ECONNREFUSED, timeout, etc.
+  }
+  // Also check if the process is running (launched but not yet listening)
+  if (wangpProc && !wangpProc.killed) return 'starting'
+  return 'offline'
+})
+
+ipcMain.handle('get-disk-space', () => {
+  try {
+    const p = getDataDir()
+    if (!p) return null
+    const root = path.parse(p).root || p.substring(0, 2)
+    if (typeof fs.statfs === 'function') {
+      const s = fs.statfsSync(root)
+      return { free: s.bsize * s.bfree, total: s.bsize * s.blocks }
+    }
+    const { execSync } = require('child_process')
+    const out = execSync('wmic logicaldisk where caption="' + root.charAt(0) + ':" get freespace,size /format:csv', { timeout: 5000, encoding: 'utf8' })
+    const parts = out.trim().split(/\\r?\\n/)
+    if (parts.length >= 2) {
+      const cols = parts[1].split(',')
+      if (cols.length >= 3) {
+        return { free: parseInt(cols[1]) || 0, total: parseInt(cols[2]) || 0 }
+      }
+    }
+  } catch {}
+  return null
+})
+
+// ── Floating Terminal Window ──
+let termWin = null
+
+ipcMain.handle('get-term-buffer', () => {
+  if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
+    return _termLogBuffer.slice(-200)
+  }
+  return []
+})
+
+ipcMain.handle('open-terminal-window', async () => {
+  if (termWin && !termWin.isDestroyed()) { termWin.show(); termWin.focus(); return }
+  termWin = new BrowserWindow({
+    width: 700, height: 400,
+    show: false,
+    frame: true,
+    transparent: false,
+    backgroundColor: '#1a1a1a',
+    title: 'Wan2GP Terminal',
+    webPreferences: {
+      preload: path.join(__dirname, 'term-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  termWin.loadFile(path.join(__dirname, 'renderer', 'term-window.html'))
+  termWin.once('ready-to-show', () => {
+    termWin.show()
+    if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
+      termWin.webContents.send('term-init', _termLogBuffer.slice(-200))
+    }
+  })
+  termWin.on('closed', () => { termWin = null })
+})
+
+ipcMain.handle('close-terminal-window', () => {
+  if (termWin && !termWin.isDestroyed()) termWin.close()
+  termWin = null
+})
+
+ipcMain.handle('dock-terminal', (_, pos) => {
+  send('terminal-docked', pos || 'bottom')
+})
+
+ipcMain.handle('toggle-term-always-on-top', () => {
+  if (termWin && !termWin.isDestroyed()) {
+    termWin.setAlwaysOnTop(!termWin.isAlwaysOnTop())
+  }
 })
 
 // ── Wan2GP upstream version ──
@@ -1321,14 +1972,31 @@ async function restartWan2GP() {
   send('launch-log', `[*] Restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS}...\n`)
   send('wangp-restarting', restartAttempts)
 
+  // Kill any lingering process before spawning new one
+  if (wangpProc) {
+    userStoppedProcess = true
+    wangpProc.kill('SIGKILL')
+    wangpProc = null
+    userStoppedProcess = false
+  }
+
   try {
     const env = getActiveEnv()
     if (!env) throw new Error('No active environment')
     const py = getPythonForEnv(env)
     if (!py) throw new Error('Cannot find python for env')
 
-    const port = 17861
-    wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port)], {
+    const cfg = loadConfig()
+    let preferredPort = cfg.serverPort || 7860
+    const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
+    for (let i = 0; i < extraArgs.length; i++) {
+      if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
+        preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
+      }
+    }
+    const port = await findFreePort(preferredPort)
+    _currentPort = port
+    wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port), ...extraArgs], {
       cwd: getRepoDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONUNBUFFERED: '1', GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '1', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },

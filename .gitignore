@@ -7,3 +7,5 @@ Thumbs.db
 *.log
 nul
 showcase.html
+.hermes/
+renderer/__pycache__/

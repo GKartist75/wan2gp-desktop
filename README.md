@@ -8,12 +8,6 @@ Desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) — the vi
 
 ---
 
-> **Pre-release / Test version** — Hi all, thanks for all your feedback. Even though I've tested this thoroughly and it has been running without issues for the past few days, some users are still bumping into a few bugs or points of confusion in practice. Therefore, I'm marking this as a pre-release / test version first. If you'd like to test it out and find any issues, please let me know!
-
-## ⚠ Disclaimer
-
-This is a **test build** intended for development and testing purposes only. It may contain bugs, incomplete features, or stability issues. Not recommended for production use. Use at your own risk.
-
 ## What is this?
 
 Wan2GP Desktop is a **wrapper around Wan2GP** — it doesn't replace or modify Wan2GP itself. All generation, model loading, and UI rendering is done by Wan2GP's own Gradio server. The desktop app adds:
@@ -26,11 +20,11 @@ Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — 
 
 ## Features
 
+### Core
 - **One-click install** — clones Wan2GP, creates env, detects GPU, installs correct PyTorch/CUDA/ROCm + attention kernels automatically
 - **Environment choice** — pick `venv`, `uv` (faster), or `conda` before install
 - **Hardware-aware** — auto-detects GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the right wheels from Wan2GP's `setup_config.json`
 - **Real-time RAM/VRAM stats** — live memory display in Wan2GP UI, enabled by default
-- **Zero VRAM** — Electron uses 0 MB GPU memory via `app.disableHardwareAcceleration()`. All VRAM reserved for generation.
 - **Embedded viewer** — runs Wan2GP Gradio UI inside a webview tab in the desktop app
 - **External browser** — pick any installed browser (Chrome, Firefox, Edge, Brave, Opera, Vivaldi) with optional default preference
 - **Webview crash resilience** — auto-reloads on GPU crash, no more frozen screens
@@ -38,18 +32,125 @@ Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — 
 - **Live launch progress** — progress bar, status messages, and elapsed timer during startup
 - **Model folder config** — set checkpoints and LoRAs paths during install, written to `wgp_config.json`
 - **Configurable install path** — choose where the Wan2GP repo lives before installing
+
+### v1.2.8 — Features
+
+#### 🪟 Floating / Dockable Terminal
+- Separate floating `BrowserWindow` for live Wan2GP logs
+- Dockable top / bottom / floating — position persisted to `desktop-config.json`
+- Ring buffer (2,000 lines) — full log history on open
+- Follow mode, ANSI stripping, clean monospace display
+- Auto-opens on launch; closes cleanly when returning to dashboard
+- Mutual exclusion — inline and floating terminal cannot both be open
+
+#### 📋 Metadata Panel (Prompt Manager style)
+- **Two-stage reader**: Node.js native (brute-force binary JSON scan) → Python fallback (PIL Exif, ffprobe, Wan2GP `get_settings_from_file`)
+- Handles ALL file formats — PNG iTXt, JPEG Exif UserComment, MP4 ©cmt tags, MKV COMMENT, audio ID3
+- Zero external dependencies for the primary reader — scans file head/tail for JSON blocks, validates against Wan2GP keys
+- Generation settings displayed in an HTML table with per-row copy buttons
+- Click any row to send the file to Wan2GP (click-to-inject)
+- Inline prompt text in sidebar file rows, batch-loaded 5 at a time
+- Metadata is cached — repeated clicks are instant, no Python spawn
+- Raw JSON comment dump at the bottom for full data access
+
+#### 📤 Send to Wan2GP
+- **Synthetic drop** on Gradio's "Load Settings from Media File" component
+- Uses cached metadata → creates inline `.json` file → drops on component (instant, no disk read)
+- Falls back to reading the media file via IPC when cache is cold
+- Triggers the FULL Wan2GP settings pipeline — model, prompt, seed, steps, guidance, resolution, LoRAs — everything updates
+- Three action buttons per file: **Send** (load settings), **Variation** (load + random seed), **Prompt + New Seed**
+- Drag-drop from sidebar onto webview uses the same reliable pipeline
+- Windows Task Manager button in both dashboard and viewer toolbar
+
+#### 💾 Prompt Library
+- Save prompts from within the sidebar
+- Click to inject into Gradio textarea
+- Capped at 200 saved prompts, persisted in config
+
+#### 🎛️ Sidebar Overhaul
+- Sort by name or date (ascending/descending)
+- Filter chips: Image / Video / Audio / All
+- Date range filter: Today / This Week / This Month / All
+- Adjustable thumbnail zoom (24–80px)
+- Resize handle — drag sidebar width (180–500px), persisted
+- Column dividers — drag to resize prompt / date / filename columns
+- Prompt displayed first, then date, then filename
+- Prompt increased to 200 chars, bigger font for prompt + date, smaller for filename
+- Collapse toggle — hidden sidebar consumes zero resources (watcher stopped)
+- Instruction hint at top: "Select image/video and drag & drop..."
+- Multi-select with Ctrl+Click
+- Context menu: Copy path, Open in Explorer, Delete (fixed — now correctly reports success)
+
+#### ⚙️ Settings Tabs
+- Tabbed layout: General / Launch / About
+- Launch tab with extra `launchArgs` field — persisted to `desktop-config.json`
+- Customize Wan2GP startup flags (e.g. `--server-port`, `--listen`)
+
+#### 🎵 Audio Preview
+- Preview audio files inline in the overlay
+- Supports `.opus`, `.mp3`, `.wav`, `.ogg`, `.m4a`, `.flac`, `.wma`, `.aac`
+- Audio files shown with 🎵 icon in sidebar
+
+#### 🔔 Desktop Notifications
+- Notification on new output file generation
+- Proper permission request (`Notification.requestPermission()`)
+- 1.5s debounce to prevent spam
+
+#### 🔄 Crash Recovery
+- **Race condition fix** — stale process exit handlers no longer null the new process reference
+- Kill-before-spawn in both `launch` and `restartWan2GP` prevents false auto-restarts
+- Guard against concurrent restart loops (`isRestarting` flag)
+- Gradio polling — detects when server is back via `window.gradioConfig`
+- Restart overlay with status messages per attempt
+
+#### ⚡ Auto Port Detection
+- Default port changed from 17861 to **7860** (standard Gradio port)
+- `findFreePort()` — if port is occupied, automatically increments until it finds a free one
+- Port conflict logged to terminal
+
+#### 🧠 Performance & Reliability
+- **ANSI stripping** on all terminal output streams
+- **Desktop notifications** with `Notification.requestPermission()`
+- **Non-blocking hardware detection** — all queries use async `execAsync` (15s timeout)
+- **`_getVersions()`** with system Python fallback
+- **`fetchUrl()`** uses global `fetch` + `AbortSignal.timeout(10000)`
+- **Disk space** — free space shown on dashboard, "Open App Data folder" button
+- **Reinstall backup** — preserves plugins/finetunes/config during reinstall
+- **Declarative `PHASES` array** replaces old if-chain
+- **Browser picker** auto-checks "Remember", quick-launch via `cfg.defaultBrowser`
+- **Config memoization** via `_dataDir` cache
+- **Global log buffer** — setup + launch output feeds one buffer → all screens
+- **`list-output-files` includes mtime** for date display and filtering
+
+#### 🐛 Bug Fixes
+- `stop()` SIGKILL never fires — `wangpProc` nulled too early. Fixed: save ref to local before nulling.
+- `readPngComment()` now handles **iTXt/zTXt** chunks (Wan2GP uses iTXt, not tEXt)
+- `delete-files` returned bare `true` — renderer checked `r.ok`. Fixed: returns `{ok: true/false}`.
+- Restart race condition — stale exit handler nulls new process. Fixed: kill-before-spawn in launch + restart.
+- `list-output-files` O(n log n) `statSync` in sort comparator. Fixed: pre-cache `mtimeMs`.
+- `runSetup()` double-spawn orphan. Fixed: kill previous `setupProc` first.
+- `spawnWangp()` orphaned process. Fixed: kill `wangpProc` before spawn.
+- `restartWan2GP()` reset order race. Fixed: guard comment + order.
+- `delete-files()` `var` leakage. Fixed: `let`/`const`.
+- `open-external` URL allowlist too narrow. Fixed: added `https://huggingface.co/`.
+- `_getVersions()` command injection surface. Fixed: `JSON.stringify()`.
+- Notification without permission. Fixed: `Notification.requestPermission()`.
+- Terminal `style.display = 'none'` prevented re-opening inline terminal. Fixed: removed inline style, toggleTerm clears display.
+
+### Other Features
 - **Upstream changelog** — latest 5 Wan2GP commits shown in dashboard with update indicator
-- **Resizable terminal** — live log panel with auto-scroll follow, pause on manual scroll, drag-to-resize
 - **System info** — CPU, RAM, GPU, VRAM displayed on dashboard
 - **Package versions** — 14 core Python packages shown in the environment card
-- **Self-updating** — checks GitHub Releases for new desktop app versions, downloads and installs with one click
+- **Self-updating** — checks GitHub Releases for new versions, downloads and installs with one click
 - **Public repo** — no token needed for auto-updates
+- **Zero dedicated VRAM** — Electron uses SwiftShader by default, no GPU memory overhead
+- **Resizable terminal** — live log panel with auto-scroll follow, pause on manual scroll, drag-to-resize
 
 ## Screenshots
 
 | Dashboard | Installer | Viewer |
 |---|---|---|
-| System info, env card, terminal | Task list with hardware detection | Wan2GP UI with terminal overlay |
+| System info, env card, terminal | Task list with hardware detection | Wan2GP UI with floating terminal |
 
 ## Download
 
@@ -91,13 +192,19 @@ npm run build:linux    # build Linux AppImage + deb
 wan2gp-desktop/
 ├── main.js                 # Electron main process — IPC, auto-updater, setup.py wrapper
 ├── preload.js              # Context bridge — exposes w2gp API to renderer
+├── term-preload.js         # Context bridge for floating terminal window
+├── webview-preload.js      # Webview preload — file reading + Gradio upload bridge
+├── serve-update.js         # Standalone HTTP server for local update testing
 ├── renderer/
 │   ├── index.html          # UI screens (splash, dashboard, installer, viewer, settings)
-│   ├── style.css           # Dark theme, terminal, modal styling
-│   └── app.js              # All UI logic — log buffer, state management, event wiring
+│   ├── style.css           # Dark theme, terminal, modal, sidebar styling
+│   ├── app.js              # All UI logic — log buffer, state management, event wiring
+│   ├── read_metadata.py    # Standalone Python metadata reader (PIL/piexif/ffprobe)
+│   ├── send_settings.py    # Python helper for sending settings to Wan2GP
+│   └── term-window.html    # Floating terminal window UI
 ├── electron-builder.yml    # Build config (NSIS, DMG, AppImage + GitHub publish)
-├── package.json            # Dependencies (electron, electron-builder, electron-updater, fs-extra)
-└── icon.png / resources/   # App icons
+├── package.json            # Dependencies (electron, electron-builder, electron-updater)
+└── resources/              # App icons
 ```
 
 ### Key Design Decisions
@@ -106,242 +213,100 @@ wan2gp-desktop/
 |---|---|
 | **Delegate to setup.py** | Desktop app does not handle GPU detection or wheel installation — runs `setup.py install --env $ENV --auto` which auto-selects correct torch/CUDA/attention kernels |
 | **TCP port check** | Uses `net.connect` (not HTTP GET) to detect when Gradio server starts — port opens before HTTP is ready |
-| **Global log buffer** | All setup + launch output feeds one buffer → rendered in 3 terminal views (dashboard, installer, viewer) |
+| **Global log buffer** | All setup + launch output feeds one buffer → forwarded to dashboard, installer, viewer, and floating terminal |
+| **Floating terminal as separate BrowserWindow** | Always-on-top window with its own preload context, receives forwarded IPC logs |
 | **electron-updater** | Checks GitHub Releases for new versions, downloads delta/exe, quits and installs |
+| **Two-stage metadata reader** | Native JS brute-force JSON scan (all formats, zero deps), Python fallback for Exif/ffprobe/Wan2GP env |
+| **Synthetic drop for settings loading** | Creates inline `.json` file from cached metadata and dispatches `DragEvent` on Gradio's file component — triggers full Wan2GP settings pipeline |
+
 
 ## Changelog
 
+### v1.2.8 — 2026-07-07
+
+Major feature release with complete metadata panel (Prompt Manager style), Send-to-Wan2GP via synthetic drop, floating terminal, sidebar overhaul with column resizing, auto port detection, and 14+ critical bug fixes. See features section above for full details.
+
 ### v1.2.7 — 2026-07-04
 
-#### Dashboard & Installer Improved
-- Desktop App info card with version, commit hash, repo link
-- Model Folders card with checkpoint + LoRA paths and edit buttons
-- Clearer button labels: Launch Wan2GP in Desktop, Launch Wan2GP in Browser, Check Desktop Updates
-- Removed redundant Refresh from Environments card
-- Check Updates moved to center action grid
-- Desktop App card restyled to match Wan2GP Updates format
-- Dark theme default with white-flash prevention
-
-#### Installer Improved
-- NSIS Welcome page shows app description, no license/agreement page
-- Layout redesigned: tasks in left column, terminal always visible on right
-- Install button white text fix
-- Reinstall choice UI with three buttons instead of raw confirm()
-- autoDownload enabled — updates auto-download in background
-- Shift+click for local update testing
-- Uninstall Wan2GP with native dialogs for backup + keep/delete prompts, cancel at any step
-- Uninstall Environment removes venv only, keeps repo/data
-
-#### Enhanced Functionality
-- **Output sidebar** — collapsible left panel with folder navigation, file list with thumbnails, folder browse
-- **Preview overlay** — double-click to preview images/videos, zoom/pan/reset, close via X or backdrop click
-- **Metadata viewer** — collapsible JSON section from PNG iTXt chunk (zero deps), JSON sidecar, or async Python get_settings_from_file()
-- **Async Python metadata reader** — no more main process blocking during metadata extraction
-- **fs.watch on output directory** — sidebar refreshes automatically when new files are generated (500ms debounce)
-- **Keep Wan2GP process alive** — Back to Dashboard no longer kills the generation process
-- **Native right-click context menu** in webview
-- **Hardware-tuned defaults** — auto-detects GPU/RAM/VRAM, sets optimal attention/compile/profile/hierarchy
-- **Maximized window** on launch
-- **Drag-drop prep** — synthetic DragEvent('drop') on Gradio native Upload component (code ready, disabled for later testing)
-
-#### Issues Solved
-
-#### Issues Solved
-- **Preview close freeze** — execSync Python spawn blocked main process for 1-2s. Fixed: replaced with async exec() wrapped in Promise. Main process stays responsive during metadata loading
-- **Async callback race condition** — After user closed preview, late IPC responses set img.src to 13MB data URL, freezing Chromium render thread. Fixed: _previewAlive flag drops all stale callbacks after close
-- **Massive data URLs** — data: URLs embedded entire file as base64 inline (13MB), causing synchronous parsing freeze. Fixed: switched to URL.createObjectURL(blob) for both images and videos
-- **Unbounded thumbnail memory leak** — thumbCache stored full data: URLs for every file. 50+ AI images = 250-500MB permanently retained. Fixed: LRU cache capped at 20 entries, blob URLs instead of data URLs, evicted entries properly revoked
-- **h265 video / WebSocket crashes** — app.disableHardwareAcceleration() disabled GPU decode and caused connection drops. Fixed: removed the flag
-- **Thumbnail load storm** — 200 concurrent fs.readFileSync IPC calls on each sidebar refresh froze main process. Fixed: throttled to 5 at a time, 100ms apart
-- **Sidebar auto-poll** — setInterval(refreshSidebar, 3000) caused 3s flash and 200x IPC flood. Fixed: removed auto-poll entirely, replaced with fs.watch + manual Reload button
-- **dragover getData() blocked** — Security spec returns empty string during dragover. Fixed: use e.dataTransfer.types array instead
+See [CHANGELOG-v1.2.7.md](CHANGELOG-v1.2.7.md) for the full v1.2.7 release notes.
 
 ### v1.2.6 — 2026-07-04
 
 **One folder for everything** — no more AppData roaming clutter, install paths simplified.
 
-- **Merged data dir + repo** — Wan2GP install location is one browse button. Repo lives at `Repo_Wan2GP/` inside it automatically. Removed separate repo path picker.
-- **Zero AppData roaming** — Electron runtime data (Cache, blob_storage, etc.) redirected into `.electron/` subfolder under chosen install location. Nothing left in `%APPDATA%`.
-- **Renamed "App data" â†’ "Wan2GP install location"** — clearer label in installer and dashboard.
-- **Renamed `repo/` â†’ `Repo_Wan2GP/`** — more descriptive subfolder name.
-- **Phase detection fix** — `emit()` now buffers lines before checking for phase markers. Fixes tasks stuck on "pending" when stdout chunks split across data events.
+- **Merged data dir + repo** — Wan2GP install location is one browse button. Repo lives at `Repo_Wan2GP/` inside it automatically.
+- **Zero AppData roaming** — Electron runtime data redirected into `.electron/` subfolder under chosen install location.
+- **Phase detection fix** — `emit()` now buffers lines before checking for phase markers.
 
 ### v1.2.5 — 2026-07-03
 
 **Public repo** — auto-updater works without auth token now.
 
-- Removed `private: true` from publish config and `setFeedURL` calls.
-- Token is now optional (avoids rate limits, not required for auth).
-- Error message updated from "Private repo" to "GitHub rate limited".
-- Settings label/hint updated to reflect public repo.
+- Removed `private: true` from publish config. Token is now optional.
 
 ### v1.2.4 — 2026-07-03
 
-**Real-time RAM/VRAM stats enabled by default** — Wan2GP now shows live memory stats out of the box.
+**Real-time RAM/VRAM stats enabled by default.**
 
-- `display_stats=1` written to `wgp_config.json` on install and config writes.
-- Only set if not already disabled by user (respects explicit opt-out via Wan2GP UI).
-- Works alongside model folder configuration (checkpoints_paths, loras_root).
+- `display_stats=1` written to `wgp_config.json` on install.
 
 ### v1.2.3 — 2026-07-03
 
-**Release build** — all fixes from this session shipped.
-
-- v1.2.0: 10 bugfixes (env dot, manage-delete paths, fetchUrl errors, listener leak, etc.)
-- v1.2.1: Webview crash fix (removed setZoomFactor, added crash handler)
-- v1.2.2: Zero VRAM for Electron (app.disableHardwareAcceleration)
-- v1.2.3: Release packaging
+**Release build** — v1.2.0 through v1.2.3 fixes shipped.
 
 ### v1.2.2 — 2026-07-03
 
 **Zero VRAM for Electron** — all GPU memory reserved for Wan2GP generation.
 
-- `app.disableHardwareAcceleration()` forces Electron to use SwiftShader (CPU software rendering).
-- Electron + webview use software rendering — no GPU VRAM overhead for the desktop shell itself.
-- Webview rendering is imperceptibly slower (Gradio UI is mostly static between generations).
+- `app.disableHardwareAcceleration()` forces Electron to use SwiftShader.
 
 ### v1.2.1 — 2026-07-03
 
 **Webview crash fix** — embedded viewer no longer crashes during GPU-intensive generation.
 
-- **Root cause** — `setZoomFactor(0.5)` forced a non-standard GPU compositing path that crashed under GPU memory pressure during generation.
-- **Removed** `setZoomFactor(0.5)` from all three locations (launch, restart, auto-restart).
-- **Added** webview crash handler — auto-reloads up to 3x with log, then shows restart overlay.
-- External browser and standalone were never affected because Chrome has its own GPU process with proper OOM handling.
+- Removed `setZoomFactor(0.5)`, added webview crash handler with 3x auto-reload.
 
 ### v1.2.0 — 2026-07-03
 
-**Bugfix & hardening release** — 10 issues fixed across main, renderer, preload.
+**Bugfix & hardening release** — 10 issues fixed.
 
-- **Env dot fix** — environment list indicator was invisible (CSS class mismatch `env-list-dot` vs `env-dot`).
-- **Orphaned env dirs** — `manage-delete` now resolves relative env paths against repo dir before cleanup (was checking CWD).
-- **Listener leak** — `doLaunch()` registered a new `onLaunchLog` listener per launch without cleanup. Now cleaned in `finally`.
-- **Update banner dismiss** — race condition could leave update banner stuck after re-check.
-- **fetchUrl error handling** — rejects on non-2xx HTTP responses instead of silently parsing 404/403 bodies.
-- **uncaughtException handlers** — added process-level error handlers for crash resilience.
-- **URL validation** — `open-external` IPC validates URL format before opening.
-- **Dead code removed** — unused `#browserModal` DOM (~40 lines), `fs-extra` dependency (200KB), `nul` artifact.
-- **package.json** — trailing comma fix, fs-extra removed.
+- Env dot CSS fix, orphaned env dirs fix, listener leak fix, update banner dismiss race, fetchUrl error handling, process uncaughtException handlers, URL validation, dead code removal.
 
 ### v1.1.9 — 2026-07-03
 
 **Live launch progress** — real-time startup status with progress bar and timer.
 
-- **Progress bar** — fills as Python process reports milestones (loading models, starting server).
-- **Live status** — shows current step: "Initializing engine", "Loading models", "Starting server", "Ready".
-- **Elapsed timer** — counts up so user knows how long startup takes.
-- **First-run notice** — explains that initial model load + CUDA compilation is normal.
-- **Pattern parsing** — reads actual Python stdout to drive progress instead of fixed steps.
-
 ### v1.1.8 — 2026-07-03
 
 **Model folder configuration** — assign existing ckpts and LoRAs folders during install.
 
-- **Checkpoints path** — browse + clear button to set folder with existing model ckpts/safetensors.
-- **LoRAs path** — browse + clear button to set root folder for LoRA subdirectories (wan/, hunyuan/, etc.).
-- **wgp_config.json** — paths written to Wan2GP config after install so existing models are reused.
-- **Persistent** — paths saved in desktop config, restored on page load.
-
 ### v1.1.7 — 2026-07-03
 
-**Auto-restart on crash** — Wan2GP server stays alive after generation inside desktop webview.
-
-- **Auto-restart** — if Wan2GP process exits while viewer active, auto-restarts up to 3x with progress shown.
-- **Restart overlay** — shows "Server stopped" overlay instead of immediately dumping to dashboard.
-- **Manual fallback** — if all retries fail, user can click "Try Again" or "Dashboard".
-- **Exit tracking** — distinguishes user-initiated stop (clicking Dashboard) from unexpected crash.
+**Auto-restart on crash** — Wan2GP server auto-restarts up to 3x with progress shown.
 
 ### v1.1.6 — 2026-07-03
 
 **Configurable install paths** — choose where Wan2GP repo lives.
 
-- **Path picker** — Browse button in installer to set Wan2GP repo directory before install.
-- **Paths card** — dashboard shows App data + Wan2GP repo locations.
-- **Backend** — `getRepoDir()` reads `repoDir` from config, all git/Python ops follow.
-- **Native folder dialog** — `select-folder` IPC handler uses Electron's directory picker.
-
 ### v1.1.5 — 2026-07-03
 
-**Bug fixes & polish** — VRAM detection, task progress, dot alignment.
-
-- **VRAM fix** — tries `nvidia-smi` first (accurate), WMI fallback. No more wrong VRAM on modern GPUs.
-- **Task progress** — install steps now advance properly: clone â†’ venv â†’ torch â†’ reqs â†’ triton â†’ sage â†’ flash â†’ kernels â†’ done.
-- **Dots only when installed** — package indicator hidden when not installed, consistent green `#4ADE80` in both themes.
-- **Terminal completion messages** — `[*] Wan2GP update complete` / `[*] Wan2GP upgrade complete` shown after operations.
-- **Upstream version number** — Wan2GP version displayed in changelog card header (parsed from README).
+**Bug fixes & polish** — VRAM detection, task progress, dots only when installed.
 
 ### v1.1.4 — 2026-07-03
 
-**Wan2GP upstream changelog viewer** — see latest commits and update status directly in desktop.
-
-- **Upstream commit feed** — latest 5 commits from deepbeepmeep/Wan2GP shown in dashboard card, fetched live from GitHub API.
-- **Update indicator** — green dot on "Update Wan2GP" button when local repo is behind upstream HEAD.
-- **Changelog link** — "Full changelog on GitHub â†’" opens upstream CHANGELOG.md in browser.
-- **Local commit display** — short hash shows which commit is currently checked out.
-- **GitHub API integration** — new IPC handlers fetch upstream commits and compare with local `git rev-parse HEAD`.
+**Wan2GP upstream changelog viewer** — latest 5 commits in dashboard card.
 
 ### v1.1.0 — 2026-07-02
 
-**Complete visual redesign** — warm monochrome editorial UI with light/dark mode toggle.
-
-- **Light/Dark theme** — sun/moon toggle in topbar, persists to config. Warm charcoal dark variant, all signal colors adapted.
-- **Brand update** — splash now reads "GK Artist — Wan2GP Deepbeepmeep".
-- **Three-column bento dashboard** — system specs left, action zone center, environment list right.
-- **Persistent terminal dock** — always visible on dashboard, no longer hidden behind toggle.
-- **Slide-out settings panel** — Manage screen converted to a slide panel with overlay.
-- **All-emojis-out** — every icon replaced with inline SVG primitives. No emoji anywhere.
-- **Typography system** — Instrument Serif (display) + Geist Sans (UI) + Geist Mono (data).
-- **Palette** — warm monochrome (#FBFBFA canvas, #FFFFFF surface, #EAEAEA hairline borders). All gradients, heavy shadows, pill shapes removed.
-- **Package versions card** — removed from center column (data already shown in left env card in 2-column grid).
-- **Viewer terminal close fix** — stopPropagation prevents click from reaching webview behind overlay.
+**Complete visual redesign** — warm monochrome editorial UI with light/dark toggle.
 
 ### v1.0.1 — 2026-07-02
 
-- **Env selector waits** — installer screen shows env type picker (venv/uv/conda) with Install button. User chooses first, then clicks Install. No more auto-start.
-- **Env selector disabled during install** — buttons grayed out once install starts.
-- **Task progress fixed** — tasks now show â—‹ (pending) â†’ â—Œ (running) â†’ âœ“ (done) correctly instead of jumping straight to done.
-- **Clone phase wired** — clone task properly marked done via IPC event from main.js.
+**Env selector waits** — user picks env type before install. Task progress fixed.
 
 ### v1.0.0 — 2026-07-02
 
 Initial release.
-
-**Install & Setup**
-- First-time install with hardware detection and GPU profile display
-- Environment type selection: `venv`, `uv`, or `conda`
-- Structured task list with live progress (clone â†’ venv â†’ torch â†’ reqs â†’ triton â†’ sage â†’ flash â†’ kernels â†’ finalize)
-- Raw terminal tab toggle for full setup.py output
-- Post-install `huggingface_hub` fix to avoid Xet storage warning
-
-**Desktop Running**
-- Embedded webview viewer with toolbar
-- "Launch in Browser" with browser picker modal (detects Chrome, Firefox, Edge, Brave, Opera, Vivaldi)
-- Save browser preference to skip picker
-- TCP-based server readiness detection (3 min timeout, process death detection)
-
-**Terminal**
-- Resizable log panel with drag handle
-- Auto-scroll follow mode — pauses on manual scroll, re-enables with â–¼ Follow button
-- Present on dashboard, installer, and viewer
-- Global log buffer (5000 line cap), cleared with Clear button
-
-**System & Env Card**
-- CPU, RAM, GPU, VRAM detection (WMI/nvidia-smi on Windows, sysctl on Mac, /proc + lspci on Linux)
-- 14 package versions displayed: Python, Torch, CUDA, Triton, Sage Attn, Flash Attn, Diffusers, Transformers, Gradio, Accelerate, onnxruntime, OpenCV, PEFT, huggingface_hub
-
-**Update System**
-- Auto-check for updates on startup (5s delay)
-- Update banner with Download button and live progress bar
-- Install & Restart flow via electron-updater
-- GitHub token config in Settings for private repo auto-updates
-- Manual "Check Updates" button in sidebar
-
-**Settings / Manage**
-- Update Wan2GP (git pull + deps)
-- Upgrade PyTorch / attention kernels
-- Reinstall environment
-- Environment list with activation, deletion
-- GitHub token configuration
 
 ## License
 
@@ -349,6 +314,6 @@ MIT
 
 ## Testing & Feedback
 
-Special thanks to everyone who tested v1.2.6 beta builds and reported issues that directly shaped the v1.2.7 release. Your feedback on freezes, crashes, and usability made the desktop launcher significantly more stable.
+Special thanks to everyone who tested beta builds and reported issues that directly shaped each release. Your feedback on freezes, crashes, and usability made the desktop launcher significantly more stable.
 
 Want to help test future builds? Join the [Wan2GP Discord](https://discord.gg/wan2gp).

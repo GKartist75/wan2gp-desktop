@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
   uninstallWangp: () => ipcRenderer.invoke('uninstall-wangp'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
   openInBrowser: (url, browserPath) => ipcRenderer.invoke('open-in-browser', { url, browserPath }),
 
   // Update (desktop app itself)
@@ -39,8 +40,12 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Paths
   getInstallPaths: () => ipcRenderer.invoke('get-install-paths'),
+  getDiskSpace: () => ipcRenderer.invoke('get-disk-space'),
+  checkApiStatus: () => ipcRenderer.invoke('check-api-status'),
+  openFolder: (p) => ipcRenderer.invoke('open-folder', p),
   getDataDir: () => ipcRenderer.invoke('get-data-dir'),
   setDataDir: (dir) => ipcRenderer.invoke('set-data-dir', dir),
+  resetDataDir: () => ipcRenderer.invoke('reset-data-dir'),
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   detectModelFolders: () => ipcRenderer.invoke('detect-model-folders'),
@@ -54,9 +59,17 @@ contextBridge.exposeInMainWorld('w2gp', {
   setOutputPath: () => ipcRenderer.invoke('set-output-path'),
   readFileMetadata: (filePath) => ipcRenderer.invoke('read-file-metadata', filePath),
   readFileMetadataPython: (filePath) => ipcRenderer.invoke('read-file-metadata-python', filePath),
+  readSettingsAndUpload: (filePath) => ipcRenderer.invoke('read-settings-and-upload', filePath),
+  sendToWangp: (filePath) => ipcRenderer.invoke('send-to-wangp', filePath),
   uploadToGradio: (filePath) => ipcRenderer.invoke('upload-to-gradio', filePath),
   deleteFiles: (filePaths) => ipcRenderer.invoke('delete-files', filePaths),
   copyFilesToOutput: (filePaths) => ipcRenderer.invoke('copy-files-to-output', filePaths),
+  clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text),
+
+  // Prompt Library
+  promptLibrarySave: (entry) => ipcRenderer.invoke('prompt-library-save', entry),
+  promptLibraryList: () => ipcRenderer.invoke('prompt-library-list'),
+  promptLibraryDelete: (id) => ipcRenderer.invoke('prompt-library-delete', id),
 
   // Config
   configLoad: () => ipcRenderer.invoke('config-load'),
@@ -78,8 +91,12 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('output-files-changed', h)
     return () => ipcRenderer.removeListener('output-files-changed', h)
   },
+  stopOutputWatcher: () => ipcRenderer.invoke('stop-output-watcher'),
+  startOutputWatcher: () => ipcRenderer.invoke('start-output-watcher'),
   setPendingDragPath: (p) => ipcRenderer.invoke('set-pending-drag-path', p),
   getWangpVersion: () => ipcRenderer.invoke('get-wangp-version'),
+
+  openTerminal: () => ipcRenderer.invoke('open-terminal'),
 
   // Events
   onSetupOutput: (cb) => {
@@ -122,5 +139,14 @@ contextBridge.exposeInMainWorld('w2gp', {
     const h = (_e, d) => cb(d)
     ipcRenderer.on('wangp-restart-failed', h)
     return () => ipcRenderer.removeListener('wangp-restart-failed', h)
+  },
+
+  // ── Floating Terminal ──
+  openTerminalWindow: () => ipcRenderer.invoke('open-terminal-window'),
+  closeTerminalWindow: () => ipcRenderer.invoke('close-terminal-window'),
+  onTerminalDocked: (cb) => {
+    const h = (_e, pos) => cb(pos)
+    ipcRenderer.on('terminal-docked', h)
+    return () => ipcRenderer.removeListener('terminal-docked', h)
   },
 })
