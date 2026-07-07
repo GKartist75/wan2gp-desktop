@@ -152,7 +152,7 @@ Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — 
 |---|---|---|
 | System info, env card, terminal | Task list with hardware detection | Wan2GP UI with floating terminal |
 
-👉 **[Full visual guide → infographic.html](infographic.html)** — how to install, how it works, app layout, sending files, and all features in one page.
+👉 **[Full visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — how to install, how it works, app layout, sending files, and all features in one page.
 
 ## Download
 
