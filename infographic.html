@@ -127,7 +127,13 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
   <div class="step">
     <div class="icon">🖥️</div>
     <div class="label">Launch App</div>
-    <div class="desc">Detects GPU, RAM, VRAM — shows expected packages for your hardware</div>
+    <div class="desc">Detects GPU, RAM, VRAM — shows expected packages for your hardware. Checks Git, Python, uv, conda are installed</div>
+    <div class="arrow">→</div>
+  </div>
+  <div class="step">
+    <div class="icon">📦</div>
+    <div class="label">Auto-install prereqs</div>
+    <div class="desc">If Git, Python, uv, or conda is missing, click Download & Install — it installs silently</div>
     <div class="arrow">→</div>
   </div>
   <div class="step">
@@ -259,6 +265,7 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 <div class="section">
 <h2><span class="num">7</span> Maintenance</h2>
 <div class="feature-grid">
+  <div class="feature-card"><span class="fc-icon">➕</span><div class="fc-title">Auto-install prereqs</div><div class="fc-desc">Missing Git, Python, uv, or conda? Click Download & Install — the launcher handles it silently.</div></div>
   <div class="feature-card"><span class="fc-icon">⬆️</span><div class="fc-title">Update Wan2GP</div><div class="fc-desc">Runs git pull in the repo, then re-installs requirements.</div></div>
   <div class="feature-card"><span class="fc-icon">📈</span><div class="fc-title">Upgrade Packages</div><div class="fc-desc">Upgrade PyTorch, attention kernels, or any pip package individually.</div></div>
   <div class="feature-card"><span class="fc-icon">➕</span><div class="fc-title">Install Package</div><div class="fc-desc">Type a pip name in the env card — installs into active env instantly.</div></div>

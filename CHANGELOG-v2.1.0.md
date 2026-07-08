@@ -1,10 +1,8 @@
-# Wan2GP Desktop Launcher v2.0 — Release Notes
+# Wan2GP Desktop Launcher v2.1.0 — Release Notes
 
 ## Overview
 
-Complete rewrite of Wan2GP Desktop as a **pure launcher**. Stripped out everything that duplicated the browser — no embedded webview, no output file sidebar, no metadata reader, no floating terminal, no drag-drop injection. The app now focuses solely on lifecycle management: install, maintain, and launch Wan2GP in your browser.
-
-**Product renamed to "Wan2GP Desktop Launcher".** Artifact filename changed to `Wan2GP-Desktop-Launcher-*.exe`.
+Auto-install prerequisites, improved installer help, and bug fixes.
 
 ---
 
@@ -48,6 +46,7 @@ Complete rewrite of Wan2GP Desktop as a **pure launcher**. Stripped out everythi
 
 ## 🐛 Bug Fixes
 
+- **Python auto-install URL** — `python-3.11.14-amd64.exe` returned 404 (that version was never published as a standalone installer). Fixed to `python-3.11.9-amd64.exe`, the latest available 3.11 installer on python.org. Profile version labels still show `3.11.14` — that's the version string `setup.py` requests for env creation, not a download URL.
 - **CSS broken layout** — `.brand-mark-small` was missing its closing `}` (from a bad patch), which ate all subsequent CSS rules — entire dashboard was invisible. Fixed.
 - **restoreBtn ReferenceError** — `restoreBtn` handler was placed outside `refreshEnvUnlink()` scope where the `var` wasn't accessible. Moved inside.
 - **Upstream GitHub API double-parse** — `getWangpUpstreamInfo` called `JSON.parse(body)` on already-parsed data, silently failing the changelog.

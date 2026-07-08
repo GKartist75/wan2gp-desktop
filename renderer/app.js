@@ -280,16 +280,39 @@ $('clearOutputPath')?.addEventListener('click', async () => {
 })
 
 async function startInstall(){
-  // Check if selected env type is available
+  // Helper to show prereq help card
+  function showPrereqHelp(title, text, url, tool) {
+    $('prereqHelp').classList.remove('hidden')
+    $('prereqTitle').textContent = title
+    $('prereqText').innerHTML = text
+    $('prereqDownloadBtn').onclick = async function() {
+      this.disabled = true; this.textContent = 'Installing...'
+      appendLog('[*] Installing ' + tool + '...')
+      var r = await window.w2gp.installPrerequisite(tool)
+      this.disabled = false; this.textContent = 'Download & Install'
+      if (r && r.success) { showToast('✓ ' + tool + ' installed. Please restart the launcher.') }
+      else showToast('✗ Install failed: ' + (r?.error || 'unknown'))
+    }
+    $('prereqManualBtn').onclick = function() { window.w2gp.openExternal(url) }
+    $('installStartBtn').classList.remove('hidden')
+    $('envTypeSelect').classList.remove('disabled')
+    document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = false)
+  }
+
+  // Check prerequisites
+  var hasGit = await window.w2gp.checkCommand('git')
+  if (!hasGit) { showPrereqHelp('Git not found', 'Git is required to clone the Wan2GP repository. Click Download to install it silently, or use the manual button.', 'https://git-scm.com/downloads', 'git'); return }
+  if (selectedEnvType === 'venv') {
+    var hasPy = await window.w2gp.checkCommand('python')
+    if (!hasPy) { showPrereqHelp('Python not found', 'Python 3.10 or 3.11 is required for venv installs. Click Download to install Python 3.11 silently, or select uv/conda above.', 'https://www.python.org/downloads/', 'python'); return }
+  }
+  if (selectedEnvType === 'uv') {
+    var hasUv = await window.w2gp.checkCommand('uv')
+    if (!hasUv) { showPrereqHelp('uv not found', 'uv is required for uv installs. Click Download to install it via PowerShell, or select venv/conda above.', 'https://docs.astral.sh/uv/#installation', 'uv'); return }
+  }
   if (selectedEnvType === 'conda') {
     var hasConda = await window.w2gp.checkCommand('conda')
-    if (!hasConda) {
-      showToast('✗ Conda not found. Install Miniconda first (https://docs.anaconda.com/miniconda/) or use venv/uv.')
-      $('installStartBtn').classList.remove('hidden')
-      $('envTypeSelect').classList.remove('disabled')
-      document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = false)
-      return
-    }
+    if (!hasConda) { showPrereqHelp('Conda not found', 'Miniconda is required for conda installs. Click Download to install it silently, or select venv/uv above.', 'https://docs.anaconda.com/miniconda/', 'conda'); return }
   }
   show('installer'); resetTasks()
   $('envTypeSelect').classList.add('disabled')

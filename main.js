@@ -563,6 +563,62 @@ ipcMain.handle('reset-data-dir', () => {
   return true
 })
 
+// ── Install a prerequisite tool (Git, Python, uv, Miniconda) ──
+ipcMain.handle('install-prerequisite', async (_, tool) => {
+  const tmpDir = require('os').tmpdir()
+  const sendLog = (msg) => send('launch-log', msg + '\n')
+
+  if (tool === 'git') {
+    sendLog('[*] Downloading Git for Windows...')
+    const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
+    const dest = path.join(tmpDir, 'Git-2.49.0-64-bit.exe')
+    await new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest)
+      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
+        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
+    })
+    sendLog('[*] Installing Git (silent)...')
+    execSync(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
+    sendLog('[*] Git installed. Please restart the launcher.')
+    return { success: true }
+
+  } else if (tool === 'python') {
+    sendLog('[*] Downloading Python 3.11...')
+    const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
+    const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
+    await new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest)
+      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
+        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
+    })
+    sendLog('[*] Installing Python 3.11.9 (silent)...')
+    execSync(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
+    sendLog('[*] Python installed. Please restart the launcher.')
+    return { success: true }
+
+  } else if (tool === 'uv') {
+    sendLog('[*] Installing uv via PowerShell...')
+    execSync('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 60000, windowsHide: true })
+    sendLog('[*] uv installed. Please restart the launcher.')
+    return { success: true }
+
+  } else if (tool === 'conda') {
+    sendLog('[*] Downloading Miniconda...')
+    const url = 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe'
+    const dest = path.join(tmpDir, 'Miniconda3-latest-Windows-x86_64.exe')
+    await new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest)
+      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
+        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
+    })
+    sendLog('[*] Installing Miniconda (silent)...')
+    execSync(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
+    sendLog('[*] Miniconda installed. Please restart the launcher.')
+    return { success: true }
+  }
+  return { error: 'Unknown tool: ' + tool }
+})
+
 // ── Hardware-tuned default settings for wgp_config.json ──
 function getHardwareDefaults() {
   const out = { attention: 'auto', compile: '', profile: 5, hierarchy: 1 }
@@ -667,8 +723,8 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
     cfg.audio_save_path = savePath
   }
   // Hardware-tuned defaults — only fill missing
-  // (mirrors Wan2GP setup.py logic but runs in Node, no Python dep)
-  if (cfg.attention_mode === undefined) cfg.attention_mode = hw.attention
+  // Attention defaults to AUTO (gradio UI can override)
+  if (cfg.attention_mode === undefined) cfg.attention_mode = 'auto'
   // Profile 1-5 based on RAM/VRAM (same as WanGP setup.py)
   if (cfg.video_profile === undefined) cfg.video_profile = hw.profile
   if (cfg.image_profile === undefined) cfg.image_profile = hw.profile

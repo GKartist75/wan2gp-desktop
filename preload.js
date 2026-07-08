@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   checkCommand: (cmd) => ipcRenderer.invoke('check-command', cmd),
+  installPrerequisite: (tool) => ipcRenderer.invoke('install-prerequisite', tool),
   detectModelFolders: () => ipcRenderer.invoke('detect-model-folders'),
   getModelPaths: () => ipcRenderer.invoke('get-model-paths'),
 

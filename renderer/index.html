@@ -299,6 +299,19 @@
       <p class="install-subtitle" id="installSubtitle">Detecting your hardware...</p>
       <p class="install-info">This installs Wan2GP inside the Desktop app. Once installed, you can launch, update, change settings, and browse generated files — all from the Dashboard.</p>
 
+      <!-- Prerequisite help card (shown when a tool is missing) -->
+      <div id="prereqHelp" class="prereq-help hidden">
+        <div class="prereq-icon">⚠️</div>
+        <div class="prereq-body">
+          <div class="prereq-title" id="prereqTitle">Missing required tool</div>
+          <div class="prereq-text" id="prereqText"></div>
+          <div class="prereq-actions">
+            <button class="btn btn-primary small" id="prereqDownloadBtn">Download &amp; Install</button>
+            <button class="btn btn-ghost small" id="prereqManualBtn">How to install manually</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Environment type selector -->
       <div class="env-type-select" id="envTypeSelect">
         <label class="env-type-label">Environment:</label>
@@ -368,6 +381,16 @@
         <div class="ipkgs-list" id="installPkgsList"></div>
       </div>
 
+      <!-- Reinstall choice (shown when Wan2GP already installed) -->
+      <div id="reinstallChoice" class="reinstall-choice hidden">
+        <p class="reinstall-prompt">Wan2GP is already installed. What do you want to do?</p>
+        <div class="reinstall-buttons">
+          <button id="reinstallFreshBtn" class="btn btn-primary">Reinstall (fresh)</button>
+          <button id="reinstallUpdateBtn" class="btn btn-ghost">Update &amp; keep files</button>
+          <button id="reinstallSkipBtn" class="btn btn-ghost">Use existing &amp; go to Dashboard</button>
+        </div>
+      </div>
+
       <div class="install-bottom">
         <div class="install-task-col">
           <div class="task-list" id="taskList">
@@ -380,15 +403,6 @@
             <div class="task pending" data-id="flash"><span class="task-icon">&#9675;</span><span class="task-label">Install Flash Attention</span><span class="task-status">pending</span></div>
             <div class="task pending" data-id="kernels"><span class="task-icon">&#9675;</span><span class="task-label">Install GPU kernels (nunchaku/GGUF)</span><span class="task-status">pending</span></div>
             <div class="task pending" data-id="done"><span class="task-icon">&#9675;</span><span class="task-label">Finalize installation</span><span class="task-status">pending</span></div>
-          </div>
-          <!-- Reinstall choice (shown when Wan2GP already installed) -->
-          <div id="reinstallChoice" class="reinstall-choice hidden">
-            <p class="reinstall-prompt">Wan2GP is already installed. What do you want to do?</p>
-            <div class="reinstall-buttons">
-              <button id="reinstallFreshBtn" class="btn btn-primary">Reinstall (fresh)</button>
-              <button id="reinstallUpdateBtn" class="btn btn-ghost">Update &amp; keep files</button>
-              <button id="reinstallSkipBtn" class="btn btn-ghost">Use existing &amp; go to Dashboard</button>
-            </div>
           </div>
         </div>
         <div class="install-term-col">

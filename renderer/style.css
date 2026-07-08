@@ -407,6 +407,20 @@ body {
 .env-type-select.disabled { opacity: 0.6; pointer-events: none; }
 .env-type-desc { font-weight: 400; color: var(--text-tertiary); font-size: 0.6rem; }
 
+/* ── Prerequisite help card ── */
+.prereq-help {
+  display: flex; gap: 12px; padding: 14px; margin-bottom: 12px;
+  background: var(--signal-red-bg); border: 1px solid var(--signal-red);
+  border-radius: var(--radius-sm); align-items: flex-start;
+}
+.prereq-help.hidden { display: none; }
+.prereq-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 1px; }
+.prereq-body { flex: 1; min-width: 0; }
+.prereq-title { font-size: 0.85rem; font-weight: 600; color: var(--signal-red); margin-bottom: 4px; }
+.prereq-text { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4; margin-bottom: 8px; }
+.prereq-actions { display: flex; gap: 6px; }
+.prereq-actions .btn { font-size: 0.65rem; }
+
 .reinstall-choice {
   margin: 12px 0 16px 0; padding: 16px;
   background: var(--surface); border-radius: var(--radius-sm);

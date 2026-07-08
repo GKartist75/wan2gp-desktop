@@ -23,6 +23,7 @@ Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — 
 
 - **One-click install** — clones Wan2GP, creates venv, detects GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon), installs correct PyTorch + CUDA/ROCm + attention kernels automatically
 - **Hardware-aware** — matches Wan2GP's GPU profiles: shows exactly what will be installed (Python version, Torch variant, Triton, Sage Attention, Flash Attention, nunchaku, GGUF, lightx2v) before you click Install
+- **Auto-install prerequisites** — if Git, Python, uv, or conda is missing, the installer downloads and installs them silently with one click
 - **Quick package install** — type any pip package name into the Active Environment card to install it (`triton`, `bitsandbytes`, `flash-attn`, etc.)
 - **Restore pinned versions** — click the **restore** button to reinstall all packages from `requirements.txt` after a failed upgrade
 - **Package version overview** — 27 key packages shown with green/red status dots, missing packages get a `+` install button
@@ -46,6 +47,22 @@ Everything Wan2GP does — models, generation, scheduling, LoRAs, finetunes — 
 ## What is NOT included (removed in v2.0)
 
 The original v1.x had an embedded webview, output file sidebar with thumbnails/metadata/preview, floating terminal, drag-drop file injection into Gradio, prompt library, and a launch splash screen. All of that was removed in v2.0 because the browser does it better. The launcher now focuses purely on lifecycle management.
+
+## Prerequisites
+
+The launcher can install and manage Wan2GP for you, but your system needs these before you click Install:
+
+| Tool | Required for | Auto-install | Get it manually |
+|------|-------------|-------------|----------------|
+| **Git** | Cloning the Wan2GP repo | ✅ Downloads & installs silently | [git-scm.com/downloads](https://git-scm.com/downloads) |
+| **Python 3.11** | `venv` installs (default) | ✅ Downloads & installs silently | [python.org/downloads](https://www.python.org/downloads/) |
+| **uv** (optional) | Faster `uv` installs | ✅ Installs via PowerShell script | [docs.astral.sh/uv/#installation](https://docs.astral.sh/uv/#installation) |
+| **Miniconda** (optional) | `conda` installs | ✅ Downloads & installs silently | [docs.anaconda.com/miniconda](https://docs.anaconda.com/miniconda/) |
+| **NVIDIA GPU + driver** | Running Wan2GP itself (CUDA 12.8+) | ❌ | [nvidia.com/drivers](https://www.nvidia.com/drivers) |
+| **50+ GB free space** | Wan2GP repo + models + env | — | — |
+| **Internet** | Cloning repo + downloading models | — | — |
+
+The installer checks for Git, Python, uv, and conda before starting. If anything is missing, it shows a help card with a **Download & Install** button that downloads and installs the required tool silently. Install progress appears in the Console tab.
 
 ## Download
 
