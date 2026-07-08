@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wan2GP Desktop — How it works</title>
+<title>Wan2GP Desktop Launcher — How it works</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{
@@ -14,7 +14,6 @@ body{
 h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 .sub{text-align:center;color:#999;margin-bottom:40px;font-size:1rem}
 
-/* Section */
 .section{margin-bottom:48px}
 .section h2{font-size:1.3rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .section h2 .num{background:#6c5ce7;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0}
@@ -22,7 +21,7 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 /* Step cards */
 .steps{display:flex;gap:12px;flex-wrap:wrap}
 .step{
-  flex:1;min-width:160px;background:#252525;border:1px solid #333;border-radius:12px;
+  flex:1;min-width:140px;background:#252525;border:1px solid #333;border-radius:12px;
   padding:16px;text-align:center;position:relative
 }
 .step .icon{font-size:2rem;margin-bottom:8px}
@@ -31,7 +30,7 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 .step .arrow{position:absolute;right:-14px;top:50%;transform:translateY(-50%);font-size:1.2rem;color:#555}
 .steps .step:last-child .arrow{display:none}
 
-/* Flow diagram */
+/* Flow */
 .flow{background:#252525;border:1px solid #333;border-radius:12px;padding:24px;margin-bottom:16px}
 .flow-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
 .flow-row:last-child{margin-bottom:0}
@@ -44,7 +43,7 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 .flow-box .note{font-size:.65rem;color:#888;margin-top:2px}
 .flow-arrow{font-size:1.2rem;color:#555;flex-shrink:0}
 
-/* Callout boxes */
+/* Callout */
 .callout{
   background:#2d1f3d;border:1px solid #6c5ce7;border-radius:8px;padding:12px 16px;margin-bottom:12px;
   display:flex;align-items:flex-start;gap:10px
@@ -53,7 +52,8 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 .callout .text{font-size:.78rem;line-height:1.5;color:#ccc}
 .callout .text strong{color:#e8e6e1}
 
-.feature-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px}
+/* Feature grid */
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:16px}
 .feature-card{
   background:#252525;border:1px solid #333;border-radius:8px;padding:12px;
   font-size:.75rem;line-height:1.4
@@ -61,6 +61,12 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 .feature-card .fc-icon{font-size:1.1rem;display:block;margin-bottom:4px}
 .feature-card .fc-title{font-weight:600;margin-bottom:2px;font-size:.8rem}
 .feature-card .fc-desc{color:#999}
+
+/* Profile table */
+.profile-table{width:100%;border-collapse:collapse;font-size:.72rem;margin-bottom:16px}
+.profile-table th{background:#1e1e1e;text-align:left;padding:8px 10px;border-bottom:2px solid #444;font-weight:600;color:#aaa}
+.profile-table td{padding:6px 10px;border-bottom:1px solid #333;color:#ccc}
+.profile-table tr:hover td{background:#2a2a2a}
 
 .footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #333;font-size:.72rem;color:#666}
 
@@ -75,254 +81,198 @@ h1{font-size:2rem;font-weight:700;text-align:center;margin-bottom:8px}
 <body>
 <div class="container">
 
-<h1>⚡ Wan2GP Desktop</h1>
-<p class="sub">How to install &amp; how it works — visual guide</p>
+<h1>⚡ Wan2GP Desktop Launcher v2.0</h1>
+<p class="sub">Install, maintain, launch — that's it.</p>
 
 <!-- 1: KEY INSIGHT -->
 <div class="section">
-<h2><span class="num">1</span> Key insight</h2>
+<h2><span class="num">1</span> What it is</h2>
 <div class="callout">
   <div class="emoji">🔑</div>
-  <div class="text"><strong>Wan2GP Desktop is a wrapper — it does NOT replace Wan2GP.</strong> All generation, models, scheduling, LoRAs run inside Wan2GP's own Gradio server. The desktop app adds: one-click install with GPU detection, environment management, embedded viewer with output file sidebar, metadata viewer, real-time terminal, and hardware tuning — everything you need to run Wan2GP without touching the command line.</div>
+  <div class="text"><strong>Wan2GP Desktop Launcher is a wrapper — it does NOT replace Wan2GP.</strong> All generation, models, scheduling, LoRAs run inside Wan2GP's own Gradio server in your browser. The launcher just handles: one-click install with GPU detection, environment management, hardware-tuned config, and a button that starts Wan2GP in a visible terminal window. Nothing more. The browser is the viewer.</div>
+</div>
+<div class="callout" style="border-color:#555;background:#222">
+  <div class="emoji">🧹</div>
+  <div class="text"><strong>v2.0 stripped out everything that duplicated the browser.</strong> No embedded webview, no output file sidebar, no metadata reader, no floating terminal, no drag-drop injection. The launcher is trim and focused.</div>
 </div>
 </div>
 
-<!-- 2: HARDWARE-AWARE -->
+<!-- 2: HARDWARE PROFILES -->
 <div class="section">
-<h2><span class="num">2</span> Hardware-aware setup</h2>
-<div class="callout">
-  <div class="emoji">🧠</div>
-  <div class="text"><strong>Automatic GPU detection.</strong> The installer detects your exact GPU model (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the optimal wheels — correct PyTorch version, CUDA/ROCm, Flash Attention, Sage Attention, Triton, xFormers. RAM and VRAM are also detected and displayed on the dashboard. You just pick the environment type — everything else is automatic.</div>
-</div>
-<div style="display:flex;gap:12px;flex-wrap:wrap">
-  <div style="flex:1;min-width:130px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:12px;text-align:center">
-    <div style="font-size:1.5rem">🖥️</div>
-    <div style="font-size:.7rem;color:#999">GPU model + VRAM</div>
-  </div>
-  <div style="flex:1;min-width:130px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:12px;text-align:center">
-    <div style="font-size:1.5rem">🧮</div>
-    <div style="font-size:.7rem;color:#999">CPU + RAM</div>
-  </div>
-  <div style="flex:1;min-width:130px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:12px;text-align:center">
-    <div style="font-size:1.5rem">⚡</div>
-    <div style="font-size:.7rem;color:#999">Attention kernels auto-selected</div>
-  </div>
-  <div style="flex:1;min-width:130px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:12px;text-align:center">
-    <div style="font-size:1.5rem">🔧</div>
-    <div style="font-size:.7rem;color:#999">Hardware profile applied to config</div>
-  </div>
-</div>
+<h2><span class="num">2</span> Hardware profiles</h2>
+<p style="font-size:.78rem;color:#999;margin-bottom:12px">GPU detection picks the exact packages for your card:</p>
+<table class="profile-table">
+<thead><tr><th>GPU</th><th>Python</th><th>Torch</th><th>Triton</th><th>Attention</th><th>Kernels</th></tr></thead>
+<tbody>
+<tr><td>RTX 50</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, lightx2v, gguf</td></tr>
+<tr><td>RTX 40</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, gguf</td></tr>
+<tr><td>RTX 30</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, gguf</td></tr>
+<tr><td>RTX 20</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage1 + Flash</td><td>nunchaku, gguf</td></tr>
+<tr><td>GTX 10</td><td>3.10.9</td><td>2.7.1 CU12.8</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody>
+</table>
+<p style="font-size:.7rem;color:#888">Mirrors Wan2GP's <code>setup_config.json</code> profiles. Installer shows exactly what will be installed before you click Install.</p>
 </div>
 
-<!-- 3: INSTALL -->
+<!-- 3: INSTALL FLOW -->
 <div class="section">
-<h2><span class="num">3</span> Install</h2>
+<h2><span class="num">3</span> Install flow</h2>
 <div class="steps">
   <div class="step">
     <div class="icon">⬇️</div>
     <div class="label">Download</div>
-    <div class="desc">Grab the latest <code>.exe</code> from GitHub Releases</div>
+    <div class="desc">Grab the <code>.exe</code> from GitHub Releases</div>
     <div class="arrow">→</div>
   </div>
   <div class="step">
-    <div class="icon">⚙️</div>
-    <div class="label">Run Installer</div>
-    <div class="desc">NSIS setup — choose install folder, desktop shortcut created</div>
-    <div class="arrow">→</div>
-  </div>
-  <div class="step">
-    <div class="icon">🚀</div>
+    <div class="icon">🖥️</div>
     <div class="label">Launch App</div>
-    <div class="desc">App opens → detects GPU, RAM, VRAM automatically</div>
+    <div class="desc">Detects GPU, RAM, VRAM — shows expected packages for your hardware</div>
     <div class="arrow">→</div>
   </div>
   <div class="step">
     <div class="icon">📦</div>
-    <div class="label">Pick Environment</div>
-    <div class="desc">Choose <strong>venv</strong> (stable), <strong>uv</strong> (faster), or <strong>conda</strong></div>
-    <div class="arrow">→</div>
-  </div>
-  <div class="step">
-    <div class="icon">🤖</div>
-    <div class="label">Auto Install</div>
-    <div class="desc">Clones Wan2GP → creates env → installs correct PyTorch/CUDA/ROCm + attention kernels</div>
+    <div class="label">Install</div>
+    <div class="desc">Clones Wan2GP → creates env → installs PyTorch + attention kernels automatically</div>
     <div class="arrow">→</div>
   </div>
   <div class="step">
     <div class="icon">✅</div>
-    <div class="label">Ready</div>
-    <div class="desc">Dashboard shows green dots. Wan2GP is installed and configured.</div>
+    <div class="label">Dashboard</div>
+    <div class="desc">Green dots on all packages. System info, env overview, changelog, console.</div>
   </div>
 </div>
 </div>
 
-<!-- 4: GENERATE -->
+<!-- 4: LAUNCH -->
 <div class="section">
-<h2><span class="num">4</span> Generate</h2>
+<h2><span class="num">4</span> Launch & use</h2>
+<p style="font-size:.78rem;color:#999;margin-bottom:12px">Two ways to start Wan2GP:</p>
 <div class="flow">
   <div class="flow-row">
-    <div class="flow-box">
+    <div class="flow-box" style="border-color:#6c5ce7">
       <span class="icon">▶️</span>
-      <span class="name">Launch in Desktop</span>
-      <span class="note">Starts Wan2GP server,<br>opens embedded viewer</span>
+      <span class="name">From the Launcher</span>
+      <span class="note">Click Launch Wan2GP button<br>on the dashboard</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">
+      <span class="icon">💻</span>
+      <span class="name">Terminal Window</span>
+      <span class="note">Temp script runs wgp.py<br>polls port via netstat</span>
     </div>
     <div class="flow-arrow">→</div>
     <div class="flow-box">
       <span class="icon">🌐</span>
-      <span class="name">Use Wan2GP UI</span>
-      <span class="note">Full Gradio interface —<br>prompts, models, generation</span>
+      <span class="name">Browser Opens</span>
+      <span class="note">Auto when server responds<br>to port check</span>
     </div>
     <div class="flow-arrow">→</div>
     <div class="flow-box">
       <span class="icon">🎬</span>
-      <span class="name">Generate Videos</span>
-      <span class="note">Output files appear in<br>the sidebar automatically</span>
-    </div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-box">
-      <span class="icon">📤</span>
-      <span class="name">Reuse Settings</span>
-      <span class="note">Click Send / drag-drop<br>to load into Wan2GP</span>
+      <span class="name">Generate</span>
+      <span class="note">Full Wan2GP — models,<br>prompts, schedules, LoRAs</span>
     </div>
   </div>
 </div>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-  <div style="flex:1;min-width:160px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:10px;text-align:center;font-size:.7rem;color:#999">
-    <span style="display:block;font-size:1.1rem">↗</span>
-    Launch in Browser also available — pick Chrome, Firefox, Edge, etc.
-  </div>
-  <div style="flex:1;min-width:160px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:10px;text-align:center;font-size:.7rem;color:#999">
-    <span style="display:block;font-size:1.1rem">🔄</span>
-    Server auto-restarts on crash (up to 3 tries)
+<div class="flow" style="margin-top:0">
+  <div class="flow-row">
+    <div class="flow-box" style="border-color:#6c5ce7">
+      <span class="icon">📜</span>
+      <span class="name">Desktop Shortcut</span>
+      <span class="note">Double-click Launch Wan2GP.bat<br>on your desktop</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">
+      <span class="icon">💻</span>
+      <span class="name">Same Terminal Flow</span>
+      <span class="note">Activates env, runs wgp.py,<br>polls with netstat</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">
+      <span class="icon">🌐</span>
+      <span class="name">Browser Opens</span>
+      <span class="note">Waits for server —<br>no hardcoded timeout</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">
+      <span class="icon">🎬</span>
+      <span class="name">Generate</span>
+      <span class="note">No launcher needed —<br>Wan2GP runs standalone</span>
+    </div>
   </div>
 </div>
 </div>
 
-<!-- 5: HOW IT WORKS -->
+<!-- 5: DASHBOARD -->
 <div class="section">
-<h2><span class="num">5</span> How it works</h2>
+<h2><span class="num">5</span> Dashboard at a glance</h2>
+<div class="feature-grid">
+  <div class="feature-card"><span class="fc-icon">🖥️</span><div class="fc-title">System</div><div class="fc-desc">CPU, total/free RAM, GPU model + names, total/free VRAM. Updates live every 5s.</div></div>
+  <div class="feature-card"><span class="fc-icon">📂</span><div class="fc-title">Paths</div><div class="fc-desc">Wan2GP install location + free disk space. Click to open in Explorer.</div></div>
+  <div class="feature-card"><span class="fc-icon">🗂️</span><div class="fc-title">Model Folders</div><div class="fc-desc">Checkpoints & LoRAs paths with browse buttons.</div></div>
+  <div class="feature-card"><span class="fc-icon">📦</span><div class="fc-title">Active Env</div><div class="fc-desc">17 packages with version dots. Missing ones get a + install button. Quick pip input at bottom.</div></div>
+  <div class="feature-card"><span class="fc-icon">🔄</span><div class="fc-title">Check Updates</div><div class="fc-desc">Scans PyPI for newer versions of installed packages. Upgrade individual ones.</div></div>
+  <div class="feature-card"><span class="fc-icon">📋</span><div class="fc-title">Console</div><div class="fc-desc">Live log from setup and launch. Follow mode, ANSI stripped.</div></div>
+  <div class="feature-card"><span class="fc-icon">📰</span><div class="fc-title">Wan2GP Updates</div><div class="fc-desc">Latest commits from GitHub with update indicator + HuggingFace models link.</div></div>
+  <div class="feature-card"><span class="fc-icon">🛠️</span><div class="fc-title">Manage Panel</div><div class="fc-desc">Reinstall, uninstall env/Wan2GP, upgrade PyTorch/kernels, GitHub token, launch args, server port.</div></div>
+</div>
+</div>
+
+<!-- 6: ARCHITECTURE -->
+<div class="section">
+<h2><span class="num">6</span> How it works</h2>
 <div class="flow">
   <div class="flow-row">
     <div class="flow-box">
       <span class="icon">🖥️</span>
-      <span class="name">Desktop App</span>
-      <span class="note">Electron — dashboard,<br>viewer, sidebar, terminal</span>
+      <span class="name">Desktop Launcher</span>
+      <span class="note">Electron — dashboard UI,<br>IPC, auto-updater</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">
+      <span class="icon">📜</span>
+      <span class="name">Temp .bat script</span>
+      <span class="note">Written to %TEMP%,<br>opens in new cmd window</span>
     </div>
     <div class="flow-arrow">→</div>
     <div class="flow-box">
       <span class="icon">🐍</span>
-      <span class="name">Python Backend</span>
+      <span class="name">wgp.py</span>
       <span class="note">Wan2GP's Gradio server<br>on localhost:7860</span>
     </div>
     <div class="flow-arrow">→</div>
     <div class="flow-box">
       <span class="icon">🌐</span>
-      <span class="name">Webview</span>
-      <span class="note">Embedded Chromium —<br>loads Wan2GP's UI</span>
+      <span class="name">Your Browser</span>
+      <span class="note">Opens automatically<br>when server is ready</span>
     </div>
   </div>
 </div>
 <div class="callout">
-  <div class="emoji">⚙️</div>
-  <div class="text"><strong>Behind the scenes:</strong> The desktop app spawns <code>wgp.py</code> as a child process, waits for the Gradio server to start (TCP port check), then loads the URL into the embedded webview. All IPC goes through Electron's preload bridge. The output sidebar uses <code>fs.watch</code> for real-time file updates. Metadata is read by a brute-force binary JSON scanner (Node.js) with a Python fallback for Exif/ffprobe.</div>
+  <div class="emoji">⏱️</div>
+  <div class="text"><strong>Poll, don't spawn.</strong> The launcher doesn't track the child process. Every 8 seconds it checks if the port is still open. When the terminal window closes and the port goes down, it logs a message and cleans up. Zero GPU usage — Electron runs on SwiftShader (CPU).</div>
 </div>
 </div>
 
-<!-- 6: APP LAYOUT -->
+<!-- 7: MAINTENANCE -->
 <div class="section">
-<h2><span class="num">6</span> App layout</h2>
-<div class="flow" style="padding:20px">
-  <div style="display:flex;gap:12px;flex-wrap:wrap">
-    <div style="flex:1;min-width:180px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:14px">
-      <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">📋 Dashboard</div>
-      <div style="font-size:.7rem;color:#999;line-height:1.5">
-        • GPU / CPU / RAM info<br>
-        • Environment card (packages)<br>
-        • Wan2GP updates changelog<br>
-        • Model folders config<br>
-        • Inline terminal + Float button<br>
-        • Settings (tabs: General / Launch / About)<br>
-        • Task Manager button
-      </div>
-    </div>
-    <div style="flex:1;min-width:180px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:14px">
-      <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">🖼️ Viewer</div>
-      <div style="font-size:.7rem;color:#999;line-height:1.5">
-        • Full Wan2GP Gradio UI<br>
-        • Floating terminal window<br>
-        • Output sidebar (left)<br>
-        • Metadata panel (bottom)<br>
-        • Send / Variation / P+NS buttons<br>
-        • API status indicator<br>
-        • Task Manager button
-      </div>
-    </div>
-    <div style="flex:1;min-width:180px;background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:14px">
-      <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">📂 Output Sidebar</div>
-      <div style="font-size:.7rem;color:#999;line-height:1.5">
-        • File list with thumbnails<br>
-        • Prompt → date → filename columns<br>
-        • Drag column dividers to resize<br>
-        • Filter by image / video / audio<br>
-        • Date range filter<br>
-        • Sort by name or date<br>
-        • Collapse — zero resources when hidden<br>
-        • Delete with sidecar cleanup
-      </div>
-    </div>
-  </div>
-</div>
-</div>
-
-<!-- 7: SEND TO WAN2GP -->
-<div class="section">
-<h2><span class="num">7</span> Sending files to Wan2GP</h2>
-<div class="callout">
-  <div class="emoji">📤</div>
-  <div class="text"><strong>Three ways to load generation settings</strong> into Wan2GP's "Load Settings from Media File" component:</div>
-</div>
+<h2><span class="num">7</span> Maintenance</h2>
 <div class="feature-grid">
-  <div class="feature-card">
-    <span class="fc-icon">🖱️</span>
-    <div class="fc-title">Drag-drop</div>
-    <div class="fc-desc">Drag any file from the sidebar directly onto the Wan2GP UI</div>
-  </div>
-  <div class="feature-card">
-    <span class="fc-icon">📤</span>
-    <div class="fc-title">Send / Vari / P+NS</div>
-    <div class="fc-desc">Buttons below the file list → creates inline JSON from cached metadata → drops on component</div>
-  </div>
-  <div class="feature-card">
-    <span class="fc-icon">📋</span>
-    <div class="fc-title">Click metadata row</div>
-    <div class="fc-desc">Click any row in the metadata panel → sends the file to Wan2GP</div>
-  </div>
-</div>
-<div style="font-size:.75rem;color:#888;line-height:1.5">
-All three trigger the <strong>same pipeline</strong>: cached metadata → JSON file → synthetic drop on Gradio's file component → Wan2GP reads it → updates model, prompt, seed, steps, guidance, resolution — everything.
-</div>
-</div>
-
-<!-- 8: FEATURES -->
-<div class="section">
-<h2><span class="num">8</span> Notable features</h2>
-<div class="feature-grid">
-  <div class="feature-card"><span class="fc-icon">🪟</span><div class="fc-title">Floating Terminal</div><div class="fc-desc">Separate window for Wan2GP logs. Dockable top/bottom/floating. 2000-line buffer.</div></div>
-  <div class="feature-card"><span class="fc-icon">📋</span><div class="fc-title">Metadata Panel</div><div class="fc-desc">Generation settings in HTML table with copy buttons. Prompt Manager style.</div></div>
-  <div class="feature-card"><span class="fc-icon">📂</span><div class="fc-title">Column Resize</div><div class="fc-desc">Drag dividers between prompt / date / filename columns.</div></div>
-  <div class="feature-card"><span class="fc-icon">🎛️</span><div class="fc-title">Filter &amp; Sort</div><div class="fc-desc">Filter by type (image/video/audio) or date range. Sort by name or date.</div></div>
-  <div class="feature-card"><span class="fc-icon">💾</span><div class="fc-title">Prompt Library</div><div class="fc-desc">Save prompts, click to inject back into Wan2GP.</div></div>
-  <div class="feature-card"><span class="fc-icon">🔍</span><div class="fc-title">Auto Port</div><div class="fc-desc">Default port 7860. Auto-increments if occupied. Logged to terminal.</div></div>
-  <div class="feature-card"><span class="fc-icon">🔄</span><div class="fc-title">Auto-restart</div><div class="fc-desc">Wan2GP restarts on crash (up to 3 tries). Crash recovery guards.</div></div>
-  <div class="feature-card"><span class="fc-icon">🎵</span><div class="fc-title">Audio Preview</div><div class="fc-desc">Play audio files inline in the preview overlay.</div></div>
-  <div class="feature-card"><span class="fc-icon">🛠️</span><div class="fc-title">Maintenance</div><div class="fc-desc">Update Wan2GP, upgrade PyTorch/kernels, reinstall, uninstall env or full Wan2GP.</div></div>
-  <div class="feature-card"><span class="fc-icon">📦</span><div class="fc-title">Self-updating</div><div class="fc-desc">Desktop app checks GitHub for new versions, downloads &amp; installs automatically.</div></div>
+  <div class="feature-card"><span class="fc-icon">⬆️</span><div class="fc-title">Update Wan2GP</div><div class="fc-desc">Runs git pull in the repo, then re-installs requirements.</div></div>
+  <div class="feature-card"><span class="fc-icon">📈</span><div class="fc-title">Upgrade Packages</div><div class="fc-desc">Upgrade PyTorch, attention kernels, or any pip package individually.</div></div>
+  <div class="feature-card"><span class="fc-icon">➕</span><div class="fc-title">Install Package</div><div class="fc-desc">Type a pip name in the env card — installs into active env instantly.</div></div>
+  <div class="feature-card"><span class="fc-icon">🔄</span><div class="fc-title">Reinstall</div><div class="fc-desc">Fresh clone + install. Backs up plugins/finetunes/config first.</div></div>
+  <div class="feature-card"><span class="fc-icon">🗑️</span><div class="fc-title">Unlink Env</div><div class="fc-desc">Red text button in env card header. Removes environment directory.</div></div>
+  <div class="feature-card"><span class="fc-icon">💻</span><div class="fc-title">Desktop Shortcut</div><div class="fc-desc">Creates a standalone .bat that activates the env, starts Wan2GP, and opens your browser automatically.</div></div>
+  <div class="feature-card"><span class="fc-icon">⬆️</span><div class="fc-title">Self-Update</div><div class="fc-desc">Checks GitHub for new launcher releases. Download + install in one click.</div></div>
+  <div class="feature-card"><span class="fc-icon">⚙️</span><div class="fc-title">Launch Args</div><div class="fc-desc">Extra flags passed to wgp.py (--profile, --attention, --listen, etc.)</div></div>
 </div>
 </div>
 
 <!-- FOOTER -->
 <div class="footer">
-  Wan2GP Desktop v1.2.8 — <a href="https://github.com/GKartist75/wan2gp-desktop" style="color:#6c5ce7">github.com/GKartist75/wan2gp-desktop</a>
+  Wan2GP Desktop Launcher v2.0 — <a href="https://github.com/GKartist75/wan2gp-desktop" style="color:#6c5ce7">github.com/GKartist75/wan2gp-desktop</a>
 </div>
 
 </div>

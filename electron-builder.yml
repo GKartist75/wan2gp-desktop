@@ -1,5 +1,5 @@
 appId: com.wangp.desktop
-productName: Wan2GP Desktop
+productName: Wan2GP Desktop Launcher
 directories:
   buildResources: resources
 files:
@@ -27,4 +27,4 @@ publish:
   provider: github
   owner: GKartist75
   repo: wan2gp-desktop
-artifactName: Wan2GP-Desktop-${version}-${os}-${arch}.${ext}
+artifactName: Wan2GP-Desktop-Launcher-${version}-${os}-${arch}.${ext}

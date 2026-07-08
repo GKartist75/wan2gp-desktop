@@ -7,8 +7,7 @@ const http = require('http')
 const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
-// Ponytail: zero VRAM — Electron uses SwiftShader by default, no need to force-disable GPU.
-// Keeping GPU enabled lets webview hardware-decode h265 and keeps Gradio WebSocket stable.
+// No GPU override — Electron uses SwiftShader by default.
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
 // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
@@ -34,19 +33,14 @@ function getDataDir() {
 }
 
 function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
-function getRepoDir() { return path.join(getDataDir(), 'Repo_Wan2GP') }
+function getRepoDir() { return path.join(getDataDir(), 'Wan2GP') }
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
 
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
-let mainWin = null, wangpProc = null, setupProc = null
-let _currentPort = 17861 // tracked across launches/restarts
-let _termLogBuffer = [] // buffer for terminal window init
-let isViewerActive = false
-let userStoppedProcess = false
-let restartAttempts = 0
-const MAX_RESTART_ATTEMPTS = 3
+let mainWin = null, setupProc = null
+let _currentPort = 7860 // tracked across launches/restarts
 
 function sysPython() {
   try {
@@ -57,24 +51,13 @@ function sysPython() {
 
 function send(ch, data) {
   mainWin?.webContents.send(ch, data)
-  // Forward to floating terminal window if open
-  if (termWin && !termWin.isDestroyed()) {
-    try { termWin.webContents.send(ch, data) } catch {}
-  }
-  // Buffer launch logs for terminal window
-  if (ch === 'launch-log' || ch === 'setup-output') {
-    if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
-      _termLogBuffer.push(data)
-      if (_termLogBuffer.length > 2000) _termLogBuffer.splice(0, _termLogBuffer.length - 2000)
-    }
-  }
 }
 
 function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch {}
-  return { githubToken: '', defaultBrowser: '', theme: 'dark', serverPort: 17861 }
+  return { githubToken: '', theme: 'dark', serverPort: 7860 }
 }
 
 function saveConfig(cfg) {
@@ -82,64 +65,11 @@ function saveConfig(cfg) {
   fs.writeFileSync(getConfigFile(), JSON.stringify(cfg, null, 2))
 }
 
-// ── Read PNG comment chunk (handles tEXt, zTXt, iTXt) ──
-function readPngComment(filePath) {
-  try {
-    const fd = fs.openSync(filePath, 'r')
-    const sig = Buffer.alloc(8); fs.readSync(fd, sig, 0, 8, 0)
-    if (sig.toString('hex') !== '89504e470d0a1a0a') { fs.closeSync(fd); return null }
-    let offset = 8
-    while (true) {
-      const h = Buffer.alloc(8)
-      if (fs.readSync(fd, h, 0, 8, offset) < 8) break
-      const len = h.readUInt32BE(0), type = h.toString('ascii', 4, 8)
-      offset += 8
-      if (type === 'IEND') break
-      if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
-        const data = Buffer.alloc(len); fs.readSync(fd, data, 0, len, offset)
-        const nullIdx = data.indexOf(0) // end of keyword
-        if (nullIdx < 0) { offset += len + 4; continue }
-        const keyword = data.toString('utf8', 0, nullIdx)
-        if (keyword !== 'comment' && keyword !== 'Description' && keyword !== 'parameters') {
-          offset += len + 4; continue
-        }
-        let textStart = nullIdx + 1
-        if (type === 'iTXt') {
-          textStart = nullIdx + 1 + 2 // skip flag + method
-          const langEnd = data.indexOf(0, textStart)
-          if (langEnd < 0) { offset += len + 4; continue }
-          textStart = langEnd + 1
-          const transEnd = data.indexOf(0, textStart)
-          if (transEnd < 0) { offset += len + 4; continue }
-          textStart = transEnd + 1
-        } else if (type === 'zTXt') {
-          textStart = nullIdx + 1 + 1 // skip compression method
-        }
-        let text
-        if (type === 'zTXt') {
-          try { text = require('zlib').unzipSync(data.slice(textStart)).toString('utf8') } catch { text = data.toString('utf8', textStart) }
-        } else {
-          text = data.toString('utf8', textStart)
-        }
-        fs.closeSync(fd)
-        try { return JSON.parse(text) } catch {}
-        return { text, _raw_comment: text }
-      }
-      offset += len + 4
-    }
-    fs.closeSync(fd)
-  } catch {}
-  return null
-}
-
 // ── TCP port check ──
 function waitForPort(host, port, timeoutMs = 180000) {
   return new Promise((resolve, reject) => {
     const start = Date.now()
     const check = () => {
-      if (wangpProc && wangpProc.exitCode !== null) {
-        return reject(new Error(`Wan2GP process exited with code ${wangpProc.exitCode} before server started`))
-      }
       const sock = new net.Socket()
       sock.setTimeout(2000)
       sock.on('connect', () => { sock.destroy(); resolve(true) })
@@ -152,20 +82,6 @@ function waitForPort(host, port, timeoutMs = 180000) {
       else setTimeout(check, 800)
     }
     check()
-  })
-}
-
-// Find a free port starting from startPort (increments if occupied)
-function findFreePort(startPort) {
-  return new Promise((resolve) => {
-    const server = require('net').createServer()
-    server.listen(startPort, '127.0.0.1', () => {
-      const port = server.address().port
-      server.close(() => resolve(port))
-    })
-    server.on('error', () => {
-      resolve(findFreePort(startPort + 1))
-    })
   })
 }
 
@@ -223,9 +139,8 @@ function runSetup(args) {
       env: { ...process.env, PYTHONUNBUFFERED: '1' }
     })
     setupProc = proc
-    let buf = '', lineBuf = ''
+    let lineBuf = ''
     const emit = (text) => {
-      buf += text
       send('setup-output', text)
       lineBuf += text
       const lines = lineBuf.split('\n')
@@ -241,7 +156,7 @@ function runSetup(args) {
     proc.stderr.on('data', (d) => { const s = d.toString(); emit(s); process.stderr.write(s) })
     proc.on('close', (code) => {
       setupProc = null
-      if (code === 0) resolve(buf)
+      if (code === 0) resolve()
       else reject(new Error(`setup.py exited code ${code}`))
     })
     proc.on('error', reject)
@@ -276,7 +191,7 @@ function getActiveEnv() {
 function getPythonForEnv(env) {
   if (!env || !env.path) return null
   // Resolve relative paths against getRepoDir()
-  const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
+  const envPath = path.normalize(path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path))
   if (env.type === 'none') return sysPython()
   return IS_WIN
     ? path.join(envPath, 'Scripts', 'python.exe')
@@ -400,22 +315,37 @@ ipcMain.handle('get-status', async () => {
   const py = getPythonForEnv(env)
   if (!py) return { error: 'No python' }
   try {
-    const out = execSync(`"${py}" -c "
-import sys, importlib.metadata
-pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',
-        'diffusers','transformers','gradio','accelerate','onnxruntime','xformers',
-        'nunchaku','gguf','mmgp','moviepy','opencv-python','insightface',
-        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio',
-        'huggingface_hub']
-r = []
-for p in pkgs:
-    try:
-        if p == 'python': r.append(f'python={sys.version.split()[0]}')
-        elif p == 'opencv-python': r.append(f'opencv={importlib.metadata.version(\"opencv-python\")}')
-        else: r.append(f'{p}={importlib.metadata.version(p)}')
-    except: pass
-print('||'.join(r))
-"`, { encoding: 'utf8', timeout: 30000, cwd: getRepoDir() }).trim()
+    // Write Python script to temp file to avoid shell quoting issues
+    const helperPath = path.join(getDataDir(), '.get_versions.py')
+    const helperCode = [
+      'import sys, importlib.metadata',
+      "aliases = {'triton': 'triton-windows', 'opencv-python': 'opencv',",
+      "          'spas_sage_attn': 'spas-sage-attn', 'huggingface_hub': 'huggingface-hub'}",
+      "pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',",
+      "        'diffusers','transformers','gradio','accelerate','onnxruntime','xformers',",
+      "        'nunchaku','gguf','mmgp','moviepy','opencv-python','insightface',",
+      "        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio',",
+      "        'huggingface_hub','bitsandbytes','numpy','sentencepiece','open_clip_torch',",
+      "        'imageio','einops','librosa','soundfile','tokenizers','av']",
+      'r = []',
+      'for p in pkgs:',
+      '    try:',
+      "        if p == 'python': r.append(f'python={sys.version.split()[0]}')",
+      "        elif p in aliases: r.append(f'{p}={importlib.metadata.version(aliases[p])}')",
+      '        else: r.append(f\'{p}={importlib.metadata.version(p)}\')',
+      '    except: pass',
+      "print('||'.join(r))",
+    ].join('\n')
+    fs.writeFileSync(helperPath, helperCode)
+    const { exec } = require('child_process')
+    const out = await new Promise((resolve, reject) => {
+      exec('"' + py + '" "' + helperPath + '"', {
+        cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8'
+      }, (err, stdout) => {
+        if (err) reject(err)
+        else resolve(stdout.trim())
+      })
+    })
     const parts = out.split('||')
     const versions = {}
     parts.forEach(p => { const [k, v] = p.split('='); versions[k] = v })
@@ -430,75 +360,94 @@ ipcMain.handle('launch', async () => {
   const py = getPythonForEnv(env)
   if (!py) throw new Error('Cannot find python for env')
 
-  // Kill old process before spawning new one (prevents stale exit handler race)
-  if (wangpProc) {
-    userStoppedProcess = true
-    wangpProc.kill('SIGKILL')
-    wangpProc = null
-    userStoppedProcess = false
-  }
-  restartAttempts = 0
-
   const cfg = loadConfig()
   let preferredPort = cfg.serverPort || 7860
-  // Check launchArgs for port override
   const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
   for (let i = 0; i < extraArgs.length; i++) {
     if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
       preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
     }
   }
-  const port = await findFreePort(preferredPort)
-  if (port !== preferredPort) {
-    send('launch-log', `[*] Port ${preferredPort} in use, using ${port} instead.\n`)
-  }
+  // Ensure --server-port in args
+  const hasPort = extraArgs.some(a => a === '--server-port')
+  if (!hasPort) { extraArgs.push('--server-port', String(preferredPort)) }
+
+  const port = preferredPort
   _currentPort = port
   send('launch-log', '[*] Starting Wan2GP...\n')
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
+  send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
 
-  wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port), ...extraArgs], {
-    cwd: getRepoDir(),
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1', GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '1', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
-    windowsHide: true
-  })
+  // Create temp launch script (visible terminal window)
+  const repoDir = getRepoDir()
+  const tmpDir = require('os').tmpdir()
+  const scriptPath = path.join(tmpDir, 'wan2gp-launch' + (IS_WIN ? '.bat' : '.sh'))
 
-  wangpProc.stdout.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stdout.write(s) })
-  wangpProc.stderr.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stderr.write(s) })
+  if (IS_WIN) {
+    const bat = [
+      '@echo off',
+      'title Wan2GP',
+      'cd /d "' + repoDir + '"',
+      'echo.',
+      'echo [Wan2GP Desktop Launcher]',
+      'echo Starting Wan2GP on port ' + port + '...',
+      'echo First launch loads models + compiles CUDA kernels - this will take some extra time.',
+      'echo.',
+      '"' + py + '" -u wgp.py ' + extraArgs.join(' '),
+      'echo.',
+      'if errorlevel 1 echo [Wan2GP] Process exited with code %errorlevel% ^(see above for errors^)',
+      'echo [Wan2GP] You can close this window.',
+      'pause',
+    ].join('\n')
+    fs.writeFileSync(scriptPath, bat, 'utf8')
+  } else {
+    const sh = [
+      '#!/bin/bash',
+      'echo "[Wan2GP Desktop Launcher]"',
+      'echo "Starting Wan2GP on port ' + port + '..."',
+      'echo',
+      'cd "' + repoDir + '"',
+      '"' + py + '" -u wgp.py ' + extraArgs.join(' '),
+      'echo',
+      'echo "[Wan2GP] Process exited. You can close this terminal."',
+      'read -p "Press Enter to close..."',
+    ].join('\n')
+    fs.writeFileSync(scriptPath, sh, 'utf8')
+    fs.chmodSync(scriptPath, 0o755)
+  }
 
-  let exited = false
-  wangpProc.on('exit', (code) => {
-    exited = true
-    wangpProc = null
-    send('wangp-exit', code)
-    if (isViewerActive && !userStoppedProcess) {
-      send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
-      setTimeout(() => restartWan2GP(), 1500)
-    }
-  })
+  // Open in new terminal window
+  const cmd = IS_WIN
+    ? `start "Wan2GP" cmd /c "${scriptPath}"`
+    : `x-terminal-emulator -e "${scriptPath}" 2>/dev/null || xterm -e "${scriptPath}" 2>/dev/null || gnome-terminal -- "${scriptPath}"`
+  exec(cmd, { windowsHide: false, detached: true })
 
   send('launch-log', '[*] Waiting for Gradio server...\n')
   try {
-    await waitForPort('127.0.0.1', port, 180000)
+    await waitForPort('localhost', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
-    return { url: `http://127.0.0.1:${port}`, port }
+    // Monitor process — report when it stops (terminal closed / crash)
+    let monitorInterval = setInterval(() => {
+      const sock = new net.Socket()
+      sock.setTimeout(2000)
+      sock.on('connect', () => { sock.destroy() })
+      sock.on('error', () => {
+        sock.destroy()
+        clearInterval(monitorInterval)
+        send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
+        send('wangp-exit', -1)
+      })
+      sock.on('timeout', () => { sock.destroy() })
+      sock.connect(port, 'localhost')
+    }, 8000)
+    return { url: `http://localhost:${port}`, port }
   } catch (err) {
-    if (exited) throw new Error(`Wan2GP exited before server started. Check launch logs.`)
     throw err
   }
 })
 
-ipcMain.handle('is-running', () => wangpProc !== null && wangpProc.exitCode === undefined)
-
-ipcMain.handle('stop', () => {
-  userStoppedProcess = true
-  if (wangpProc) { wangpProc.kill('SIGTERM'); setTimeout(() => { if (wangpProc) wangpProc.kill('SIGKILL') }, 5000); wangpProc = null }
-  return true
-})
-
 ipcMain.handle('update', async () => await runSetup(['update']))
-ipcMain.handle('upgrade', async () => await runSetup(['upgrade']))
 
 ipcMain.handle('manage-list', () => {
   try {
@@ -563,120 +512,6 @@ ipcMain.handle('uninstall-env', async (_, name) => {
   return { success: true }
 })
 
-// ── Uninstall all Wan2GP (keep output/checkpoint/lora, backup plugins/finetunes) ──
-ipcMain.handle('uninstall-wangp', async () => {
-  const repo = getRepoDir()
-  if (!fs.existsSync(repo)) return { error: 'No Wan2GP installation found' }
-
-  // Ask about backup
-  const backupChoice = await dialog.showMessageBox(mainWin, {
-    type: 'question',
-    buttons: ['Backup plugins & finetunes', 'Skip backup', 'Cancel'],
-    defaultId: 0,
-    cancelId: 2,
-    message: 'Backup plugins and finetunes?',
-    detail: 'Plugins and finetunes will be backed up to: ' + path.join(getDataDir(), '.uninstall-backup')
-  })
-  if (backupChoice.response === 2) return { cancelled: true }
-  const doBackup = backupChoice.response === 0
-
-  if (doBackup) {
-    send('setup-output', '[*] Backing up plugins and finetunes...\n')
-    const backupDir = path.join(getDataDir(), '.uninstall-backup')
-    try {
-      if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true })
-      fs.mkdirSync(backupDir, { recursive: true })
-      for (const sub of ['plugins', 'finetunes']) {
-        const src = path.join(repo, sub)
-        if (fs.existsSync(src)) {
-          execSync(IS_WIN ? `xcopy /E /I "${src}" "${path.join(backupDir, sub)}"` : `cp -r "${src}" "${backupDir}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
-        }
-      }
-      const configPath = path.join(repo, 'wgp_config.json')
-      if (fs.existsSync(configPath)) fs.copyFileSync(configPath, path.join(backupDir, 'wgp_config.json'))
-      send('setup-output', `[*] Backup saved to ${backupDir}\n`)
-    } catch (e) { send('setup-output', `[!] Backup warning: ${e.message}\n`) }
-  }
-
-  // Ask about output/checkpoint/lora — delete or keep?
-  let keepDirs = []
-  // Collect paths first
-  const collectedPaths = []
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'wgp_config.json'), 'utf8'))
-    for (const key of ['save_path', 'checkpoints_path', 'loras_path']) {
-      if (cfg[key] && path.isAbsolute(cfg[key]) && fs.existsSync(cfg[key])) {
-        collectedPaths.push({ path: cfg[key], label: key === 'save_path' ? 'Outputs folder' : key === 'checkpoints_path' ? 'Checkpoints folder' : 'LoRAs folder' })
-      }
-    }
-  } catch {}
-  const defaultSubs = [
-    { sub: 'workspace/outputs', label: 'Outputs folder (workspace/outputs)' },
-    { sub: 'workspace/checkpoints', label: 'Checkpoints folder (workspace/checkpoints)' },
-    { sub: 'workspace/loras', label: 'LoRAs folder (workspace/loras)' }
-  ]
-  for (const ds of defaultSubs) {
-    const p = path.join(repo, ds.sub)
-    if (fs.existsSync(p) && !collectedPaths.find(c => c.path === p)) {
-      collectedPaths.push({ path: p, label: ds.label })
-    }
-  }
-
-  if (collectedPaths.length > 0) {
-    const detail = collectedPaths.map(c => '  • ' + c.label).join('\n')
-    const keepChoice = await dialog.showMessageBox(mainWin, {
-      type: 'question',
-      buttons: ['Keep them', 'Delete them too', 'Cancel'],
-      defaultId: 0,
-      cancelId: 2,
-      message: 'Delete or keep these folders?',
-      detail: detail
-    })
-    if (keepChoice.response === 2) return { cancelled: true }
-    if (keepChoice.response === 0) {
-      keepDirs = collectedPaths.map(c => c.path)
-    }
-  }
-
-  // Nuke repo (keeping or moving aside preserve dirs)
-  send('setup-output', '[*] Removing Wan2GP...\n')
-  if (keepDirs.length > 0) {
-    const tempDir = path.join(getDataDir(), '.uninstall-keep')
-    try {
-      if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true })
-      fs.mkdirSync(tempDir, { recursive: true })
-      for (const p of keepDirs) {
-        const base = path.basename(p)
-        const dest = path.join(tempDir, base)
-        if (fs.existsSync(p)) {
-          execSync(IS_WIN ? `move "${p}" "${dest}"` : `mv "${p}" "${dest}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
-        }
-      }
-      execSync(IS_WIN ? `rmdir /s /q "${repo}"` : `rm -rf "${repo}"`, { stdio: 'pipe', timeout: 60000, windowsHide: true })
-      fs.mkdirSync(repo, { recursive: true })
-      for (const p of keepDirs) {
-        const base = path.basename(p)
-        const src = path.join(tempDir, base)
-        if (fs.existsSync(src)) {
-          const parent = path.dirname(p)
-          if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true })
-          execSync(IS_WIN ? `move "${src}" "${p}"` : `mv "${src}" "${p}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
-        }
-      }
-      fs.rmSync(tempDir, { recursive: true, force: true })
-    } catch (e) { send('setup-output', `[!] Error: ${e.message}\n`) }
-  } else {
-    // Just nuke everything
-    try { execSync(IS_WIN ? `rmdir /s /q "${repo}"` : `rm -rf "${repo}"`, { stdio: 'pipe', timeout: 60000, windowsHide: true }) } catch {}
-  }
-
-  // Remove envs.json
-  try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
-
-  send('setup-output', `[*] Wan2GP uninstalled.${keepDirs.length > 0 ? ' Output/checkpoint/loras kept.' : ''}${doBackup ? ' Plugins/finetunes backed up.' : ''}\n`)
-  return { success: true }
-})
-
 ipcMain.handle('open-external', (_, url) => {
   if (typeof url !== 'string' || !url.startsWith('http')) return
   try { new URL(url) } catch { return }
@@ -687,56 +522,15 @@ ipcMain.handle('open-task-manager', () => {
   try { require('child_process').exec('taskmgr.exe') } catch {}
 })
 
-// ── Browser detection ──
-ipcMain.handle('detect-browsers', () => {
-  const browsers = []
-  if (IS_WIN) {
-    const checks = [
-      { name: 'Edge', paths: [process.env['PROGRAMFILES(X86)'] + '\\Microsoft\\Edge\\Application\\msedge.exe', process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe'] },
-      { name: 'Chrome', paths: [process.env['PROGRAMFILES(X86)'] + '\\Google\\Chrome\\Application\\chrome.exe', process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe'] },
-      { name: 'Firefox', paths: [process.env.PROGRAMFILES + '\\Mozilla Firefox\\firefox.exe', process.env['PROGRAMFILES(X86)'] + '\\Mozilla Firefox\\firefox.exe'] },
-      { name: 'Brave', paths: [process.env.LOCALAPPDATA + '\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'] },
-      { name: 'Opera', paths: [process.env['PROGRAMFILES(X86)'] + '\\Opera\\launcher.exe'] },
-      { name: 'Vivaldi', paths: [process.env.LOCALAPPDATA + '\\Vivaldi\\Application\\vivaldi.exe'] },
-      { name: 'Yandex', paths: [process.env.LOCALAPPDATA + '\\Yandex\\YandexBrowser\\Application\\browser.exe'] },
-    ]
-    for (const c of checks) {
-      for (const p of c.paths) {
-        if (p && fs.existsSync(p)) { browsers.push({ name: c.name, path: p }); break }
-      }
-    }
-  } else if (PLATFORM === 'darwin') {
-    const apps = [
-      { name: 'Safari', path: '/Applications/Safari.app' },
-      { name: 'Chrome', path: '/Applications/Google Chrome.app' },
-      { name: 'Firefox', path: '/Applications/Firefox.app' },
-      { name: 'Brave', path: '/Applications/Brave Browser.app' },
-    ]
-    for (const a of apps) { if (fs.existsSync(a.path)) browsers.push(a) }
-  } else {
-    const bins = ['google-chrome', 'chromium-browser', 'firefox', 'brave-browser']
-    for (const b of bins) {
-      try {
-        const p = execSync(`which ${b} 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim()
-        if (p) browsers.push({ name: b, path: p })
-      } catch {}
-    }
-  }
-  return browsers
+// ── Desktop config ──
+ipcMain.handle('check-command', (_, cmd) => {
+  if (!cmd) return false
+  try {
+    const out = execSync(IS_WIN ? `where ${cmd}` : `which ${cmd}`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+    return out.trim().length > 0
+  } catch { return false }
 })
 
-// ── Launch URL in specific browser ──
-ipcMain.handle('open-in-browser', (_, { url, browserPath }) => {
-  if (browserPath) {
-    const cmd = IS_WIN ? `"${browserPath}" "${url}"` : `open -a "${browserPath}" "${url}"`
-    execSync(cmd, { stdio: 'pipe', windowsHide: true, timeout: 5000 })
-  } else {
-    shell.openExternal(url)
-  }
-  return true
-})
-
-// ── Desktop config (token, browser preference) ──
 ipcMain.handle('config-load', () => loadConfig())
 ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
 
@@ -746,11 +540,9 @@ ipcMain.handle('get-install-paths', () => ({
   repo: getRepoDir(),
   config: getConfigFile()
 }))
-
 ipcMain.handle('get-data-dir', () => getDataDir())
 ipcMain.handle('set-data-dir', (_, dir) => {
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
-  // Redirect Electron runtime cache to new location
   try {
     const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
@@ -758,9 +550,20 @@ ipcMain.handle('set-data-dir', (_, dir) => {
   } catch {}
   return true
 })
+ipcMain.handle('open-folder', (_, dir) => {
+  try { shell.openPath(dir) } catch {}
+})
+ipcMain.handle('reset-data-dir', () => {
+  try {
+    if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
+    const d = path.join(app.getPath('userData'), 'Wan2GP')
+    fs.mkdirSync(d, { recursive: true })
+    app.setPath('userData', path.join(d, '.electron'))
+  } catch {}
+  return true
+})
 
 // ── Hardware-tuned default settings for wgp_config.json ──
-// Mirrors WanGP's own setup.py profile logic but runs in Node (no Python dep)
 function getHardwareDefaults() {
   const out = { attention: 'auto', compile: '', profile: 5, hierarchy: 1 }
   try {
@@ -847,7 +650,7 @@ function getHardwareDefaults() {
   return out
 }
 
-ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
+ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }) => {
   const hw = getHardwareDefaults()
   const configPath = path.join(getRepoDir(), 'wgp_config.json')
   let cfg = {}
@@ -858,7 +661,13 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot }) => {
   } catch {}
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
   if (lorasRoot) cfg.loras_root = lorasRoot
-  // ponytail: hardware-tuned defaults — setdefault-style, only fill missing
+  if (savePath) {
+    cfg.save_path = savePath
+    cfg.image_save_path = savePath
+    cfg.audio_save_path = savePath
+  }
+  // Hardware-tuned defaults — only fill missing
+  // (mirrors Wan2GP setup.py logic but runs in Node, no Python dep)
   if (cfg.attention_mode === undefined) cfg.attention_mode = hw.attention
   // Profile 1-5 based on RAM/VRAM (same as WanGP setup.py)
   if (cfg.video_profile === undefined) cfg.video_profile = hw.profile
@@ -938,687 +747,78 @@ ipcMain.handle('detect-model-folders', () => {
   return suggestions
 })
 
-// ── Output folder browser ──
-const IMG_EXTS = new Set(['.png','.jpg','.jpeg','.gif','.webp','.bmp','.tif','.tiff'])
-const VID_EXTS = new Set(['.mp4','.mov','.avi','.mkv','.webm','.m4v','.mpeg','.mpg'])
 
-function getOutputDir() {
-  const configPath = path.join(getRepoDir(), 'wgp_config.json')
-  try {
-    if (fs.existsSync(configPath)) {
-      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-      if (cfg.save_path && fs.existsSync(cfg.save_path)) return cfg.save_path
-    }
-  } catch {}
-  return path.join(getRepoDir(), 'outputs')
-}
-
-// ── Watch output directory for changes ──
-let outputWatchDebounce = null
-let outputWatcher = null
-function startOutputWatcher() {
-  try {
-    if (outputWatcher) { outputWatcher.close(); outputWatcher = null }
-    const dir = getOutputDir()
-    if (!fs.existsSync(dir)) return
-    outputWatcher = fs.watch(dir, { recursive: true }, (eventType, filename) => {
-      if (outputWatchDebounce) clearTimeout(outputWatchDebounce)
-      outputWatchDebounce = setTimeout(() => {
-        if (mainWin && !mainWin.isDestroyed()) {
-          mainWin.webContents.send('output-files-changed')
-        }
-      }, 500)
-    })
-  } catch {}
-}
-function stopOutputWatcher() {
-  if (outputWatchDebounce) { clearTimeout(outputWatchDebounce); outputWatchDebounce = null }
-  if (outputWatcher) { outputWatcher.close(); outputWatcher = null }
-}
-
-// ── Copy files to output directory (dropped by user) ──
-ipcMain.handle('copy-files-to-output', (_, filePaths) => {
-  if (!Array.isArray(filePaths)) return []
-  const outDir = getOutputDir()
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
-  const copied = []
-  for (const fp of filePaths) {
-    try {
-      const name = path.basename(fp)
-      const dest = path.join(outDir, name)
-      // Avoid overwrite
-      let finalDest = dest
-      let counter = 1
-      while (fs.existsSync(finalDest)) {
-        const ext = path.extname(name)
-        const base = path.basename(name, ext)
-        finalDest = path.join(outDir, base + '_' + counter + ext)
-        counter++
-      }
-      fs.copyFileSync(fp, finalDest)
-      copied.push(finalDest)
-    } catch {}
-  }
-  if (copied.length && mainWin && !mainWin.isDestroyed()) {
-    mainWin.webContents.send('output-files-changed')
-  }
-  return copied
-})
-
-ipcMain.handle('list-output-files', (_, subdir) => {
-  const base = getOutputDir()
-  const dir = subdir && path.isAbsolute(subdir) && fs.existsSync(subdir) ? subdir : base
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    const folders = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => ({
-      name: e.name,
-      path: path.join(dir, e.name),
-      type: 'folder'
-    })).sort((a, b) => a.name.localeCompare(b.name))
-    // Add parent folder entry if not at root
-    if (path.resolve(dir) !== path.resolve(base)) {
-      folders.unshift({ name: '..', path: path.resolve(dir, '..'), type: 'folder' })
-    }
-    const files = entries.filter(e => {
-      if (!e.isFile()) return false
-      const ext = path.extname(e.name).toLowerCase()
-      return IMG_EXTS.has(ext) || VID_EXTS.has(ext)
-    }).sort((a, b) => fs.statSync(path.join(dir, b.name)).mtimeMs - fs.statSync(path.join(dir, a.name)).mtimeMs).slice(0, 200).map(e => {
-      const st = fs.statSync(path.join(dir, e.name))
-      return {
-        name: e.name,
-        path: path.join(dir, e.name),
-        type: IMG_EXTS.has(path.extname(e.name).toLowerCase()) ? 'image' : 'video',
-        mtime: st.mtimeMs
-      }
-    })
-    return { dir, files, folders }
-  } catch { return { dir, files: [], folders: [] } }
-})
-
-ipcMain.handle('delete-files', (_, filePaths) => {
-  if (!Array.isArray(filePaths)) return {ok: false}
-  for (const fp of filePaths) {
-    try {
-      if (fs.existsSync(fp)) fs.rmSync(fp)
-      // Remove sidecar files
-      const base = path.join(path.dirname(fp), path.basename(fp, path.extname(fp)))
-      for (const ext of ['.json', '.txt', '.metadata']) {
-        const sidecar = base + ext
-        if (fs.existsSync(sidecar)) fs.rmSync(sidecar)
-      }
-    } catch {}
-  }
-  return {ok: true}
-})
-
-ipcMain.handle('set-output-path', async () => {
-  const { dialog } = require('electron')
-  const result = await dialog.showOpenDialog(mainWin, { properties: ['openDirectory'] })
-  if (result.canceled) return null
-  const newDir = result.filePaths[0]
-  const configPath = path.join(getRepoDir(), 'wgp_config.json')
-  try {
-    let cfg = {}
-    if (fs.existsSync(configPath)) cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-    cfg.save_path = newDir
-    cfg.image_save_path = newDir
-    cfg.audio_save_path = newDir
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
-    startOutputWatcher()
-  } catch {}
-  return newDir
-})
-
-ipcMain.handle('stop-output-watcher', () => { stopOutputWatcher() })
-ipcMain.handle('start-output-watcher', () => { startOutputWatcher() })
-
-// ── Read file metadata via WanGP's own Python (handles PNG/JPEG/MP4/MKV/audio) ──
-// ── Read file metadata via WanGP's own Python (handles PNG/JPEG/MP4/MKV/audio) ──
-// ── Legacy Python metadata reader (called by renderer fallback) ──
-ipcMain.handle('read-file-metadata-python', async (_, filePath) => {
-  // Forward to the unified handler
-  const { ipcMain } = require('electron')
-  // We can't easily invoke ourselves, so replicate the Tier 3-4 logic
-  // Tier 3: lightweight Python reader
-  try {
-    const lightMeta = await _runMetaReader('python', filePath, __dirname)
-    if (lightMeta && Object.keys(lightMeta).length) return lightMeta
-  } catch {}
-  try {
-    const lightMeta3 = await _runMetaReader('python3', filePath, __dirname)
-    if (lightMeta3 && Object.keys(lightMeta3).length) return lightMeta3
-  } catch {}
-  // Tier 4: full Wan2GP env
+// ── Create Desktop Shortcut for Wan2GP (standalone launch without desktop app) ──
+ipcMain.handle('create-desktop-shortcut', () => {
   try {
     const env = getActiveEnv()
-    if (env) {
-      const py = getPythonForEnv(env)
-      const repo = getRepoDir()
-      if (py && repo) {
-        const helperPath = path.join(getDataDir(), '.meta_reader_wgp.py')
-        const helperCode = `import sys, json, os
-sys.path.insert(0, sys.argv[1])
-from wgp import get_settings_from_file
-fp = sys.argv[2]
-ext = os.path.splitext(fp)[1].lower()
-configs, any_video, any_audio = get_settings_from_file({'model_type': None}, fp, True, True, True, skip_validate_settings=True) or (None, False, False)
-if configs:
-    for k in list(configs.keys()):
-        if isinstance(configs[k], (dict, list, str, int, float, bool, type(None))): continue
-        del configs[k]
-# ── Phase 4: ALWAYS try to capture the raw comment JSON text ──
-_raw = None
-try:
-    if ext == '.png':
-        from PIL import Image
-        with Image.open(fp) as img:
-            _raw = (getattr(img, 'text', {}) or {}).get('comment', '') or img.info.get('comment', '')
-    elif ext in ('.jpg','.jpeg','.webp'):
-        try:
-            import piexif
-            exif = piexif.load(fp)
-            uc = exif.get('Exif', {}).get(piexif.ExifIFD.UserComment)
-            if uc:
-                _raw = uc.decode('utf-8', errors='replace').strip('\\x00').strip()
-        except:
-            from PIL import Image
-            with Image.open(fp) as img:
-                if hasattr(img, '_getexif'):
-                    exif = img._getexif()
-                    if exif and 37510 in exif:
-                        uc = exif[37510]
-                        if isinstance(uc, bytes):
-                            _raw = uc.decode('utf-8', errors='replace').strip('\\x00').strip()
-                        else:
-                            _raw = str(uc).strip()
-    elif ext in ('.mp4','.mkv','.mov','.webm','.avi'):
-        import subprocess
-        try:
-            probe = subprocess.run(['ffprobe','-v','quiet','-print_format','json','-show_format',fp],
-                capture_output=True, text=True, timeout=10)
-            tags = json.loads(probe.stdout).get('format',{}).get('tags',{})
-            for k in ('comment','COMMENT','description','DESCRIPTION','\\xa9cmt'):
-                v = tags.get(k)
-                if v: _raw = v; break
-        except:
-            pass
-except Exception as e:
-    sys.stderr.write('raw_commit_err: ' + str(e)[:200])
-if _raw:
-    if configs is None: configs = {}
-    configs['_raw_comment'] = _raw
-if configs:
-    sys.stdout.write('JSON_OK:' + json.dumps(configs, default=str))
-else:
-    sys.stdout.write('JSON_NULL')
-`
-        fs.writeFileSync(helperPath, helperCode)
-        const { exec } = require('child_process')
-        const envResult = await new Promise((resolve) => {
-          exec('"' + py + '" "' + helperPath + '" "' + repo + '" "' + filePath + '"',
-            { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
-            (err, stdout) => {
-              if (err) { resolve(null); return }
-              const out = stdout.trim()
-              if (out.startsWith('JSON_OK:')) {
-                try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
-              } else { resolve(null) }
-            }
-          )
-        })
-        if (envResult && Object.keys(envResult).length) return envResult
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python for active env' }
+    const repo = getRepoDir()
+    if (!repo || !fs.existsSync(path.join(repo, 'wgp.py'))) return { error: 'Wan2GP repo not found' }
+    const desktop = app.getPath('desktop')
+    if (!desktop) return { error: 'Cannot find desktop path' }
+
+    const cfg = loadConfig()
+    const port = cfg.serverPort || 7860
+    const extraArgs = (cfg.launchArgs || '').trim()
+
+    // Build activation command based on env type
+    let activate = ''
+    const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
+    if (env.type === 'venv' || env.type === 'uv') {
+      const activateScript = IS_WIN
+        ? path.join(envPath, 'Scripts', 'activate')
+        : path.join(envPath, 'bin', 'activate')
+      if (fs.existsSync(activateScript)) {
+        activate = IS_WIN
+          ? 'call "' + activateScript + '"'
+          : 'source "' + activateScript + '"'
+      }
+    } else if (env.type === 'conda') {
+      activate = 'call conda activate "' + envPath + '"'
+    }
+
+    let batContent = '@echo off\n'
+    batContent += 'title Wan2GP\n'
+    batContent += 'cd /d "' + repo + '"\n'
+    batContent += 'echo.\n'
+    batContent += 'echo [Wan2GP Desktop Launcher]\n'
+    batContent += 'echo Starting Wan2GP on port ' + port + '...\n'
+    batContent += 'echo.\n'
+    if (activate) {
+      batContent += 'echo Activating environment: ' + env.name + ' (' + env.type + ')\n'
+      batContent += activate + '\n'
+      if (IS_WIN && (env.type === 'venv' || env.type === 'uv')) {
+        batContent += 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%\n'
       }
     }
-  } catch {}
-  return null
-})
+    batContent += 'echo.\n'
+    batContent += 'echo Starting wgp.py in background...\n'
+    // Run wgp.py in background so we can monitor + open browser when ready
+    batContent += 'start /b "" cmd /c "python -u wgp.py --server-port ' + port + (extraArgs ? ' ' + extraArgs : '') + '" 2>&1\n'
+    batContent += 'echo.\n'
+    batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
+    // Poll via HTTP (wait for real Gradio response, not just TCP socket)
+    batContent += ':waitloop\n'
+    batContent += 'timeout /t 2 /nobreak >nul\n'
+    batContent += 'powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + port + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready\n'
+    batContent += 'goto waitloop\n'
+    batContent += ':ready\n'
+    batContent += 'echo Wan2GP is ready! Opening browser...\n'
+    batContent += 'start http://localhost:' + port + '\n'
+    batContent += 'echo.\n'
+    batContent += 'echo [Wan2GP] Server is running. Close this window to stop it.\n'
+    batContent += 'pause >nul\n'
 
-// ── Unified metadata reader: tries sidecar → Node.js PNG → lightweight Python → full Wan2GP env ──
-// Lightweight Python reader path (no Wan2GP env required)
-const _metaReaderScript = path.join(__dirname, 'renderer', 'read_metadata.py')
-
-function _runMetaReader(py, filePath, cwd) {
-  return new Promise((resolve) => {
-    const { exec } = require('child_process')
-    exec('"' + py + '" "' + _metaReaderScript + '" "' + filePath + '"',
-      { cwd: cwd || __dirname, timeout: 15000, windowsHide: true, encoding: 'utf8' },
-      (err, stdout) => {
-        if (err) { resolve(null); return }
-        const out = stdout.trim()
-        if (out.startsWith('META_OK:')) {
-          try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
-        } else if (out.startsWith('JSON_OK:')) {
-          try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
-        } else {
-          resolve(null)
-        }
-      }
-    )
-  })
-}
-
-// Wan2GP metadata keys used to validate brute-force JSON hits
-const _wan2gpKeys = ['prompt','seed','model_type','model_filename','num_inference_steps','guidance_scale','negative_prompt','resolution','video_length','loras','type']
-
-// Brute-force binary JSON scan — works on ANY file format, no dependencies
-function scanBufferForJson(buf) {
-  const results = []
-  const maxScan = Math.min(buf.length, 5 * 1024 * 1024)
-  for (let pos = 0; pos < maxScan; pos++) {
-    if (buf[pos] !== 0x7b) continue // look for '{'
-    // Find matching '}'
-    let depth = 1, inStr = false, esc = false
-    for (let end = pos + 1; end < maxScan && end < pos + 100000; end++) {
-      const c = buf[end]
-      if (esc) { esc = false; continue }
-      if (c === 0x5c) { esc = true; continue } // backslash
-      if (c === 0x22) { inStr = !inStr; continue } // double quote
-      if (inStr) continue
-      if (c === 0x7b) depth++
-      else if (c === 0x7d) depth--
-      if (depth === 0) {
-        try {
-          const slice = buf.toString('utf8', pos, end + 1)
-          const parsed = JSON.parse(slice)
-          if (parsed && typeof parsed === 'object') {
-            // Validate: must have at least 2 Wan2GP-typical keys
-            const matchKeys = _wan2gpKeys.filter(k => parsed[k] !== undefined && parsed[k] !== null)
-            if (matchKeys.length >= 2) {
-              parsed._raw_comment = slice.substring(0, 5000)
-              results.push(parsed)
-            }
-          }
-        } catch {}
-        break
-      }
-    }
-  }
-  return results
-}
-
-function scanFileForJson(filePath) {
-  const fd = fs.openSync(filePath, 'r')
-  const size = fs.statSync(filePath).size
-  const chunkSize = Math.min(5 * 1024 * 1024, size)
-  try {
-    // Read head
-    const head = Buffer.alloc(chunkSize)
-    fs.readSync(fd, head, 0, chunkSize, 0)
-    let hits = scanBufferForJson(head)
-    if (hits.length) return hits[0]
-    // Read tail if file > 5MB
-    if (size > chunkSize) {
-      const tail = Buffer.alloc(chunkSize)
-      fs.readSync(fd, tail, 0, chunkSize, size - chunkSize)
-      hits = scanBufferForJson(tail)
-      if (hits.length) return hits[0]
-    }
-  } finally {
-    fs.closeSync(fd)
-  }
-  return null
-}
-
-ipcMain.handle('read-file-metadata', async (_, filePath) => {
-  const ext = path.extname(filePath).toLowerCase()
-  // Tier 1: sidecar files (fastest)
-  try {
-    const sidecar = filePath + '.json'
-    if (fs.existsSync(sidecar)) return JSON.parse(fs.readFileSync(sidecar, 'utf8'))
-    const txtSidecar = filePath.replace(ext, '.txt')
-    if (fs.existsSync(txtSidecar)) return { prompt: fs.readFileSync(txtSidecar, 'utf8').trim() }
-  } catch {}
-  // Tier 2: PNG chunk reader (targeted, handles iTXt/zTXt/tEXt)
-  if (ext === '.png') {
-    try {
-      const pngMeta = readPngComment(filePath)
-      if (pngMeta && Object.keys(pngMeta).length) return pngMeta
-    } catch {}
-  }
-  // Tier 3: brute-force binary JSON scan (ANY format, no deps)
-  // Reads first/last 5MB, finds {..} blocks, validates against Wan2GP keys
-  try {
-    const scanMeta = scanFileForJson(filePath)
-    if (scanMeta && Object.keys(scanMeta).length) return scanMeta
-  } catch {}
-  // Tier 4: lightweight Python reader (system Python + read_metadata.py)
-  try {
-    const lightMeta = await _runMetaReader('python', filePath, __dirname)
-    if (lightMeta && Object.keys(lightMeta).length) return lightMeta
-  } catch {}
-  try {
-    const lightMeta3 = await _runMetaReader('python3', filePath, __dirname)
-    if (lightMeta3 && Object.keys(lightMeta3).length) return lightMeta3
-  } catch {}
-  // Tier 5: full Wan2GP env Python reader (requires active environment)
-  try {
-    const env = getActiveEnv()
-    if (env) {
-      const py = getPythonForEnv(env)
-      const repo = getRepoDir()
-      if (py && repo) {
-        const helperPath = path.join(getDataDir(), '.meta_reader_wgp.py')
-        const helperCode = `import sys, json
-sys.path.insert(0, sys.argv[1])
-from wgp import get_settings_from_file
-fp = sys.argv[2]
-configs, any_video, any_audio = get_settings_from_file({'model_type': None}, fp, True, True, True, skip_validate_settings=True) or (None, False, False)
-if configs:
-    for k in list(configs.keys()):
-        if isinstance(configs[k], (dict, list, str, int, float, bool, type(None))): continue
-        del configs[k]
-    sys.stdout.write('JSON_OK:' + json.dumps(configs, default=str))
-else:
-    sys.stdout.write('JSON_NULL')
-`
-        fs.writeFileSync(helperPath, helperCode)
-        const { exec } = require('child_process')
-        const envResult = await new Promise((resolve) => {
-          exec('"' + py + '" "' + helperPath + '" "' + repo + '" "' + filePath + '"',
-            { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
-            (err, stdout) => {
-              if (err) { resolve(null); return }
-              const out = stdout.trim()
-              if (out.startsWith('JSON_OK:')) {
-                try { resolve(JSON.parse(out.substring(8))) } catch { resolve(null) }
-              } else { resolve(null) }
-            }
-          )
-        })
-        if (envResult && Object.keys(envResult).length) return envResult
-      }
-    }
-  } catch {}
-  return null
-})
-
-// ── Read local file from webview context (used by drag-drop handler) ──
-ipcMain.handle('read-local-file', (_, filePath) => {
-  try {
-    const data = fs.readFileSync(filePath)
-    return { data: data.toString('base64'), name: path.basename(filePath), size: data.length, mime: 'application/octet-stream' }
-  } catch { return null }
-})
-
-// ── Upload file to Gradio's /upload endpoint (for loading settings into WanGP) ──
-ipcMain.handle('upload-to-gradio', (_, filePath) => {
-  return new Promise((resolve) => {
-    try {
-      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2)
-      const fileName = path.basename(filePath)
-      const fileData = fs.readFileSync(filePath)
-      const header = `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`
-      const footer = `\r\n--${boundary}--\r\n`
-      const body = Buffer.concat([Buffer.from(header), fileData, Buffer.from(footer)])
-
-      const options = {
-        hostname: '127.0.0.1',
-        port: _currentPort,
-        path: '/upload',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data; boundary=' + boundary,
-          'Content-Length': body.length
-        }
-      }
-
-      const req = http.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => data += chunk)
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data)
-            resolve(Array.isArray(parsed) ? parsed : null)
-          } catch { resolve(null) }
-        })
-      })
-      req.setTimeout(8000, () => { req.destroy(); resolve({ error: 'timeout' }) })
-      req.on('error', (e) => { resolve({ error: e.code || e.message }) })
-      req.write(body)
-      req.end()
-    } catch (e) { resolve({ error: 'read error: ' + (e.message || e) }) }
-  })
-})
-
-// ── Send file to Wan2GP via Gradio API + Python API fallback ──
-function uploadFileToGradio(filePath, mime) {
-  return new Promise((resolve) => {
-    try {
-      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2)
-      const fileName = path.basename(filePath)
-      const fileData = fs.readFileSync(filePath)
-      const header = `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${fileName}"\r\nContent-Type: ${mime || 'application/octet-stream'}\r\n\r\n`
-      const footer = `\r\n--${boundary}--\r\n`
-      const body = Buffer.concat([Buffer.from(header), fileData, Buffer.from(footer)])
-
-      const options = {
-        hostname: '127.0.0.1',
-        port: _currentPort,
-        path: '/upload',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data; boundary=' + boundary,
-          'Content-Length': body.length
-        }
-      }
-
-      const req = http.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => data += chunk)
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data)
-            resolve(Array.isArray(parsed) ? parsed : null)
-          } catch (e) { resolve({ error: 'JSON parse: ' + (e.message || e) }) }
-        })
-      })
-      req.setTimeout(8000, () => { req.destroy(); resolve({ error: 'timeout' }) })
-      req.on('error', (e) => { resolve({ error: e.code || e.message }) })
-      req.write(body)
-      req.end()
-    } catch (e) { resolve({ error: 'read error: ' + (e.message || e) }) }
-  })
-}
-
-function readFileMetaData(filePath) {
-  const ext = path.extname(filePath).toLowerCase()
-  try {
-    if (ext === '.png') return readPngComment(filePath)
-    const sidecar = filePath + '.json'
-    if (fs.existsSync(sidecar)) return JSON.parse(fs.readFileSync(sidecar, 'utf8'))
-    const txtSidecar = filePath.replace(ext, '.txt')
-    if (fs.existsSync(txtSidecar)) return { prompt: fs.readFileSync(txtSidecar, 'utf8').trim() }
+    const batPath = path.join(desktop, 'Launch Wan2GP.bat')
+    fs.writeFileSync(batPath, batContent, 'utf8')
+    return { success: true, path: batPath }
   } catch (e) { return { error: e.message } }
-  return null
-}
-
-ipcMain.handle('send-to-wangp', async (_, filePath) => {
-  console.log('[send-to-wangp] path=' + filePath + ' port=' + _currentPort)
-  try {
-    // Strategy 1: Try Gradio HTTP API (upload + predict)
-    try {
-      const gradioResult = await uploadFileToGradio(filePath)
-      console.log('[send-to-wangp] upload result:', JSON.stringify(gradioResult))
-      if (gradioResult && gradioResult.length) {
-        const fi = gradioResult[0]
-        const configText = await fetchUrl('http://127.0.0.1:' + _currentPort + '/config')
-        const config = typeof configText === 'string' ? JSON.parse(configText) : configText
-        let fileCompId = null
-        for (const c of (config.components || [])) {
-          const p = c.props || {}
-          if (p.elem_id === 'settings_file' || (c.component === 'File' && (p.label || '').includes('Settings'))) {
-            fileCompId = c.id; break
-          }
-        }
-        if (fileCompId) {
-          let fnIdx = -1
-          for (const d of (config.dependencies || [])) {
-            if ((d.inputs || []).indexOf(fileCompId) >= 0) {
-              fnIdx = d.fn_index ?? d.id ?? -1; break
-            }
-          }
-          if (fnIdx >= 0) {
-            const payload = JSON.stringify({
-              fn_index: fnIdx,
-              data: [[{ path: fi.path, name: fi.name, size: fi.size, orig_name: fi.orig_name || fi.name }]]
-            })
-            const respText = await fetchUrl('http://127.0.0.1:' + _currentPort + '/api/predict/', {
-              method: 'POST',
-              body: payload,
-              headers: { 'Content-Type': 'application/json' }
-            })
-            const resp = typeof respText === 'string' ? JSON.parse(respText) : respText
-            if (resp && resp.success !== false) {
-              return { success: true, method: 'gradio-api' }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.log('[send-to-wangp] Gradio API failed:', e.message)
-    }
-
-    // Strategy 2: Python API via Wan2GP's load_settings_from_file
-    try {
-      const env = getActiveEnv()
-      if (env) {
-        const py = getPythonForEnv(env)
-        if (py) {
-          const helper = path.join(__dirname, 'renderer', 'send_settings.py')
-          const repo = getRepoDir()
-          const { exec } = require('child_process')
-          const pyResult = await new Promise((resolve, reject) => {
-            exec('"' + py + '" "' + helper + '" "' + repo + '" "' + filePath + '" ' + _currentPort,
-              { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
-              (err, stdout) => {
-                if (err) { reject(err); return }
-                try { resolve(JSON.parse(stdout.trim())) }
-                catch { resolve({ error: 'Python script output not JSON: ' + stdout.substring(0, 200) }) }
-              }
-            )
-          })
-          if (pyResult && pyResult.success) {
-            return { success: true, method: 'python-api', model_type: pyResult.model_type }
-          }
-          if (pyResult && pyResult.error) {
-            return { error: 'Python API: ' + pyResult.error }
-          }
-        }
-      }
-    } catch (e) {
-      console.log('[send-to-wangp] Python API failed:', e.message)
-    }
-
-    return { error: 'Could not send to Wan2GP. Is it running on port ' + _currentPort + '?' }
-  } catch (e) {
-    return { error: e.message || String(e) }
-  }
-})
-
-ipcMain.handle('read-settings-and-upload', async (_, filePath) => {
-  try {
-    let meta = readFileMetaData(filePath)
-    if (!meta || meta.error) {
-      try {
-        const env = getActiveEnv()
-        const pyEnv = env ? getPythonForEnv(env) : null
-        const py = pyEnv || sysPython()
-        if (py) {
-          const repo = getRepoDir()
-          const hp = path.join(getDataDir(), '.meta_reader.py')
-          const hc = 'import sys,json\\nsys.path.insert(0,sys.argv[1])\\nfrom wgp import get_settings_from_file\\nfp=sys.argv[2]\\nc,a,v=get_settings_from_file({"model_type":None},fp,True,True,True,skip_validate_settings=True)or(None,False,False)\\nif c:\\n for k in list(c.keys()):\\n  if isinstance(c[k],(dict,list,str,int,float,bool,type(None))):continue\\n  del c[k]\\n sys.stdout.write("JSON_OK:"+json.dumps(c,default=str))\\nelse: sys.stdout.write("JSON_NULL")\\n'
-          fs.writeFileSync(hp, hc)
-          const { exec } = require('child_process')
-          const result = await new Promise((resolve, reject) => {
-            exec('"' + py + '" "' + hp + '" "' + repo + '" "' + filePath + '"',
-              { cwd: repo, timeout: 30000, windowsHide: true, encoding: 'utf8' },
-              (err, stdout) => { if (err) reject(err); else resolve(stdout.trim()) }
-            )
-          })
-          if (result && result.startsWith('JSON_OK:')) {
-            try { meta = JSON.parse(result.substring(8)) } catch {}
-          }
-        }
-      } catch {}
-    }
-    const gradioResult = await uploadFileToGradio(filePath)
-    return { meta, gradioFile: gradioResult }
-  } catch (e) {
-    return { meta: null, gradioFile: null, error: e.message }
-  }
-})
-
-// ── Prompt Library ──
-function promptLibPath() { return path.join(getDataDir(), 'prompt-library.json') }
-
-ipcMain.handle('prompt-library-list', () => {
-  try {
-    const p = promptLibPath()
-    if (!fs.existsSync(p)) return []
-    const data = JSON.parse(fs.readFileSync(p, 'utf8'))
-    return Array.isArray(data) ? data : []
-  } catch { return [] }
-})
-
-ipcMain.handle('prompt-library-save', (_, entry) => {
-  try {
-    const p = promptLibPath()
-    let lib = []
-    if (fs.existsSync(p)) {
-      try { lib = JSON.parse(fs.readFileSync(p, 'utf8')) } catch { lib = [] }
-      if (!Array.isArray(lib)) lib = []
-    }
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    entry.id = id
-    entry.saved_at = new Date().toISOString()
-    lib.unshift(entry)
-    if (lib.length > 500) lib = lib.slice(0, 500)
-    fs.writeFileSync(p, JSON.stringify(lib, null, 2))
-    return entry
-  } catch (e) { return { error: e.message } }
-})
-
-ipcMain.handle('prompt-library-delete', (_, id) => {
-  try {
-    const p = promptLibPath()
-    if (!fs.existsSync(p)) return true
-    let lib = JSON.parse(fs.readFileSync(p, 'utf8'))
-    if (!Array.isArray(lib)) return true
-    lib = lib.filter(function(e) { return e.id !== id })
-    fs.writeFileSync(p, JSON.stringify(lib, null, 2))
-    return true
-  } catch { return false }
-})
-
-// ── Clipboard ──
-ipcMain.handle('clipboard-write', (_, text) => {
-  try {
-    const { clipboard } = require('electron')
-    clipboard.writeText(String(text))
-    return true
-  } catch { return false }
 })
 
 // ── Disk space ──
-// ── Check if the Wan2GP API (Gradio) is responding ──
-ipcMain.handle('check-api-status', async () => {
-  const url = 'http://127.0.0.1:' + _currentPort + '/config'
-  try {
-    const body = await fetchUrl(url, { method: 'GET', timeout: 5000 })
-    // Gradio /config returns JSON — body is parsed object or string
-    if (body) {
-      if (typeof body === 'object' && Object.keys(body).length > 0) return 'online'
-      if (typeof body === 'string' && body.length > 10) return 'online'
-    }
-  } catch (e) {
-    // ECONNREFUSED, timeout, etc.
-  }
-  // Also check if the process is running (launched but not yet listening)
-  if (wangpProc && !wangpProc.killed) return 'starting'
-  return 'offline'
-})
-
 ipcMain.handle('get-disk-space', () => {
   try {
     const p = getDataDir()
@@ -1641,63 +841,15 @@ ipcMain.handle('get-disk-space', () => {
   return null
 })
 
-// ── Floating Terminal Window ──
-let termWin = null
-
-ipcMain.handle('get-term-buffer', () => {
-  if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
-    return _termLogBuffer.slice(-200)
-  }
-  return []
-})
-
-ipcMain.handle('open-terminal-window', async () => {
-  if (termWin && !termWin.isDestroyed()) { termWin.show(); termWin.focus(); return }
-  termWin = new BrowserWindow({
-    width: 700, height: 400,
-    show: false,
-    frame: true,
-    transparent: false,
-    backgroundColor: '#1a1a1a',
-    title: 'Wan2GP Terminal',
-    webPreferences: {
-      preload: path.join(__dirname, 'term-preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-  termWin.loadFile(path.join(__dirname, 'renderer', 'term-window.html'))
-  termWin.once('ready-to-show', () => {
-    termWin.show()
-    if (typeof _termLogBuffer !== 'undefined' && Array.isArray(_termLogBuffer)) {
-      termWin.webContents.send('term-init', _termLogBuffer.slice(-200))
-    }
-  })
-  termWin.on('closed', () => { termWin = null })
-})
-
-ipcMain.handle('close-terminal-window', () => {
-  if (termWin && !termWin.isDestroyed()) termWin.close()
-  termWin = null
-})
-
-ipcMain.handle('dock-terminal', (_, pos) => {
-  send('terminal-docked', pos || 'bottom')
-})
-
-ipcMain.handle('toggle-term-always-on-top', () => {
-  if (termWin && !termWin.isDestroyed()) {
-    termWin.setAlwaysOnTop(!termWin.isAlwaysOnTop())
-  }
-})
 
 // ── Wan2GP upstream version ──
 ipcMain.handle('get-wangp-local-version', () => getLocalWangpHead())
 
 ipcMain.handle('get-wangp-upstream-info', async () => {
   try {
-    const body = await fetchUrl(`https://api.github.com/repos/${WAN2GP_UPSTREAM}/commits?per_page=5&sha=main`)
-    const data = JSON.parse(body)
+    const data = await fetchUrl(`https://api.github.com/repos/${WAN2GP_UPSTREAM}/commits?per_page=10&sha=main`, {
+      headers: { 'User-Agent': 'wan2gp-desktop', 'Accept': 'application/vnd.github.v3+json' }
+    })
     if (!Array.isArray(data)) return { error: 'Invalid response' }
     return {
       commits: data.map(c => ({
@@ -1709,30 +861,6 @@ ipcMain.handle('get-wangp-upstream-info', async () => {
     }
   } catch (e) { return { error: e.message } }
 })
-
-ipcMain.handle('get-wangp-changelog', async () => {
-  for (const file of ['docs/CHANGELOG.md', 'README.md']) {
-    try {
-      const body = await fetchUrl(`https://raw.githubusercontent.com/${WAN2GP_UPSTREAM}/main/${file}`)
-      if (body && !body.includes('404:')) return body.substring(0, 5000)
-    } catch {}
-  }
-  return null
-})
-
-ipcMain.handle('set-viewer-active', (_, active) => {
-  isViewerActive = active
-  if (!active) {
-    userStoppedProcess = false
-    restartAttempts = 0
-  }
-  return true
-})
-
-// ── Sidebar drag path (IPC bridge for drag to webview) ──
-let pendingDragPath = ''
-ipcMain.handle('set-pending-drag-path', (_, p) => { pendingDragPath = p || ''; return true })
-ipcMain.handle('get-pending-drag-path', () => pendingDragPath)
 
 // ── Desktop app git info ──
 ipcMain.handle('get-desktop-git-info', () => {
@@ -1746,6 +874,13 @@ ipcMain.handle('get-desktop-git-info', () => {
   } catch { return null }
 })
 
+ipcMain.handle('get-desktop-version', () => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'))
+    return pkg.version || null
+  } catch { return null }
+})
+
 ipcMain.handle('get-wangp-version', async () => {
   try {
     const body = await fetchUrl(`https://raw.githubusercontent.com/${WAN2GP_UPSTREAM}/main/README.md`)
@@ -1753,6 +888,115 @@ ipcMain.handle('get-wangp-version', async () => {
     const m = body.match(/WanGP\s+v?(\d+\.\d+(?:\.\d+)?)/i)
     return m ? m[1] : null
   } catch { return null }
+})
+
+// ── Check PyPI for latest package versions ──
+const _pypiCache = {}
+const PACKAGES_TO_CHECK = ['torch','triton','sageattention','spas_sage_attn','flash_attn','diffusers','transformers','gradio','accelerate','onnxruntime','xformers','nunchaku','gguf','mmgp','moviepy','opencv-python','insightface','peft','timm','vector_quantize_pytorch','torchcodec','torchaudio','huggingface_hub','lightx2v']
+
+ipcMain.handle('check-package-updates', async (_, installedVersions) => {
+  const results = []
+  if (!installedVersions || typeof installedVersions !== 'object') return results
+  const names = Object.keys(installedVersions).filter(n => n !== 'python' && n !== 'error')
+  const fetchOne = async (name) => {
+    try {
+      if (_pypiCache[name] && Date.now() - _pypiCache[name].ts < 300000) {
+        return { name, latest: _pypiCache[name].latest, installed: installedVersions[name] }
+      }
+      const pypiName = ({sageattention:'sageattention',spas_sage_attn:'spas-sage-attn',opencv:'opencv-python',hfhub:'huggingface-hub',onnxruntime:'onnxruntime',nunchaku:'nunchaku',gguf:'gguf',mmgp:'mmgp',moviepy:'moviepy',insightface:'insightface',peft:'peft',timm:'timm',vector_quantize_pytorch:'vector-quantize-pytorch',torchcodec:'torchcodec',torchaudio:'torchaudio',lightx2v:'lightx2v',xformers:'xformers'})[name] || name
+      const data = await fetchUrl(`https://pypi.org/pypi/${pypiName}/json`, { timeout: 8000 })
+      const latest = (data && data.info && data.info.version) || null
+      if (latest) _pypiCache[name] = { latest, ts: Date.now() }
+      return { name, installed: installedVersions[name], latest }
+    } catch { return { name, installed: installedVersions[name], latest: null } }
+  }
+  const settled = await Promise.allSettled(names.map(fetchOne))
+  for (const s of settled) { if (s.status === 'fulfilled' && s.value) results.push(s.value) }
+  return results
+})
+
+// ── Upgrade a single package in the active env ──
+ipcMain.handle('upgrade-package', async (_, pkgName) => {
+  try {
+    const env = getActiveEnv()
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python' }
+    send('launch-log', '[*] Upgrading ' + pkgName + '...\n')
+    const { spawn } = require('child_process')
+    await new Promise((resolve, reject) => {
+      const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', pkgName], {
+        cwd: getRepoDir(), timeout: 120000, windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      })
+      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error('pip exited code ' + code))
+      })
+      proc.on('error', reject)
+    })
+    send('launch-log', '[*] ' + pkgName + ' upgraded successfully.\n')
+    delete _pypiCache[pkgName]
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Install a single package (e.g. triton, flash_attn) into active env ──
+ipcMain.handle('install-package', async (_, pkgName) => {
+  try {
+    const env = getActiveEnv()
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python' }
+    send('launch-log', '[*] Installing ' + pkgName + '...\n')
+    const { spawn } = require('child_process')
+    await new Promise((resolve, reject) => {
+      const proc = spawn(py, ['-m', 'pip', 'install', pkgName], {
+        cwd: getRepoDir(), timeout: 300000, windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      })
+      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error('pip exited code ' + code))
+      })
+      proc.on('error', reject)
+    })
+    send('launch-log', '[*] ' + pkgName + ' installed successfully.\n')
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Restore all packages from requirements.txt ──
+ipcMain.handle('restore-requirements', async () => {
+  try {
+    const env = getActiveEnv()
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python' }
+    const reqPath = path.join(getRepoDir(), 'requirements.txt')
+    if (!fs.existsSync(reqPath)) return { error: 'requirements.txt not found' }
+    send('launch-log', '[*] Restoring packages from requirements.txt...\n')
+    const { spawn } = require('child_process')
+    await new Promise((resolve, reject) => {
+      const proc = spawn(py, ['-m', 'pip', 'install', '-r', reqPath], {
+        cwd: getRepoDir(), timeout: 300000, windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      })
+      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error('pip exited code ' + code))
+      })
+      proc.on('error', reject)
+    })
+    send('launch-log', '[*] Requirements restored successfully.\n')
+    return { success: true }
+  } catch (e) { return { error: e.message } }
 })
 
 // ── Hardware detection ──
@@ -1780,12 +1024,18 @@ ipcMain.handle('detect-hardware', () => {
       // Try nvidia-smi first (most accurate for NVIDIA GPUs)
       try {
         const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
-        const [nvName, memStr] = nvOut.trim().split(', ')
-        if (nvName) info.gpu = nvName
-        if (memStr) {
-          const mem = parseFloat(memStr)
-          info.vram = mem >= 1024 ? Math.round(mem / 1024) + ' GB' : Math.round(mem) + ' MB'
+        const lines = nvOut.trim().split('\n').map(l => l.trim()).filter(l => l)
+        const gpuNames = [], vramVals = []
+        for (const line of lines) {
+          const [name, mem] = line.split(', ')
+          if (name) gpuNames.push(name.trim())
+          if (mem) {
+            const mb = parseFloat(mem)
+            vramVals.push(mb >= 1024 ? Math.round(mb / 1024) + ' GB' : Math.round(mb) + ' MB')
+          }
         }
+        if (gpuNames.length) info.gpu = gpuNames.join(' + ')
+        if (vramVals.length) info.vram = vramVals.join(' + ')
       } catch {
         // Fallback to WMI for non-NVIDIA GPUs
         try {
@@ -1849,6 +1099,73 @@ ipcMain.handle('detect-hardware', () => {
     }
   } catch {}
   return info
+})
+
+// ── Hardware profile: maps detected GPU → expected install packages ──
+ipcMain.handle('get-hardware-profile', () => {
+  const profiles = {
+    GTX_10:  { python: '3.10.9', torch: '2.7.1 CU12.8', triton: null, sage: null, sparge: null, flash: null, kernels: [] },
+    RTX_20:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '1.0.6', sparge: null, flash: '2.8.3', kernels: ['nunchaku','gguf'] },
+    RTX_30:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '2.2.0', sparge: '0.1.0', flash: '2.8.3', kernels: ['nunchaku','gguf'] },
+    RTX_40:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '2.2.0', sparge: '0.1.0', flash: '2.8.3', kernels: ['nunchaku','gguf'] },
+    RTX_50:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '2.2.0', sparge: '0.1.0', flash: '2.8.3', kernels: ['nunchaku','lightx2v','gguf'] },
+    MPS:     { python: '3.11.14', torch: 'MPS',          triton: null, sage: null, sparge: null, flash: null, kernels: [] },
+    AMD:     { python: '3.11.14', torch: 'ROCm 6.5',     triton: null, sage: null, sparge: null, flash: null, kernels: [] },
+  }
+  const result = { profile: 'STANDARD', packages: [] }
+  try {
+    const out = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0].trim().toUpperCase()
+    if (out.includes('RTX')) {
+      if (/50\d0/.test(out)) result.profile = 'RTX_50'
+      else if (/40\d0/.test(out)) result.profile = 'RTX_40'
+      else if (/30\d0/.test(out)) result.profile = 'RTX_30'
+      else if (/20\d0/.test(out)) result.profile = 'RTX_20'
+    } else if (out.includes('GTX') || /10\d0/.test(out)) {
+      result.profile = 'GTX_10'
+    }
+  } catch {
+    // Fallback MPS/AMD — keep STANDARD
+  }
+  if (profiles[result.profile]) {
+    const p = profiles[result.profile]
+    if (p.python) result.packages.push('🐍 Python ' + p.python)
+    if (p.torch) result.packages.push('🔥 PyTorch ' + p.torch)
+    if (p.triton) result.packages.push('⚡ Triton (' + p.triton + ')')
+    if (p.sage) result.packages.push('🌀 Sage Attn ' + p.sage)
+    if (p.sparge) result.packages.push('🌊 Sparge Attn ' + p.sparge)
+    if (p.flash) result.packages.push('💥 Flash Attn ' + p.flash)
+    for (const k of p.kernels) {
+      const labels = { nunchaku: '🔩 Nunchaku INT4/FP4', lightx2v: '⚡ Lightx2v NVFP4', gguf: '📦 GGUF llama.cpp' }
+      result.packages.push(labels[k] || k)
+    }
+    // All profiles get requirements.txt
+    result.packages.push('📋 50+ reqs (diffusers, gradio, opencv, moviepy…)')
+  }
+  return result
+})
+
+// ── Live system metrics (free RAM / free VRAM) ──
+ipcMain.handle('get-system-metrics', () => {
+  const result = { ramFree: null, vramFree: null }
+  try {
+    if (IS_WIN) {
+      const out = execSync('wmic OS get FreePhysicalMemory /format:csv', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+      const lines = out.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Node'))
+      if (lines.length) {
+        const kb = parseInt(lines[lines.length - 1].split(',')[1] || lines[lines.length - 1])
+        if (!isNaN(kb)) result.ramFree = Math.round(kb / 1024) + ' GB'
+      }
+    }
+  } catch {}
+  try {
+    const nvOut = execSync('nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+    const vals = nvOut.split('\n').map(l => parseInt(l.trim())).filter(v => !isNaN(v))
+    if (vals.length) {
+      const total = vals.reduce((a, b) => a + b, 0)
+      result.vramFree = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
+    }
+  } catch {}
+  return result
 })
 
 // ── Auto-updater ──
@@ -1917,16 +1234,16 @@ app.on('web-contents-created', (_event, contents) => {
 function createWindow() {
   mainWin = new BrowserWindow({
     width: 1280, height: 800, minWidth: 900, minHeight: 600,
-    title: 'Wan2GP Desktop',
+    title: 'Wan2GP Desktop Launcher',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true, nodeIntegration: false, webviewTag: true,
+      contextIsolation: true, nodeIntegration: false,
     },
-    show: false, backgroundColor: '#0f0f0f',
+    show: true, backgroundColor: '#0f0f0f', maximizable: true,
   })
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
-  mainWin.once('ready-to-show', () => { mainWin.maximize(); mainWin.show() })
+  mainWin.once('ready-to-show', () => { mainWin.maximize() })
   mainWin.on('closed', () => { mainWin = null })
 }
 
@@ -1943,8 +1260,6 @@ app.whenReady().then(() => {
     }
   } catch {}
   createWindow()
-  // Watch output dir for new files (generation completed signal)
-  setTimeout(startOutputWatcher, 3000)
   setTimeout(() => {
     try {
       const cfg = loadConfig()
@@ -1961,76 +1276,11 @@ app.whenReady().then(() => {
     } catch {}
   }, 5000)
 })
-async function restartWan2GP() {
-  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-    send('launch-log', `[!] Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached.\n`)
-    send('wangp-restart-failed', 'Max restart attempts exceeded')
-    isViewerActive = false
-    return
-  }
-  restartAttempts++
-  send('launch-log', `[*] Restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS}...\n`)
-  send('wangp-restarting', restartAttempts)
-
-  // Kill any lingering process before spawning new one
-  if (wangpProc) {
-    userStoppedProcess = true
-    wangpProc.kill('SIGKILL')
-    wangpProc = null
-    userStoppedProcess = false
-  }
-
-  try {
-    const env = getActiveEnv()
-    if (!env) throw new Error('No active environment')
-    const py = getPythonForEnv(env)
-    if (!py) throw new Error('Cannot find python for env')
-
-    const cfg = loadConfig()
-    let preferredPort = cfg.serverPort || 7860
-    const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
-    for (let i = 0; i < extraArgs.length; i++) {
-      if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
-        preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
-      }
-    }
-    const port = await findFreePort(preferredPort)
-    _currentPort = port
-    wangpProc = spawn(py, ['-u', 'wgp.py', '--server-port', String(port), ...extraArgs], {
-      cwd: getRepoDir(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONUNBUFFERED: '1', GRADIO_LANG: 'en', HF_HUB_DISABLE_PROGRESS_BARS: '1', HF_HUB_DISABLE_TELEMETRY: '1', TQDM_POSITION: '-1' },
-      windowsHide: true
-    })
-
-    wangpProc.stdout.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stdout.write(s) })
-    wangpProc.stderr.on('data', (d) => { const s = d.toString(); send('launch-log', s); process.stderr.write(s) })
-
-    wangpProc.on('exit', (code) => {
-      wangpProc = null
-      send('wangp-exit', code)
-      if (isViewerActive && !userStoppedProcess) {
-        send('launch-log', `[*] Process exited (code ${code}), auto-restarting...\n`)
-        setTimeout(() => restartWan2GP(), 1500)
-      }
-    })
-
-    await waitForPort('127.0.0.1', port, 180000)
-    send('launch-log', '[*] Wan2GP restarted successfully!\n')
-    restartAttempts = 0
-    send('wangp-restarted', `http://127.0.0.1:${port}`)
-  } catch (err) {
-    send('launch-log', `[!] Restart failed: ${err.message}\n`)
-    send('wangp-restart-failed', err.message)
-  }
-}
-
 app.on('window-all-closed', () => {
-  if (wangpProc) wangpProc.kill()
+  if (setupProc) setupProc.kill()
   if (PLATFORM !== 'darwin') app.quit()
 })
 app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
-  if (wangpProc) wangpProc.kill()
   if (setupProc) setupProc.kill()
 })
