@@ -1,8 +1,8 @@
-# Wan2GP Desktop Launcher v2.1.0 — Release Notes
+# Wan2GP Desktop Launcher v2.1.1 — Release Notes
 
 ## Overview
 
-Auto-install prerequisites, improved installer help, and bug fixes.
+HuggingFace token support, remembered tokens, and update button fix.
 
 ---
 

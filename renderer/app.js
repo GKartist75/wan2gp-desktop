@@ -52,6 +52,8 @@ function openSettings() {
   window.w2gp.configLoad().then(function(cfg) {
     if ($('launchArgsInput')) $('launchArgsInput').value = cfg.launchArgs || ''
     if ($('portInput')) $('portInput').value = cfg.serverPort || 7860
+    if ($('githubTokenInput')) $('githubTokenInput').value = cfg.githubToken || ''
+    if ($('hfTokenInput')) $('hfTokenInput').value = cfg.hfToken || ''
   })
 }
 function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible') }
@@ -830,7 +832,7 @@ function showToast(msg) {
   setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove() }, 400) }, 2500)
 }
 
-$('checkUpdateBtn').addEventListener('click', () => {
+$('updateCheckBtn').addEventListener('click', () => {
   window.w2gp.checkUpdate()
 })
 $('updateDownloadBtn').addEventListener('click', () => {
@@ -864,6 +866,21 @@ $('tokenClearBtn')?.addEventListener('click', async () => {
 $('tokenDocsLink')?.addEventListener('click', (e) => {
   e.preventDefault()
   window.w2gp.openExternal('https://github.com/settings/tokens')
+})
+$('hfTokenSaveBtn')?.addEventListener('click', async () => {
+  const token = $('hfTokenInput')?.value
+  if (!token) return
+  const cfg = await window.w2gp.configLoad()
+  cfg.hfToken = token
+  await window.w2gp.configSave(cfg)
+  showToast('HuggingFace token saved')
+})
+$('hfTokenClearBtn')?.addEventListener('click', async () => {
+  const cfg = await window.w2gp.configLoad()
+  cfg.hfToken = null
+  await window.w2gp.configSave(cfg)
+  if ($('hfTokenInput')) $('hfTokenInput').value = ''
+  showToast('HuggingFace token cleared')
 })
 $('launchArgsSaveBtn')?.addEventListener('click', async () => {
   const args = $('launchArgsInput')?.value || ''

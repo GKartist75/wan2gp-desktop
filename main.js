@@ -57,7 +57,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch {}
-  return { githubToken: '', theme: 'dark', serverPort: 7860 }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860 }
 }
 
 function saveConfig(cfg) {
@@ -379,6 +379,10 @@ ipcMain.handle('launch', async () => {
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
 
+  // Include HF_TOKEN in temp script if configured
+  const launchCfg = loadConfig()
+  const hfLine = launchCfg.hfToken ? ['set HF_TOKEN=' + launchCfg.hfToken, 'set HUGGINGFACE_HUB_TOKEN=' + launchCfg.hfToken] : []
+
   // Create temp launch script (visible terminal window)
   const repoDir = getRepoDir()
   const tmpDir = require('os').tmpdir()
@@ -394,6 +398,7 @@ ipcMain.handle('launch', async () => {
       'echo Starting Wan2GP on port ' + port + '...',
       'echo First launch loads models + compiles CUDA kernels - this will take some extra time.',
       'echo.',
+      ...hfLine,
       '"' + py + '" -u wgp.py ' + extraArgs.join(' '),
       'echo.',
       'if errorlevel 1 echo [Wan2GP] Process exited with code %errorlevel% ^(see above for errors^)',

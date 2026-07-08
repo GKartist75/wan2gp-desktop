@@ -45,7 +45,16 @@
             <button class="btn btn-primary small" id="tokenSaveBtn">Save</button>
             <button class="btn btn-ghost small" id="tokenClearBtn">Clear</button>
           </div>
-          <p class="token-hint">Create a <a href="#" id="tokenDocsLink">GitHub classic token</a> with <code>repo</code> scope. Optional — token just avoids API rate limits.</p>
+          <p class="token-hint">Optional — avoids GitHub API rate limits for auto-updates and changelog. Create a <a href="#" id="tokenDocsLink">classic token</a> with <code>repo</code> scope.</p>
+        </div>
+        <div class="settings-section">
+          <h3>HuggingFace Token</h3>
+          <div class="token-field">
+            <input type="password" id="hfTokenInput" class="input" placeholder="hf_...">
+            <button class="btn btn-primary small" id="hfTokenSaveBtn">Save</button>
+            <button class="btn btn-ghost small" id="hfTokenClearBtn">Clear</button>
+          </div>
+          <p class="token-hint">Optional — needed for gated models. Saved to <code>desktop-config.json</code> and passed as <code>HF_TOKEN</code> to Wan2GP on launch.</p>
         </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">
