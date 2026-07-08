@@ -57,6 +57,8 @@ Grab the latest installer from [Releases](https://github.com/GKartist75/wan2gp-d
 
 > **Note:** Windows installer is unsigned (shows "unknown publisher" warning). This is normal for OSS projects without a code signing certificate.
 
+👉 **[Visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — how to install, hardware profiles, dashboard layout, and all v2.0 features in one page.
+
 ## Quick Start
 
 1. **Download & run** the installer
