@@ -42,6 +42,8 @@ The launcher installs these for you if absent, but your system needs:
 Grab `Wan2GP-Desktop-Launcher-*-win-x64.exe` from [Releases](https://github.com/GKartist75/wan2gp-desktop/releases).
 > Unsigned installer — the "unknown publisher" warning is normal for OSS without a code-sign cert.
 
+👉 **[Visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — how to install, hardware profiles, dashboard layout, and all features in one page.
+
 ## Quick Start
 1. Run the installer → it detects your GPU and shows expected packages
 2. Pick install location / env type (`uv` recommended, `venv` default)
