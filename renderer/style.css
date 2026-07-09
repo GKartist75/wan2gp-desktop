@@ -209,8 +209,9 @@ body {
 .spec-dot.error { display: inline-block; background: #EF4444; }
 .spec-dot.installing { display: inline-block; background: #F59E0B; animation: pulse-dot 1s ease-in-out infinite; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.env-name-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.env-name { font-size: 0.8125rem; font-weight: 500; }
+.env-name-row { display: flex; align-items: baseline; gap: 12px; }
+.env-name { font-size: 0.875rem; font-weight: 500; }
+.env-name-hint { font-size: 0.65rem; color: var(--text-secondary); font-style: italic; }
 .env-type-tag {
   font-size: 0.625rem; font-weight: 500; padding: 1px 6px;
   border-radius: 4px; background: var(--surface-hover); border: 1px solid var(--border);
@@ -423,8 +424,8 @@ body {
 
 .reinstall-choice {
   margin: 12px 0 16px 0; padding: 16px;
-  background: var(--surface); border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  background: var(--signal-red-bg); border-radius: var(--radius-sm);
+  border: 1px solid var(--signal-red);
 }
 .reinstall-prompt { font-size: 0.8125rem; color: var(--text-primary); margin: 0 0 12px 0; }
 .reinstall-buttons { display: flex; gap: 8px; flex-wrap: wrap; }

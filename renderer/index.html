@@ -188,6 +188,7 @@
           <div class="env-detail">
             <div class="env-name-row">
               <span class="env-name" id="envName">—</span>
+              <span class="env-name-hint hidden" id="envNameHint">restart launcher to install</span>
             </div>
             <div class="env-specs" id="envSpecs">
               <div class="spec-row"><span class="spec-label">Python</span><span class="spec-dot" id="dotPython"></span><span class="spec-value" id="specPython">—</span></div>
@@ -325,8 +326,8 @@
       <div class="env-type-select" id="envTypeSelect">
         <label class="env-type-label">Environment:</label>
         <div class="env-type-options">
-          <button class="env-type-btn selected" data-env="venv">venv <span class="env-type-desc">(bundled with Python)</span></button>
-          <button class="env-type-btn" data-env="uv">uv <span class="env-type-desc">(faster, requires install)</span></button>
+          <button class="env-type-btn" data-env="venv">venv <span class="env-type-desc">(bundled with Python)</span></button>
+          <button class="env-type-btn selected" data-env="uv">uv <span class="env-type-desc">(faster, requires install)</span></button>
           <button class="env-type-btn" data-env="conda">conda <span class="env-type-desc">(Anaconda/Miniconda)</span></button>
         </div>
       </div>
@@ -394,8 +395,8 @@
       <div id="reinstallChoice" class="reinstall-choice hidden">
         <p class="reinstall-prompt">Wan2GP is already installed. What do you want to do?</p>
         <div class="reinstall-buttons">
-          <button id="reinstallFreshBtn" class="btn btn-primary">Reinstall (fresh)</button>
-          <button id="reinstallUpdateBtn" class="btn btn-ghost">Update &amp; keep files</button>
+          <button id="reinstallFreshBtn" class="btn btn-ghost">Reinstall (fresh)</button>
+          <button id="reinstallUpdateBtn" class="btn btn-primary">Update &amp; keep files</button>
           <button id="reinstallSkipBtn" class="btn btn-ghost">Use existing &amp; go to Dashboard</button>
         </div>
       </div>

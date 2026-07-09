@@ -4,7 +4,8 @@ const MAX_LOG = 5000
 let lastLine = ''
 function appendLog(text) {
   if (!text) return
-  const parts = text.split(/(\r|\n)/)
+  // Normalize Windows \r\n to \n first (avoids \r clearing lastLine before \n pushes it)
+  const parts = text.replace(/\r\n/g, '\n').split(/(\r|\n)/)
   for (const part of parts) {
     if (part === '\r') {
       if (lastLine && logBuffer.length > 0) logBuffer[logBuffer.length - 1] = lastLine
@@ -103,8 +104,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupScrollUnfollow('termBody','dashTermFollowBtn')
   setupScrollUnfollow('installTermBody','installFollowBtn')
 
-  window.w2gp.onSetupOutput(t => appendLog(t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g,'')))
-  window.w2gp.onLaunchLog(t => appendLog(t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g,'')))
+  window.w2gp.onSetupOutput(t => appendLog(t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g,'').replace(/\x08/g,'')))
+
+  window.w2gp.onLaunchLog(t => appendLog(t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g,'').replace(/\x08/g,'')))
   window.w2gp.onSetupPhase(p => {
     if (p.done) {
       if (prevPhaseId && prevPhaseId !== p.id) taskComplete(prevPhaseId)
@@ -186,7 +188,7 @@ function taskComplete(id,failed){ const t=taskMap[id];if(!t)return; t.className=
 function resetTasks(){ Object.values(taskMap).forEach(t=>{ t.className='task pending'; t.querySelector('.task-icon').textContent='○'; t.querySelector('.task-status').textContent='pending' }) }
 
 // ── Installer ──
-let selectedEnvType = 'venv'
+let selectedEnvType = 'uv'
 
 document.querySelectorAll('.env-type-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -303,18 +305,18 @@ async function startInstall(){
 
   // Check prerequisites
   var hasGit = await window.w2gp.checkCommand('git')
-  if (!hasGit) { showPrereqHelp('Git not found', 'Git is required to clone the Wan2GP repository. Click Download to install it silently, or use the manual button.', 'https://git-scm.com/downloads', 'git'); return }
+  if (!hasGit) { appendLog('[!] Git not found — showing install help'); showPrereqHelp('Git not found', 'Git is required to clone the Wan2GP repository. Click Download to install it silently, or use the manual button.', 'https://git-scm.com/downloads', 'git'); return }
   if (selectedEnvType === 'venv') {
     var hasPy = await window.w2gp.checkCommand('python')
-    if (!hasPy) { showPrereqHelp('Python not found', 'Python 3.10 or 3.11 is required for venv installs. Click Download to install Python 3.11 silently, or select uv/conda above.', 'https://www.python.org/downloads/', 'python'); return }
+    if (!hasPy) { appendLog('[!] Python not found — showing install help'); showPrereqHelp('Python not found', 'Python 3.10 or 3.11 is required for venv installs. Click Download to install Python 3.11 silently, or select uv/conda above.', 'https://www.python.org/downloads/', 'python'); return }
   }
   if (selectedEnvType === 'uv') {
     var hasUv = await window.w2gp.checkCommand('uv')
-    if (!hasUv) { showPrereqHelp('uv not found', 'uv is required for uv installs. Click Download to install it via PowerShell, or select venv/conda above.', 'https://docs.astral.sh/uv/#installation', 'uv'); return }
+    if (!hasUv) { appendLog('[!] uv not found — showing install help'); showPrereqHelp('uv not found', 'uv is required for uv installs. Click Download to install it via PowerShell, or select venv/conda above.', 'https://docs.astral.sh/uv/#installation', 'uv'); return }
   }
   if (selectedEnvType === 'conda') {
     var hasConda = await window.w2gp.checkCommand('conda')
-    if (!hasConda) { showPrereqHelp('Conda not found', 'Miniconda is required for conda installs. Click Download to install it silently, or select venv/uv above.', 'https://docs.anaconda.com/miniconda/', 'conda'); return }
+    if (!hasConda) { appendLog('[!] Conda not found — showing install help'); showPrereqHelp('Conda not found', 'Miniconda is required for conda installs. Click Download to install it silently, or select venv/uv above.', 'https://docs.anaconda.com/miniconda/', 'conda'); return }
   }
   show('installer'); resetTasks()
   $('envTypeSelect').classList.add('disabled')
@@ -384,11 +386,13 @@ async function refreshDashboard(){
   const status = await window.w2gp.getStatus()
   if(status.error||!status.env){
     $('envName').textContent='No active environment'
+    $('envNameHint')?.classList.remove('hidden')
     document.querySelectorAll('.pkg-install-btn, .spec-latest, .spec-update-btn').forEach(function(el) { el.remove() })
     ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub','specBits','specNumpy','specTokenizers'].forEach(id=>{ const el=$(id); if(el) el.textContent='—' })
     ;['dotPython','dotTorch','dotCuda','dotTriton','dotSage','dotFlash','dotDiffusers','dotTransformers','dotGradio','dotAccelerate','dotOnnx','dotOpencv','dotPeft','dotHfhub','dotBits','dotNumpy','dotTokenizers'].forEach(id=>{ const el=$(id); if(el) el.classList.remove('installed') })
   } else {
     $('envName').textContent=status.env.name; $('envType').textContent=status.env.type
+    $('envNameHint')?.classList.add('hidden')
     // Clear old update/install buttons before re-creating
     document.querySelectorAll('.spec-latest, .spec-update-btn, .pkg-install-btn').forEach(function(el) { el.remove() })
 

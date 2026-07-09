@@ -1,6 +1,6 @@
 {
   "name": "wan2gp-desktop",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {

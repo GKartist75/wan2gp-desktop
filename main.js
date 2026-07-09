@@ -49,6 +49,24 @@ function sysPython() {
   } catch { return IS_WIN ? 'python' : 'python3' }
 }
 
+// Resolve a Python 3.11 interpreter for installs. Building the env on 3.14
+// breaks deps (pygame has no 3.14 wheel, insightface/flash-attn version-skew).
+// ponytail: once uv becomes mandatory, return null here to hard-fail instead of falling back.
+function installPython() {
+  // Preferred: uv-managed 3.11 (default env type already requires uv)
+  try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true }) } catch {}
+  try {
+    const p = execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true }).trim()
+    if (p) return p
+  } catch {}
+  // Fallback: system python3.11 if present
+  try {
+    execSync('python3.11 --version', { stdio: 'pipe', windowsHide: true })
+    return 'python3.11'
+  } catch {}
+  return null
+}
+
 function send(ch, data) {
   mainWin?.webContents.send(ch, data)
 }
@@ -133,10 +151,14 @@ function fetchUrl(url, opts = {}) {
 // ── Run setup.py with structured events ──
 function runSetup(args) {
   return new Promise((resolve, reject) => {
-    const py = sysPython()
+    let py = installPython()
+    if (!py) {
+      send('setup-output', '[!] Python 3.11 not found (uv python find 3.11 failed). Falling back to system Python — this may break builds (e.g. pygame on 3.14).\n')
+      py = sysPython()
+    }
     const proc = spawn(py, ['-u', 'setup.py', ...args], {
       cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      env: { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic' }
     })
     setupProc = proc
     let lineBuf = ''
@@ -193,6 +215,12 @@ function getPythonForEnv(env) {
   // Resolve relative paths against getRepoDir()
   const envPath = path.normalize(path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path))
   if (env.type === 'none') return sysPython()
+  // Conda puts python.exe at env root on Windows, venv/uv use Scripts\
+  if (env.type === 'conda') {
+    return IS_WIN
+      ? path.join(envPath, 'python.exe')
+      : path.join(envPath, 'bin', 'python')
+  }
   return IS_WIN
     ? path.join(envPath, 'Scripts', 'python.exe')
     : path.join(envPath, 'bin', 'python')
@@ -495,25 +523,52 @@ ipcMain.handle('manage-delete', async (_, name) => {
   return true
 })
 
-// ── Uninstall single environment (venv only, keep repo/data) ──
+// ── Uninstall single environment (keep repo/data) ──
 ipcMain.handle('uninstall-env', async (_, name) => {
+  const asyncExec = (cmd, opts) => new Promise((resolve, reject) => {
+    exec(cmd, opts, (err, stdout) => err ? reject(err) : resolve((stdout || '').trim()))
+  })
   const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
   const entry = d.envs[name]
   if (!entry) return { error: 'Environment not found' }
+  send('setup-output', `[${name}] type: ${entry.type}\n`)
   if (entry?.path && entry.type !== 'none') {
     const envPath = path.isAbsolute(entry.path) ? entry.path : path.join(getRepoDir(), entry.path)
+    send('setup-output', `[${name}] path: ${envPath}\n`)
     if (fs.existsSync(envPath)) {
-      send('setup-output', `[*] Removing environment ${name}...\n`)
-      execSync(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+      try {
+        // Show folder size before deleting
+        const sizeCmd = IS_WIN
+          ? `powershell -NoProfile -Command "(Get-ChildItem -Recurse '${envPath}' | Measure-Object -Property Length -Sum).Sum"`
+          : `du -sb '${envPath}' | cut -f1`
+        const sizeOut = await asyncExec(sizeCmd, { encoding: 'utf8', timeout: 10000, windowsHide: true })
+        const bytes = parseInt(sizeOut)
+        if (!isNaN(bytes) && bytes > 0) {
+          const humanSize = bytes >= 1073741824
+            ? (bytes / 1073741824).toFixed(1) + ' GB'
+            : bytes >= 1048576
+              ? (bytes / 1048576).toFixed(1) + ' MB'
+              : (bytes / 1024).toFixed(1) + ' KB'
+          send('setup-output', `[${name}] size: ${humanSize}\n`)
+        }
+      } catch {}
+      send('setup-output', `[${name}] deleting files...`)
+      await asyncExec(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+      send('setup-output', ` done\n`)
+      if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
+    } else {
+      send('setup-output', `[${name}] folder not found on disk, removing from registry\n`)
     }
   }
   delete d.envs[name]
   if (d.active === name) {
     const keys = Object.keys(d.envs)
     d.active = keys.length > 0 ? keys[0] : null
+    if (d.active) send('setup-output', `[*] Switched active env to '${d.active}'\n`)
+    else send('setup-output', `[*] No environments remaining\n`)
   }
   fs.writeFileSync(getEnvsFile(), JSON.stringify(d, null, 4))
-  send('setup-output', `[*] Environment ${name} uninstalled.\n`)
+  send('setup-output', `[${name}] uninstalled\n`)
   return { success: true }
 })
 
@@ -530,6 +585,32 @@ ipcMain.handle('open-task-manager', () => {
 // ── Desktop config ──
 ipcMain.handle('check-command', (_, cmd) => {
   if (!cmd) return false
+  // Also check common install paths for tools that don't add to PATH
+  if (IS_WIN) {
+    const user = process.env.USERPROFILE || ''
+    const appdata = process.env.APPDATA || ''
+    if (cmd === 'conda') {
+      const commonPaths = [
+        path.join(user, 'Miniconda3', 'condabin', 'conda.bat'),
+        path.join(user, 'Anaconda3', 'condabin', 'conda.bat'),
+        path.join(user, 'Miniconda3', 'Scripts', 'conda.exe'),
+        path.join(user, 'Anaconda3', 'Scripts', 'conda.exe'),
+      ]
+      for (const p of commonPaths) {
+        if (fs.existsSync(p)) return true
+      }
+    }
+    if (cmd === 'uv') {
+      const commonPaths = [
+        path.join(user, '.local', 'bin', 'uv.exe'),
+        path.join(appdata, 'uv', 'bin', 'uv.exe'),
+        path.join(user, '.cargo', 'bin', 'uv.exe'),
+      ]
+      for (const p of commonPaths) {
+        if (fs.existsSync(p)) return true
+      }
+    }
+  }
   try {
     const out = execSync(IS_WIN ? `where ${cmd}` : `which ${cmd}`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
     return out.trim().length > 0
@@ -573,17 +654,54 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
   const tmpDir = require('os').tmpdir()
   const sendLog = (msg) => send('launch-log', msg + '\n')
 
+  // Download helper: follows redirects, checks status, validates file size
+  function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest)
+      const req = https.get(url, {
+        timeout: 120000,
+        headers: { 'User-Agent': 'wan2gp-desktop' }
+      }, (res) => {
+        // Follow redirects manually (https.get doesn't always)
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          file.close()
+          try { fs.rmSync(dest) } catch {}
+          return downloadFile(res.headers.location, dest).then(resolve).catch(reject)
+        }
+        if (res.statusCode !== 200) {
+          file.close()
+          try { fs.rmSync(dest) } catch {}
+          return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+        }
+        res.pipe(file)
+        file.on('finish', () => file.close())
+        file.on('close', () => {
+          // File handle released — verify and resolve
+          const stat = fs.statSync(dest)
+          if (stat.size < 1024 * 1024) {
+            try { fs.rmSync(dest) } catch {}
+            return reject(new Error(`Downloaded file too small (${Math.round(stat.size/1024)} KB) — likely a redirect page`))
+          }
+          resolve()
+        })
+      })
+      req.on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
+      req.on('timeout', () => { req.destroy(); try { fs.rmSync(dest) } catch {}; reject(new Error('Download timed out')) })
+    })
+  }
+
+  // Async exec helper — keeps Electron UI responsive during long installs
+  const asyncExec = (cmd, opts) => new Promise((resolve, reject) => {
+    exec(cmd, opts, (err) => err ? reject(err) : resolve())
+  })
+
   if (tool === 'git') {
     sendLog('[*] Downloading Git for Windows...')
     const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
     const dest = path.join(tmpDir, 'Git-2.49.0-64-bit.exe')
-    await new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest)
-      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
-        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
-    })
+    await downloadFile(url, dest)
     sendLog('[*] Installing Git (silent)...')
-    execSync(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
+    await asyncExec(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
     sendLog('[*] Git installed. Please restart the launcher.')
     return { success: true }
 
@@ -591,19 +709,15 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
     sendLog('[*] Downloading Python 3.11...')
     const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
     const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
-    await new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest)
-      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
-        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
-    })
+    await downloadFile(url, dest)
     sendLog('[*] Installing Python 3.11.9 (silent)...')
-    execSync(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
+    await asyncExec(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
     sendLog('[*] Python installed. Please restart the launcher.')
     return { success: true }
 
   } else if (tool === 'uv') {
     sendLog('[*] Installing uv via PowerShell...')
-    execSync('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 60000, windowsHide: true })
+    await asyncExec('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 60000, windowsHide: true })
     sendLog('[*] uv installed. Please restart the launcher.')
     return { success: true }
 
@@ -611,13 +725,9 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
     sendLog('[*] Downloading Miniconda...')
     const url = 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe'
     const dest = path.join(tmpDir, 'Miniconda3-latest-Windows-x86_64.exe')
-    await new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest)
-      https.get(url, (res) => { res.pipe(file); file.on('finish', () => { file.close(); resolve() }) })
-        .on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
-    })
+    await downloadFile(url, dest)
     sendLog('[*] Installing Miniconda (silent)...')
-    execSync(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
+    await asyncExec(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
     sendLog('[*] Miniconda installed. Please restart the launcher.')
     return { success: true }
   }
