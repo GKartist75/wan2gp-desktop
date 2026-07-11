@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, MenuItem, dialog } = require('electron')
+const { app, BrowserWindow, BrowserView, ipcMain, shell, Menu, MenuItem, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const os = require('os')
 const { spawn, exec, execSync } = require('child_process')
 const net = require('net')
 const http = require('http')
@@ -22,6 +23,12 @@ try {
   }
 } catch {}
 
+// GPU-free Electron mode — frees VRAM for Wan2GP (requires restart)
+try {
+  const cfg = JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
+  if (cfg.electronGpu === false) app.disableHardwareAcceleration()
+} catch {}
+
 function getDataDir() {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) {
@@ -39,7 +46,7 @@ function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
-let mainWin = null, setupProc = null
+let mainWin = null, setupProc = null, _wangpProc = null
 let _currentPort = 7860 // tracked across launches/restarts
 
 function sysPython() {
@@ -75,7 +82,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch {}
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860 }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true }
 }
 
 function saveConfig(cfg) {
@@ -234,30 +241,43 @@ ipcMain.handle('check-installed', () => ({
 }))
 
 ipcMain.handle('detect-gpu', () => {
+  // ponytail: direct shell detection (matches detect-hardware). The old code wrapped
+  // nvidia-smi in a `python -c "..."` one-liner via sysPython(); that broke when the
+  // first `python` on PATH was an unrelated venv (e.g. a bundled agent venv) whose
+  // multi-line -c quoting failed, yielding {vendor:''}. Detect directly here.
   try {
-    const out = execSync(`"${sysPython()}" -c "
-import subprocess, sys
-n, v = 'Unknown', 'UNKNOWN'
-try:
-    o = subprocess.check_output(['nvidia-smi','--query-gpu=name','--format=csv,noheader'], encoding='utf-8', stderr=subprocess.DEVNULL).strip()
-    n, v = o, 'NVIDIA'
-except:
-    if sys.platform == 'darwin': n, v = 'Apple Silicon', 'APPLE'
-    elif sys.platform == 'win32':
-        try:
-            o = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', shell=True, encoding='utf-8', stderr=subprocess.DEVNULL).strip()
-            if o: n, v = o, 'AMD' if 'Radeon' in o or 'AMD' in o else 'INTEL'
-        except: pass
-    else:
-        try:
-            o = subprocess.check_output('lspci | grep -i vga', shell=True, encoding='utf-8', stderr=subprocess.DEVNULL)
-            if 'NVIDIA' in o: n, v = o, 'NVIDIA'
-            elif 'AMD' in o: n, v = o, 'AMD'
-        except: pass
-print(f'{v}||{n}')
-"`, { encoding: 'utf8', timeout: 15000 }).trim()
-    const [v, n] = out.split('||')
-    return { vendor: v, name: n }
+    let name = '', vendor = 'UNKNOWN'
+    if (IS_WIN) {
+      try {
+        const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim().split('\n')[0].trim()
+        if (nv) { name = nv; vendor = 'NVIDIA' }
+      } catch {}
+      if (!name) {
+        try {
+          const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
+          if (wmi) { name = wmi; vendor = /radeon|amd/i.test(wmi) ? 'AMD' : 'INTEL' }
+        } catch {}
+      }
+    } else if (PLATFORM === 'darwin') {
+      try {
+        const m = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model"', { encoding: 'utf8', timeout: 10000 }).trim()
+        if (m) { name = m.replace('Chipset Model:', '').trim(); vendor = 'APPLE' }
+      } catch {}
+    } else {
+      try {
+        const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null', { encoding: 'utf8', timeout: 10000, shell: true }).trim().split('\n')[0].trim()
+        if (nv) { name = nv; vendor = 'NVIDIA' }
+      } catch {}
+      if (!name) {
+        try {
+          const l = execSync('lspci | grep -i "vga\\|3d" | head -1', { encoding: 'utf8', timeout: 10000, shell: true }).trim()
+          if (/nvidia/i.test(l)) { name = l; vendor = 'NVIDIA' }
+          else if (/amd|radeon/i.test(l)) { name = l; vendor = 'AMD' }
+        } catch {}
+      }
+    }
+    if (!name) return { vendor: 'UNKNOWN', name: 'Unknown' }
+    return { vendor, name }
   } catch { return { vendor: 'UNKNOWN', name: 'Unknown' } }
 })
 
@@ -381,6 +401,18 @@ ipcMain.handle('get-status', async () => {
   } catch (e) { return { env, versions: { error: e.message } } }
 })
 
+// Quick port check — true if something is listening
+function checkPort(host, port, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const sock = new net.Socket()
+    sock.setTimeout(timeoutMs)
+    sock.on('connect', () => { sock.destroy(); resolve(true) })
+    sock.on('error', () => resolve(false))
+    sock.on('timeout', () => { sock.destroy(); resolve(false) })
+    sock.connect(port, host)
+  })
+}
+
 // ── Launch with proper port check ──
 ipcMain.handle('launch', async () => {
   const env = getActiveEnv()
@@ -402,6 +434,13 @@ ipcMain.handle('launch', async () => {
 
   const port = preferredPort
   _currentPort = port
+
+  // If already running (e.g. from Desktop mode), just connect
+  if (await checkPort('localhost', port)) {
+    send('launch-log', `[*] Wan2GP already running on port ${port}. Opening browser...\n`)
+    return { url: `http://localhost:${port}`, port }
+  }
+
   send('launch-log', '[*] Starting Wan2GP...\n')
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
@@ -478,6 +517,178 @@ ipcMain.handle('launch', async () => {
   } catch (err) {
     throw err
   }
+})
+
+// ── Launch in-app (direct spawn, streams to console) ──
+ipcMain.handle('launch-webview', async () => {
+  const env = getActiveEnv()
+  if (!env) throw new Error('No active environment')
+  const py = getPythonForEnv(env)
+  if (!py) throw new Error('Cannot find python for env')
+
+  const cfg = loadConfig()
+  let port = cfg.serverPort || 7860
+  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
+  if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
+  _currentPort = port
+
+  // If already running (e.g. from browser launch), just connect
+  if (await checkPort('localhost', port)) {
+    send('launch-log', `[*] Wan2GP already running on port ${port}. Connecting...\n`)
+    return { url: `http://localhost:${port}`, port }
+  }
+
+  send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
+  const proc = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
+    cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    env: { ...process.env, PYTHONUNBUFFERED: '1',
+      ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
+  })
+  _wangpProc = proc
+  proc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  proc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code) })
+  try {
+    await waitForPort('localhost', port, 180000)
+    send('launch-log', '[*] Wan2GP is ready!\n')
+    return { url: `http://localhost:${port}`, port }
+  } catch (err) { if (_wangpProc) { _wangpProc.kill(); _wangpProc = null } throw err }
+})
+
+ipcMain.handle('stop-wangp', () => { if (_wangpProc) { _wangpProc.kill(); _wangpProc = null; return true } return false })
+ipcMain.handle('is-wangp-running', () => _wangpProc !== null)
+
+// ── Phase 4: Pop-out webview ──
+let detachedWin = null
+ipcMain.handle('popout-webview', (_, url) => {
+  try {
+    detachedWin = new BrowserWindow({
+      width: 1280, height: 800, title: 'Wan2GP',
+      webPreferences: { webviewTag: true },
+    })
+    detachedWin.loadURL(url)
+    detachedWin.on('closed', () => { detachedWin = null; mainWin?.webContents.send('webview-returned') })
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Wan2GP embedded via BrowserView (renders reliably on Electron 40; <webview>/<iframe>
+//     both fail: <webview> is blank on E40, <iframe> hits gradio#11553 manifest 404 → blank).
+//     BrowserView can intercept /manifest.json (serve stub). Panels (terminal/Manage) don't
+//     sit ABOVE a BrowserView (compositor layer), so instead we SHRINK the BrowserView bounds
+//     to make room — Wan2GP stays live and visible, no black gap. ──
+const TOPBAR_H = 44
+const MANAGE_W = 420
+let _bv = null
+let _bvResizeHandler = null
+let _ftDock = 'bottom'   // terminal dock: bottom | top | left | floating
+let _panel = null        // null | 'term' | 'manage' — which panel is open
+
+function bvBounds() {
+  if (!_bv || !mainWin) return
+  const b = mainWin.getContentBounds()
+  let x = 0, y = TOPBAR_H, w = b.width, h = b.height - TOPBAR_H
+  if (_panel === 'term') {
+    switch (_ftDock) {
+      case 'left':   x += 340; w -= 340; break
+      case 'right':  w -= 340; break
+      case 'top':    y += 200; h -= 200; break
+      case 'bottom': h -= 200; break
+      // floating terminal sits top-right (right:60, top:80, 480x320) — keep Wan2GP on its left
+      case 'floating': w = Math.max(0, b.width - 60 - 480); break
+    }
+  } else if (_panel === 'manage') {
+    w -= MANAGE_W   // drawer is 420px on the right
+  }
+  _bv.setBounds({ x, y, width: w, height: h })
+}
+
+ipcMain.handle('create-browser-view', (_, url) => {
+  try {
+    if (!_bv) {
+      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true } })
+      // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
+      _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
+        if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
+          cb({ respondWith: {
+            statusCode: 200,
+            contentType: 'application/manifest+json',
+            data: Buffer.from(JSON.stringify({ name: 'Wan2GP', start_url: '.', display: 'standalone' })),
+          }})
+        } else cb({})
+      })
+      // Wire resize only once (view is created once and reused thereafter)
+      if (_bvResizeHandler) mainWin.removeListener('resize', _bvResizeHandler)
+      _bvResizeHandler = () => bvBounds()
+      mainWin.on('resize', _bvResizeHandler)
+    }
+    // Re-add if it was detached on a previous "back to dashboard" (view is kept alive,
+    // never destroyed, so re-adding + reload avoids the blank-paint race on recreate).
+    const attached = mainWin.getBrowserViews().includes(_bv)
+    if (!attached) mainWin.addBrowserView(_bv)
+    _panel = null
+    bvBounds()
+    _bv.webContents.loadURL(url)
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('show-browser-view', () => {
+  // Panel closed → Wan2GP takes the full area again
+  _panel = null
+  bvBounds()
+})
+ipcMain.handle('hide-browser-view', (_, panel) => {
+  // Panel open → shrink Wan2GP to make room (no remove → no black flash)
+  _panel = panel === 'manage' ? 'manage' : 'term'
+  bvBounds()
+})
+ipcMain.handle('destroy-browser-view', () => {
+  try {
+    // Detach from the window only — keep the view object alive so the next launch can
+    // re-add + reload it. Destroying + recreating is what blanks the 2nd desktop launch
+    // (async C++ compositor teardown races the new view's add+load).
+    if (_bv) { mainWin.removeBrowserView(_bv) }
+    if (_bvResizeHandler) { mainWin.removeListener('resize', _bvResizeHandler); _bvResizeHandler = null }
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// Detach the BrowserView from the window so a DOM panel (Manage) can render in front of
+// it — a BrowserView always composites above DOM, so it must be removed to show UI on top.
+// The view object stays alive; reattach restores its frame without a reload.
+ipcMain.handle('detach-browser-view', () => {
+  try {
+    if (_bv) mainWin.removeBrowserView(_bv)
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+ipcMain.handle('reattach-browser-view', () => {
+  try {
+    if (_bv && !mainWin.getBrowserViews().includes(_bv)) {
+      mainWin.addBrowserView(_bv)
+      _panel = null
+      bvBounds()
+    }
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('bv-set-dock', (_, dock) => {
+  _ftDock = dock
+  bvBounds()
+})
+
+ipcMain.handle('bv-navigate', (_, action) => {
+  if (!_bv) return
+  switch (action) {
+    case 'back': _bv.webContents.goBack(); break
+    case 'forward': _bv.webContents.goForward(); break
+    case 'reload': _bv.webContents.reload(); break
+  }
+})
+ipcMain.handle('bv-set-zoom', (_, factor) => {
+  if (_bv) _bv.webContents.setZoomLevel(Math.log2(factor))
 })
 
 ipcMain.handle('update', async () => await runSetup(['update']))
@@ -579,8 +790,151 @@ ipcMain.handle('open-external', (_, url) => {
 })
 
 ipcMain.handle('open-task-manager', () => {
-  try { require('child_process').exec('taskmgr.exe') } catch {}
+  try { require('child_process').exec('taskmgr.exe') } catch { }
 })
+
+// Toggle Chromium DevTools. Prefers the embedded Wan2GP BrowserView when present,
+// otherwise the main window's webview. Hidden menu means this is the only devtools entry.
+ipcMain.handle('toggle-devtools', () => {
+  try {
+    if (_bv && mainWin.getBrowserViews().includes(_bv)) _bv.webContents.toggleDevTools()
+    else if (mainWin) mainWin.webContents.toggleDevTools()
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Browser detection + no-GPU launch ──
+const WELL_KNOWN_BROWSERS = [
+  { id: 'chrome',    name: 'Google Chrome',  win: ['%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe', '%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe', '%LocalAppData%\\Google\\Chrome\\Application\\chrome.exe'], mac: '/Applications/Google Chrome.app', linux: ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'] },
+  { id: 'edge',      name: 'Microsoft Edge', win: ['%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe', '%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe'], mac: '/Applications/Microsoft Edge.app', linux: ['microsoft-edge'] },
+  { id: 'firefox',   name: 'Firefox',        win: ['%ProgramFiles%\\Mozilla Firefox\\firefox.exe', '%ProgramFiles(x86)%\\Mozilla Firefox\\firefox.exe'], mac: '/Applications/Firefox.app', linux: ['firefox'] },
+  { id: 'brave',     name: 'Brave',          win: ['%LocalAppData%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'], mac: '/Applications/Brave Browser.app', linux: ['brave-browser', 'brave'] },
+  { id: 'opera',     name: 'Opera',          win: ['%LocalAppData%\\Programs\\Opera\\launcher.exe', '%ProgramFiles%\\Opera\\launcher.exe'], mac: '/Applications/Opera.app', linux: ['opera'] },
+  { id: 'vivaldi',   name: 'Vivaldi',        win: ['%LocalAppData%\\Vivaldi\\Application\\vivaldi.exe'], mac: '/Applications/Vivaldi.app', linux: ['vivaldi'] },
+]
+
+function expandEnv(p) { return p.replace(/%([^%]+)%/g, (_, k) => process.env[k] || '') }
+
+ipcMain.handle('detect-browsers', () => {
+  const found = []
+  for (const b of WELL_KNOWN_BROWSERS) {
+    let path = null
+    if (IS_WIN) {
+      for (const cand of b.win) {
+        const ep = expandEnv(cand)
+        try { if (fs.existsSync(ep)) { path = ep; break } } catch {}
+      }
+    } else if (PLATFORM === 'darwin') {
+      try { if (fs.existsSync(b.mac)) path = b.mac } catch {}
+    } else {
+      for (const cand of b.linux) {
+        try { const p = execSync(`command -v ${cand}`, { encoding: 'utf8', windowsHide: true }).trim(); if (p) { path = p; break } } catch {}
+      }
+    }
+    found.push({ id: b.id, name: b.name, installed: !!path, path })
+  }
+  return { browsers: found, defaultBrowser: (loadConfig().defaultBrowser || 'system') }
+})
+
+// Launch URL via the user's chosen default browser (no extra GPU flags).
+ipcMain.handle('launch-browser', (_, url) => {
+  if (typeof url !== 'string' || !url.startsWith('http')) return { error: 'invalid url' }
+  const chosen = loadConfig().defaultBrowser || 'system'
+  if (chosen !== 'system') {
+    const b = WELL_KNOWN_BROWSERS.find(x => x.id === chosen)
+    let exe = null
+    if (IS_WIN) {
+      for (const cand of b.win) { const ep = expandEnv(cand); try { if (fs.existsSync(ep)) { exe = ep; break } } catch {} }
+    } else if (PLATFORM === 'darwin') {
+      if (fs.existsSync(b.mac)) exe = b.mac
+    } else {
+      for (const cand of b.linux) { try { const p = execSync(`command -v ${cand}`, { encoding: 'utf8', windowsHide: true }).trim(); if (p) { exe = p; break } } catch {} }
+    }
+    if (exe) {
+      try {
+        if (IS_WIN) exec(`start "" "${exe}" "${url}"`, { windowsHide: false })
+        else if (PLATFORM === 'darwin') exec(`open -a "${exe}" "${url}"`, { windowsHide: true })
+        else exec(`"${exe}" "${url}"`, { windowsHide: true })
+        return { success: true }
+      } catch (e) { return { error: e.message } }
+    }
+  }
+  // No specific browser (or not found) → let the OS decide.
+  shell.openExternal(url)
+  return { success: true }
+})
+
+// "Launch in Browser (no GPU)": always open CHROME with minimal-GPU flags so the
+// browser uses almost no VRAM, leaving it free for Wan2GP generation. We deliberately
+// ignore the user's defaultBrowser here — a no-GPU launch must be Chrome (the only
+// browser the flag set is validated against) and must not spawn Edge/Firefox.
+// Preference: Wan2GP repo's own script (canonical, see \Wan2GP\scripts) -> vendored
+// script -> inline Chrome launch with the flags.
+function findChrome() {
+  if (IS_WIN) {
+    for (const cand of [
+      '%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe',
+      '%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe',
+      '%LocalAppData%\\Google\\Chrome\\Application\\chrome.exe',
+    ]) {
+      const ep = expandEnv(cand)
+      try { if (fs.existsSync(ep)) return ep } catch {}
+    }
+  } else if (PLATFORM === 'darwin') {
+    if (fs.existsSync('/Applications/Google Chrome.app')) return '/Applications/Google Chrome.app'
+  } else {
+    for (const cand of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+      try { const p = execSync(`command -v ${cand}`, { encoding: 'utf8', windowsHide: true }).trim(); if (p) return p } catch {}
+    }
+  }
+  return null
+}
+
+ipcMain.handle('launch-browser-no-gpu', (_, url) => {
+  if (typeof url !== 'string' || !url.startsWith('http')) return { error: 'invalid url' }
+  const noGpuArgs = ['--disable-gpu', '--disable-gpu-compositing', '--disable-accelerated-2d-canvas', '--disable-accelerated-video-decode', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-webgpu']
+
+  const spawnDetached = (cmd, args) => {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false })
+    child.unref()
+  }
+
+  // 1) Wan2GP repo's canonical script (per user: \Wan2GP\scripts\start-chrome-no-gpu.*)
+  const repoScript = path.join(getRepoDir(), 'scripts', 'start-chrome-no-gpu' + (IS_WIN ? '.bat' : '.sh'))
+  if (fs.existsSync(repoScript)) {
+    try {
+      if (IS_WIN) spawnDetached('cmd.exe', ['/c', repoScript, url])
+      else { fs.chmodSync(repoScript, 0o755); spawnDetached(repoScript, [url]) }
+      return { success: true }
+    } catch (e) { /* fall through */ }
+  }
+
+  // 2) Vendored script bundled with the desktop app
+  const vendored = path.join(__dirname, 'scripts', 'start-chrome-no-gpu' + (IS_WIN ? '.bat' : '.sh'))
+  if (fs.existsSync(vendored)) {
+    try {
+      if (IS_WIN) spawnDetached('cmd.exe', ['/c', vendored, url])
+      else { fs.chmodSync(vendored, 0o755); spawnDetached(vendored, [url]) }
+      return { success: true }
+    } catch (e) { /* fall through */ }
+  }
+
+  // 3) Direct Chrome launch with the flags (no script available)
+  const chrome = findChrome()
+  if (chrome) {
+    try {
+      if (IS_WIN) spawnDetached(chrome, [...noGpuArgs, url])
+      else if (PLATFORM === 'darwin') spawnDetached('open', ['-a', chrome, '--args', ...noGpuArgs, url])
+      else spawnDetached(chrome, [...noGpuArgs, url])
+      return { success: true }
+    } catch (e) { return { error: e.message } }
+  }
+
+  return { error: 'Chrome not found — install Google Chrome or run \\Wan2GP\\scripts\\start-chrome-no-gpu.bat' }
+})
+
+// Whether Chrome is installed (used to enable/disable the "Launch in Browser (no GPU)" button).
+ipcMain.handle('chrome-available', () => !!findChrome())
 
 // ── Desktop config ──
 ipcMain.handle('check-command', (_, cmd) => {
@@ -1176,22 +1530,18 @@ ipcMain.handle('detect-hardware', () => {
   try {
     if (IS_WIN) {
       try {
-        const cpuOut = execSync('powershell -Command "Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
-        info.cpu = cpuOut.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Name'))[0] || '—'
-        if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
+        // CPU name — node os (instant, no subprocess). Model string is one line.
+        const model = os.cpus()[0]?.model
+        if (model) {
+          info.cpu = model.trim()
+          if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
+        }
       } catch {}
+      // RAM — node os (instant, no subprocess)
       try {
-        const ramOut = execSync('powershell -Command "Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum | ForEach-Object { [math]::Round($_.Sum / 1GB) }"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
-        const val = ramOut.trim()
-        if (val && !isNaN(Number(val))) info.ram = Number(val) + ' GB'
+        const ramGb = Math.round(os.totalmem() / 1073741824)
+        if (ramGb > 0) info.ram = ramGb + ' GB'
       } catch {}
-      if (info.ram === '—') {
-        try {
-          const totalOut = execSync('powershell -Command "Get-CimInstance Win32_ComputerSystem | ForEach-Object { [math]::Round($_.TotalPhysicalMemory / 1GB) }"', { encoding: 'utf8', timeout: 5000, windowsHide: true })
-          const val = totalOut.trim()
-          if (val && !isNaN(Number(val))) info.ram = Number(val) + ' GB'
-        } catch {}
-      }
       // Try nvidia-smi first (most accurate for NVIDIA GPUs)
       try {
         const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
@@ -1316,26 +1666,47 @@ ipcMain.handle('get-hardware-profile', () => {
 })
 
 // ── Live system metrics (free RAM / free VRAM) ──
+// ponytail: CPU + RAM come from the node `os` module (sub-ms, no subprocess). The old
+// code spawned PowerShell twice per tick (Get-CimInstance ~440ms + Get-Counter ~1450ms) —
+// ~1.9s of main-thread blocking every 2s froze the whole UI ("running is very slow").
+// VRAM stays on nvidia-smi (cheap, ~75ms, no PowerShell).
 ipcMain.handle('get-system-metrics', () => {
-  const result = { ramFree: null, vramFree: null }
+  const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null }
   try {
-    if (IS_WIN) {
-      const out = execSync('wmic OS get FreePhysicalMemory /format:csv', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
-      const lines = out.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Node'))
-      if (lines.length) {
-        const kb = parseInt(lines[lines.length - 1].split(',')[1] || lines[lines.length - 1])
-        if (!isNaN(kb)) result.ramFree = Math.round(kb / 1024) + ' GB'
+    const total = os.totalmem(), free = os.freemem()
+    const used = total - free
+    const gb = b => Math.round(b / 1073741824) + ' GB'
+    result.ramFree = gb(free)
+    result.ramTotal = gb(total)
+    result.ramUsed = gb(used)
+    result.ram = Math.min(100, Math.round(used / total * 100))
+    // Load over the last minute (os.cpus times are cumulative since boot; the
+    // deltas over a window would need caching, so use the 1-min average which is
+    // instant and good enough for a sparkline).
+    const cpus = os.cpus()
+    let idle = 0, busy = 0
+    for (const c of cpus) for (const k in c.times) { if (k === 'idle') idle += c.times[k]; else busy += c.times[k] }
+    result.cpu = cpus.length ? Math.round((busy / (idle + busy)) * 100) : null
+  } catch { }
+  try {
+    const nvOut = execSync('nvidia-smi --query-gpu=memory.free,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+    const lines = nvOut.split('\n').map(l => l.trim()).filter(l => l)
+    if (lines.length) {
+      let free = 0, used = 0, total = 0, gpu = 0
+      for (const ln of lines) {
+        const p = ln.split(',').map(x => parseInt(x.trim()))
+        if (p[0] != null && !isNaN(p[0])) free += p[0]
+        if (p[1] != null && !isNaN(p[1])) used += p[1]
+        if (p[2] != null && !isNaN(p[2])) total += p[2]
+        if (p[3] != null && !isNaN(p[3])) gpu += p[3]
       }
+      result.vramFree = total >= 1024 ? Math.round(free / 1024) + ' GB' : free + ' MB'
+      result.vramUsed = total >= 1024 ? Math.round(used / 1024) + ' GB' : used + ' MB'
+      result.vramTotal = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
+      result.vram = total ? Math.round(used / total * 100) : null
+      result.gpu = lines.length > 1 ? Math.round(gpu / lines.length) : gpu
     }
-  } catch {}
-  try {
-    const nvOut = execSync('nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
-    const vals = nvOut.split('\n').map(l => parseInt(l.trim())).filter(v => !isNaN(v))
-    if (vals.length) {
-      const total = vals.reduce((a, b) => a + b, 0)
-      result.vramFree = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
-    }
-  } catch {}
+  } catch { }
   return result
 })
 
@@ -1410,9 +1781,12 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
+      webviewTag: true,
     },
     show: true, backgroundColor: '#0f0f0f', maximizable: true,
   })
+  // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
+  if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   mainWin.once('ready-to-show', () => { mainWin.maximize() })
   mainWin.on('closed', () => { mainWin = null })
@@ -1449,9 +1823,11 @@ app.whenReady().then(() => {
 })
 app.on('window-all-closed', () => {
   if (setupProc) setupProc.kill()
+  if (_wangpProc) _wangpProc.kill()
   if (PLATFORM !== 'darwin') app.quit()
 })
 app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
   if (setupProc) setupProc.kill()
+  if (_wangpProc) _wangpProc.kill()
 })

@@ -12,6 +12,22 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Run
   launch: () => ipcRenderer.invoke('launch'),
+  launchWebview: () => ipcRenderer.invoke('launch-webview'),
+  stopWangp: () => ipcRenderer.invoke('stop-wangp'),
+  isWangpRunning: () => ipcRenderer.invoke('is-wangp-running'),
+  popoutWebview: (url) => ipcRenderer.invoke('popout-webview', url),
+  onWebviewReturned: (cb) => { const h = (_e) => cb(); ipcRenderer.on('webview-returned', h); return () => ipcRenderer.removeListener('webview-returned', h) },
+
+  // BrowserView (in-app Wan2GP embed — renders reliably on Electron 40; intercepts /manifest.json)
+  createBrowserView: (url) => ipcRenderer.invoke('create-browser-view', url),
+  showBrowserView: () => ipcRenderer.invoke('show-browser-view'),
+  hideBrowserView: () => ipcRenderer.invoke('hide-browser-view'),
+  destroyBrowserView: () => ipcRenderer.invoke('destroy-browser-view'),
+  detachBrowserView: () => ipcRenderer.invoke('detach-browser-view'),
+  reattachBrowserView: () => ipcRenderer.invoke('reattach-browser-view'),
+  bvNavigate: (action) => ipcRenderer.invoke('bv-navigate', action),
+  bvSetZoom: (factor) => ipcRenderer.invoke('bv-set-zoom', factor),
+  bvSetDock: (dock) => ipcRenderer.invoke('bv-set-dock', dock),
 
   // Manage
   update: () => ipcRenderer.invoke('update'),
@@ -22,6 +38,11 @@ contextBridge.exposeInMainWorld('w2gp', {
   uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
+  toggleDevTools: () => ipcRenderer.invoke('toggle-devtools'),
+  detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
+  launchBrowser: (url) => ipcRenderer.invoke('launch-browser', url),
+  launchBrowserNoGpu: (url) => ipcRenderer.invoke('launch-browser-no-gpu', url),
+  chromeAvailable: () => ipcRenderer.invoke('chrome-available'),
 
   // Update (desktop app itself)
   checkUpdate: (opts) => ipcRenderer.invoke('check-update', opts),

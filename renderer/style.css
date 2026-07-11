@@ -69,6 +69,12 @@ body {
 [data-theme="dark"] .launch-btn.primary-sub:hover {
   border-color: var(--signal-blue);
 }
+[data-theme="dark"] .launch-btn.launch-green { background: #0a2e1a; color: #34d399; border-color: #14532d; }
+[data-theme="dark"] .launch-btn.launch-green:hover { background: #14532d; border-color: #22c55e; }
+[data-theme="dark"] .launch-btn.launch-amber { background: #3b1c08; color: #fbbf24; border-color: #78350f; }
+[data-theme="dark"] .launch-btn.launch-amber:hover { background: #78350f; border-color: #f59e0b; }
+[data-theme="dark"] .launch-btn.launch-muted { background: #1a1a2e; color: #6b7280; border-color: #2d2d44; }
+[data-theme="dark"] .launch-btn.launch-muted:hover { background: #2d2d44; border-color: #6b7280; }
 
 /* ── App Shell ── */
 #app { height: 100vh; display: flex; flex-direction: column; position: relative; background: var(--canvas); }
@@ -96,9 +102,14 @@ body {
 .topbar {
   height: var(--topbar-h); display: flex; align-items: center;
   padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border);
-  flex-shrink: 0; -webkit-app-region: drag; gap: 10px;
+  flex-shrink: 0; -webkit-app-region: drag; gap: 10px; position: relative;
 }
-.topbar-left { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+.topbar-left { flex: 0 0 auto; min-width: 0; -webkit-app-region: no-drag; }
+.topbar-right { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; justify-content: flex-end; -webkit-app-region: no-drag; }
+.topbar-center {
+  position: absolute; left: 16px;
+  display: flex; align-items: center; gap: 8px; pointer-events: none; white-space: nowrap;
+}
 .brand-mark-small {
   font-family: 'Instrument Serif', 'Georgia', serif; font-size: 1.25rem; font-weight: 400;
   letter-spacing: -0.03em; line-height: 1; color: var(--text-primary);
@@ -143,12 +154,13 @@ body {
 .btn.small { padding: 5px 12px; font-size: 0.6875rem; }
 .paths-grid .btn.small { padding: 1px 6px; font-size: 0.5rem; line-height: 1.4; }
 .path-btn {
-  width: 18px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 3px;
-  background: var(--canvas); color: var(--text-tertiary); cursor: pointer; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
+  width: 14px; height: 14px; padding: 0; border: none; border-radius: 2px;
+  background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
   transition: all 0.15s;
 }
-.path-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--accent); }
+.path-btn:hover { background: var(--surface-hover); color: var(--text-primary); }
+.path-btn svg { width: 10px; height: 10px; }
 .spec-row-path .btn.small { padding: 1px 6px; font-size: 0.5rem; line-height: 1.4; }
 
 /* ── Cards ── */
@@ -173,12 +185,13 @@ body {
   padding: 5px 8px; border-radius: 4px; font-size: 0.6875rem;
 }
 .spec-row.spec-row-path {
-  flex-direction: column; align-items: stretch; gap: 2px;
-  padding: 5px 8px 6px;
+  display: flex; flex-direction: row; align-items: center; gap: 4px;
+  padding: 4px 8px; flex-wrap: wrap;
 }
+.spec-row.spec-row-path .spec-label { min-width: 100px; flex-shrink: 0; }
 .spec-row.spec-row-path .path-val {
   font-size: 0.5625rem; line-height: 1.35;
-  overflow-wrap: anywhere; word-break: normal;
+  overflow-wrap: anywhere; word-break: normal; flex: 1; min-width: 0;
 }
 .spec-row:nth-child(odd) { background: var(--canvas); }
 .spec-label { color: var(--text-secondary); }
@@ -191,7 +204,7 @@ body {
   gap: 14px; padding: 14px; overflow: hidden; min-height: 0;
 }
 .col-left { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
-.col-right { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.col-right { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; }
 
 /* ── Env Card ── */
 .env-detail { margin-top: 10px; }
@@ -227,6 +240,13 @@ body {
 }
 .launch-btn.primary-sub { background: var(--signal-blue-bg); color: var(--signal-blue); border: 1px solid transparent; }
 .launch-btn.primary-sub:hover { border-color: var(--signal-blue); }
+/* Per-button accent colours */
+.launch-btn.launch-green { background: #14532d; color: #6ee7b7; border: 1px solid #166534; }
+.launch-btn.launch-green:hover { background: #166534; border-color: #22c55e; }
+.launch-btn.launch-amber { background: #78350f; color: #fcd34d; border: 1px solid #92400e; }
+.launch-btn.launch-amber:hover { background: #92400e; border-color: #f59e0b; }
+.launch-btn.launch-muted { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
+.launch-btn.launch-muted:hover { background: #374151; border-color: #6b7280; }
 .launch-btn:hover { background: var(--accent-hover); }
 .launch-btn:active { transform: scale(0.98); }
 .launch-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -464,6 +484,7 @@ body {
   transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 .settings-overlay.visible { opacity: 1; visibility: visible; }
+.settings-overlay.opaque { background: #0f0f0f; } /* covers detached BrowserView area in webview mode */
 .settings-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 420px;
   background: var(--surface); border-left: 1px solid var(--border);
@@ -589,3 +610,188 @@ body {
 }
 .env-restore-btn:hover { opacity: 1; text-decoration: underline; }
 .env-restore-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ── Webview Container ── */
+.webview-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+.webview-container.hidden { display: none; }
+
+/* ── Topbar webview controls (shown when webview active) ── */
+.wv-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.wv-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.wv-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 6px;
+}
+.zoom-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  border: 2px solid var(--surface);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.zoom-slider::-webkit-slider-thumb:hover { background: var(--text-primary); }
+.zoom-label {
+  font-size: 0.6rem;
+  font-family: 'Geist Mono', monospace;
+  color: var(--text-secondary);
+  min-width: 32px;
+  text-align: center;
+}
+
+/* ── Running LED indicator ── */
+.running-led {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  font-size: 0.6rem;
+  font-weight: 500;
+  font-family: 'Geist Mono', monospace;
+}
+.led-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.led-running { background: #4ADE80; box-shadow: 0 0 6px rgba(74,222,128,0.6); }
+.led-stopped { background: #EF4444; }
+.led-text { color: var(--text-secondary); }
+
+/* ── Dock Menu (reused for floating terminal) ── */
+.dock-btns { display: flex; gap: 1px; }
+.dock-btn {
+  width: 18px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 3px;
+  background: transparent; color: var(--text-tertiary); cursor: pointer; font-size: 0.6rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.dock-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--accent); }
+.dock-btn.active { background: var(--signal-blue-bg); color: var(--signal-blue); border-color: var(--signal-blue); }
+
+/* ── Default Browser list (Manage panel) ── */
+.browser-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.browser-row { font-size: 0.75rem; }
+.browser-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); }
+.browser-opt input { accent-color: var(--accent); }
+.browser-opt input:disabled + * { color: var(--text-tertiary); }
+.toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; }
+.toggle-row input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* ── Topbar live metrics (CPU/GPU/RAM/VRAM sparklines) ── */
+.topbar-metrics { display: flex; align-items: center; gap: 12px; margin-right: 10px; -webkit-app-region: no-drag; }
+.metric { display: flex; align-items: center; gap: 4px; font-size: 0.56rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; }
+.metric-label { font-weight: 600; color: var(--text-secondary); letter-spacing: 0.03em; }
+.metric-spark { width: 44px; height: 18px; display: block; background: var(--surface-hover); border-radius: 2px; }
+.metric-val { min-width: 30px; text-align: right; color: var(--text-primary); }
+
+/* ── Launch overlay (first-launch info on top of webview) ── */
+.launch-overlay {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; background: var(--signal-yellow-bg);
+  border-bottom: 1px solid var(--signal-yellow);
+}
+.launch-overlay.hidden { display: none; }
+.lo-text { flex: 1; font-size: 0.6rem; color: var(--signal-yellow); line-height: 1.4; }
+.lo-close {
+  background: none; border: none; color: var(--signal-yellow); cursor: pointer;
+  font-size: 0.75rem; padding: 2px; flex-shrink: 0; border-radius: 3px;
+}
+.lo-close:hover { background: var(--signal-yellow-bg); opacity: 0.8; }
+
+/* ── Floating Terminal for Desktop (webview) mode ── */
+.floating-term {
+  position: absolute;
+  z-index: 20;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+}
+/* dock positions */
+.floating-term.dock-bottom { bottom: 0; left: 0; right: 0; height: 200px; border-left: none; border-right: none; }
+.floating-term.dock-top { top: var(--topbar-h); left: 0; right: 0; height: 200px; border-top: none; border-left: none; border-right: none; }
+.floating-term.dock-left { left: 0; top: var(--topbar-h); bottom: 0; width: 340px; border-left: none; border-top: none; border-bottom: none; }
+.floating-term.dock-right { right: 0; top: var(--topbar-h); bottom: 0; width: 340px; border-right: none; border-top: none; border-bottom: none; }
+.floating-term.dock-floating { top: 80px; left: auto; right: 60px; width: 480px; height: 320px; border-radius: var(--radius-md); }
+.floating-term.dock-floating .floating-term-header { cursor: move; }
+.floating-term.hidden { display: none; }
+.floating-term-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  flex-shrink: 0;
+}
+.floating-term-title {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.floating-term-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.floating-term .term-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px;
+  min-height: 0;
+}
+.ft-status { display: flex; align-items: center; gap: 4px; font-size: 0.6rem; color: var(--text-tertiary); }
+.ft-status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.ft-status-dot.running { background: #4ADE80; }
+.ft-status-dot.stopped { background: #EF4444; }
+
+/* ── Floating Terminal search ── */
+.ft-search-row {
+  display: flex; gap: 4px; padding: 4px 12px;
+  border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.ft-search {
+  flex: 1; padding: 3px 8px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--canvas); color: var(--text-primary);
+  font-family: 'Geist Mono', monospace; font-size: 0.6rem; outline: none;
+}
+.ft-search:focus { border-color: var(--accent); }
+
+/* ── Floating Terminal resize handle ── */
+.floating-term-resize {
+  height: 4px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  background: transparent;
+}
+.floating-term-resize:hover { background: var(--accent); }

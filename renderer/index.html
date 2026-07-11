@@ -56,6 +56,33 @@
           </div>
           <p class="token-hint">Optional — needed for gated models. Saved to <code>desktop-config.json</code> and passed as <code>HF_TOKEN</code> to Wan2GP on launch.</p>
         </div>
+        <div class="settings-section">
+          <h3>Default Browser</h3>
+          <p class="token-hint">Used when launching Wan2GP in your browser ("Launch in Browser" opens the OS default).</p>
+          <div class="browser-list" id="browserList"></div>
+          <button class="btn btn-ghost small" id="browserRefreshBtn" style="margin-top:8px">Refresh</button>
+        </div>
+        <div class="settings-section">
+          <h3>Floating Terminal Default</h3>
+          <p class="token-hint">Where the console opens when launching Wan2GP in Desktop. "Minimised" keeps it closed until you toggle it.</p>
+          <div class="browser-list" id="termDockList">
+            <div class="browser-row"><label class="browser-opt"><input type="radio" name="termDock" value="bottom" checked> Bottom</label></div>
+            <div class="browser-row"><label class="browser-opt"><input type="radio" name="termDock" value="left"> Left</label></div>
+            <div class="browser-row"><label class="browser-opt"><input type="radio" name="termDock" value="top"> Top</label></div>
+            <div class="browser-row"><label class="browser-opt"><input type="radio" name="termDock" value="right"> Right</label></div>
+            <div class="browser-row"><label class="browser-opt"><input type="radio" name="termDock" value="minimised"> Minimised</label></div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>Developer Tools</h3>
+          <p class="token-hint">The standard Electron menu (File / Edit / View / Window) is hidden. Use this to open Chromium DevTools for debugging.</p>
+          <button class="btn btn-ghost small" id="devToolsBtn">Toggle Developer Tools</button>
+        </div>
+        <div class="settings-section">
+          <h3>Electron GPU</h3>
+          <p class="token-hint">Disable hardware acceleration for the launcher window to free VRAM for Wan2GP generation. Requires restart to take effect.</p>
+          <label class="toggle-row"><input type="checkbox" id="electronGpuToggle"> <span>Enable GPU acceleration</span></label>
+        </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">
         <div class="settings-section">
@@ -105,13 +132,43 @@
   <!-- Dashboard -->
   <div id="dashboard" class="screen">
     <div class="topbar">
-      <div class="topbar-left">
+      <div class="topbar-left"></div>
+      <div class="topbar-center">
         <div class="brand-mark-small">GK<span> Artist</span></div>
         <span class="app-title">Wan2GP Desktop Launcher</span>
         <span class="app-version" id="appVersionTag">v—</span>
+        <span id="runningLed" class="running-led" style="display:none">
+          <span class="led-dot" id="ledDot"></span>
+          <span class="led-text" id="ledText">Running</span>
+        </span>
       </div>
-      <div class="topbar-spacer"></div>
       <div class="topbar-right">
+        <div class="topbar-metrics" id="topbarMetrics">
+          <div class="metric" title="CPU"><span class="metric-label">CPU</span><canvas class="metric-spark" id="sparkCpu" width="44" height="18"></canvas><span class="metric-val" id="valCpu">—</span></div>
+          <div class="metric" title="GPU"><span class="metric-label">GPU</span><canvas class="metric-spark" id="sparkGpu" width="44" height="18"></canvas><span class="metric-val" id="valGpu">—</span></div>
+          <div class="metric" title="RAM used / total"><span class="metric-label">RAM</span><canvas class="metric-spark" id="sparkRam" width="44" height="18"></canvas><span class="metric-val" id="valRam">—</span></div>
+          <div class="metric" title="VRAM used / total"><span class="metric-label">VRAM</span><canvas class="metric-spark" id="sparkVram" width="44" height="18"></canvas><span class="metric-val" id="valVram">—</span></div>
+        </div>
+        <div id="wvControls" class="wv-controls" style="display:none">
+          <button class="btn-icon wv-btn" id="wvBackBtn" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="btn-icon wv-btn" id="wvFwdBtn" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg></button>
+          <button class="btn-icon wv-btn" id="wvReloadBtn"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
+          <span class="wv-sep"></span>
+          <input type="range" id="zoomSlider" class="zoom-slider" min="25" max="200" value="100" title="Zoom">
+          <span class="zoom-label" id="zoomLabel">100%</span>
+          <span class="wv-sep"></span>
+          <button class="btn btn-ghost small" id="backToDashboardBtn">← Back to Dashboard</button>
+          <button class="btn-icon wv-btn" id="popoutBtn" title="Open in separate window">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </button>
+          <button class="btn-icon wv-btn" id="ftToggleBtn" title="Toggle floating terminal">⊞</button>
+        </div>
+        <button class="btn-icon" id="stopWangpBtn" title="Stop Wan2GP server" style="display:none">
+          <svg viewBox="0 0 24 24" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
+        </button>
+        <button class="btn-icon" id="refreshBtn" title="Refresh dashboard &amp; metrics">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
         <button class="btn btn-ghost small" id="taskMgrBtn" title="Open Windows Task Manager">
           <svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="9" x2="16" y2="9" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="17" x2="12" y2="17" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
@@ -220,9 +277,18 @@
 
       <!-- Right column: Actions, Updates, Console -->
       <div class="col-right">
-        <button class="launch-btn primary-sub" id="browserBtn">
+        <button class="launch-btn launch-amber" id="browserBtn">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            Launch Wan2GP
+            Launch Wan2GP in Browser
+        </button>
+        <button class="launch-btn launch-muted" id="browserNoGpuBtn" style="margin-top:8px">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Launch in Chrome (no GPU script)
+        </button>
+        <div class="launch-hint" id="noGpuHint" style="display:none">Chrome not installed — this launches Chrome with minimal GPU use to free VRAM.</div>
+        <button class="launch-btn launch-green" id="appBtn" style="margin-top:8px">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Launch Wan2GP in Desktop
         </button>
         <div class="launch-info hidden" id="launchInfo">
           <div class="li-text">⏳ First launch loads models + compiles CUDA kernels — this will take some extra time. Subsequent starts are faster.</div>
@@ -231,7 +297,7 @@
         <div class="action-grid-2">
           <button class="action-item" id="updateBtn">
             <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-            Update Wan2GP
+            Update Wan2GP (DeepBeepMeep)
           </button>
           <button class="action-item" id="updateCheckBtn">
             <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -240,7 +306,7 @@
           <!-- Desktop shortcut -->
           <button class="action-item" id="desktopShortcutBtn">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>
-            Desktop Shortcut
+            Create Desktop Shortcut
           </button>
         </div>
 
@@ -271,30 +337,34 @@
               <span class="cl-date">Commit</span>
               <span class="cl-msg" id="desktopCommitMsg">—</span>
             </div>
-          </div>
-          <div class="changelog-footer">
-            <a href="#" id="desktopRepoLink" class="changelog-link">GKartist75/wan2gp-desktop →</a>
-            <span class="changelog-sep">·</span>
-            <a href="#" id="ytLink" class="changelog-link">▶ YouTube</a>
-          </div>
-        </div>
-
-        <!-- Terminal card - fills remaining space -->
-        <div class="card dash-term-card" id="dashTermCard" style="flex:1;display:flex;flex-direction:column;min-height:0">
-          <div class="card-header">
-            <span class="card-title">Console</span>
-            <div class="dash-term-actions">
-              <button class="term-btn-small active" id="dashTermFollowBtn">
-                <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-                <span class="follow-text">Follow</span>
-              </button>
+            <div class="changelog-footer">
+              <a href="#" id="desktopRepoLink" class="changelog-link">GKartist75/wan2gp-desktop →</a>
+              <span class="changelog-sep">·</span>
+              <a href="#" id="ytLink" class="changelog-link">▶ YouTube</a>
             </div>
           </div>
-          <div class="term-body dash-term-body" id="termBody" style="flex:1"></div>
-        </div>
 
+          <!-- Terminal card - fills remaining space -->
+          <div class="card dash-term-card" id="dashTermCard" style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <div class="card-header">
+              <span class="card-title">Console</span>
+              <div class="dash-term-actions">
+                <button class="term-btn-small active" id="dashTermFollowBtn">
+                  <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                  <span class="follow-text">Follow</span>
+                </button>
+              </div>
+            </div>
+            <div class="term-body dash-term-body" id="termBody" style="flex:1"></div>
+          </div>
+
+        </div>
       </div>
-    </div>
+
+    <!-- Wan2GP embed for in-app launch. Rendered via Electron BrowserView (a compositor
+         layer above the DOM), so no DOM element lives here. The floating terminal and
+         Manage panel temporarily hide the BrowserView while open (see app.js). -->
+    <div id="webviewContainer" class="webview-container hidden"></div>
 
   </div>
 
@@ -425,14 +495,44 @@
               </button>
             </div>
           </div>
-          <div class="term-body" id="installTermBody"></div>
+
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-
+  <!-- Floating Terminal for Desktop (webview) mode -->
+  <div id="floatingTerminal" class="floating-term dock-bottom hidden">
+    <div class="floating-term-header">
+      <span class="floating-term-title">Console</span>
+      <div class="floating-term-actions">
+        <span id="ftServerStatus" class="ft-status" style="display:none">
+          <span class="ft-status-dot" id="ftStatusDot"></span>
+          <span id="ftStatusText">Stopped</span>
+        </span>
+        <button class="term-btn-small active" id="ftFollowBtn">
+          <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+          <span class="follow-text">Follow</span>
+        </button>
+        <div class="dock-btns">
+          <button class="dock-btn active" data-dock="bottom" title="Dock bottom">⬇</button>
+          <button class="dock-btn" data-dock="left" title="Dock left">⬅</button>
+          <button class="dock-btn" data-dock="top" title="Dock top">⬆</button>
+          <button class="dock-btn" data-dock="right" title="Dock right">➡</button>
+          <button class="dock-btn" data-dock="floating" title="Floating">⤢</button>
+        </div>
+        <button class="term-btn-small" id="ftCloseBtn">✕</button>
+      </div>
+    </div>
+    <div class="term-body" id="ftTermBody" style="flex:1"></div>
+    <div class="ft-search-row">
+      <input type="text" id="logSearch" class="ft-search" placeholder="Search logs...">
+      <button class="term-btn-small" id="logExportBtn" title="Export logs">Export</button>
+    </div>
+    <div class="floating-term-resize" id="ftResize"></div>
   </div>
+
   <script src="app.js"></script>
 </body>
 </html>

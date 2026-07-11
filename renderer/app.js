@@ -21,12 +21,12 @@ function appendLog(text) {
   renderTerminals()
 }
 
-const termFollow = { termBody: true, installTermBody: true }
+const termFollow = { termBody: true, ftTermBody: true, installTermBody: true }
 const termAutoScroll = {}
 
 function renderTerminals() {
   const text = logBuffer.join('\n')
-  ;['termBody','installTermBody'].forEach(id => {
+  ;['termBody','ftTermBody','installTermBody'].forEach(id => {
     const el = document.getElementById(id)
     if (!el) return
     el.textContent = text
@@ -47,18 +47,99 @@ function setupScrollUnfollow(bodyId, btnId) {
 
 const $ = id => document.getElementById(id)
 function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active') }
-function breakPath(p) { return p ? String(p).replace(/[\\/]/g, '$&\u200B') : p }
+function breakPath(p) { if (!p) return p; const zwsp = String.fromCharCode(0x200B); const bs = String.fromCharCode(0x5C); const s = String(p); return s.split(bs).join(bs + zwsp).split('/').join('/' + zwsp); }
+
+// ── Floating Terminal state/helpers (hoisted so the launch handler can use them) ──
+let _ftVisible = false
+function toggleFloatingTerm() {
+  _ftVisible = !_ftVisible
+  $('floatingTerminal').classList.toggle('hidden', !_ftVisible)
+  if (_ftVisible) { renderTerminals(); window.w2gp.hideBrowserView('term') }
+  else { window.w2gp.showBrowserView() }
+}
+function closeFloatingTerm() {
+  _ftVisible = false
+  $('floatingTerminal').classList.add('hidden')
+  window.w2gp.showBrowserView()
+}
+// Apply a dock position to the floating terminal (className + IPC), without toggling visibility.
+function setFtDock(dock) {
+  const ft = $('floatingTerminal')
+  ft.className = 'floating-term dock-' + dock + (ft.classList.contains('hidden') ? ' hidden' : '')
+  if (dock !== 'floating') ft.style.cssText = ''
+  document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.dock === dock))
+  window.w2gp.bvSetDock(dock)
+}
 function openSettings() {
   $('settingsPanel').classList.add('open'); $('settingsOverlay').classList.add('visible')
+  // In webview (desktop) mode a BrowserView always composites above DOM, so it can't be
+  // covered — detach it while Manage is open so the panel renders in front of the viewer.
+  // The opaque backdrop class replaces the viewer area (no black flash).
+  if ($('dashBody').style.display === 'none') {
+    window.w2gp.detachBrowserView()
+    $('settingsOverlay').classList.add('opaque')
+  }
   window.w2gp.configLoad().then(function(cfg) {
     if ($('launchArgsInput')) $('launchArgsInput').value = cfg.launchArgs || ''
     if ($('portInput')) $('portInput').value = cfg.serverPort || 7860
     if ($('githubTokenInput')) $('githubTokenInput').value = cfg.githubToken || ''
     if ($('hfTokenInput')) $('hfTokenInput').value = cfg.hfToken || ''
+    // Floating terminal default dock
+    const td = cfg.termDockDefault || 'bottom'
+    document.querySelectorAll('input[name="termDock"]').forEach(r => { r.checked = (r.value === td) })
+    // Electron GPU toggle
+    const gpu = $('electronGpuToggle')
+    if (gpu) {
+      gpu.checked = cfg.electronGpu !== false
+      gpu.onchange = async () => {
+        const c = await window.w2gp.configLoad()
+        c.electronGpu = gpu.checked
+        await window.w2gp.configSave(c)
+        showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
+      }
+    }
   })
+  loadBrowserList()
 }
-function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible') }
-
+function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible')
+  // Restore the BrowserView (re-attach the still-alive view) when leaving Manage in webview mode.
+  if ($('dashBody').style.display === 'none') {
+    $('settingsOverlay').classList.remove('opaque')
+    window.w2gp.reattachBrowserView()
+  }
+ }
+// Populate the Manage "Default Browser" list from the main process.
+async function loadBrowserList() {
+  const list = $('browserList')
+  if (!list) return
+  list.innerHTML = '<div class="browser-row"><label class="browser-opt"><input type="radio" name="defaultBrowser" value="system" checked> System default</label></div>'
+  try {
+    const { browsers, defaultBrowser } = await window.w2gp.detectBrowsers()
+    for (const b of browsers) {
+      const row = document.createElement('div')
+      row.className = 'browser-row'
+      const label = document.createElement('label')
+      label.className = 'browser-opt'
+      const radio = document.createElement('input')
+      radio.type = 'radio'; radio.name = 'defaultBrowser'; radio.value = b.id
+      radio.disabled = !b.installed
+      if (b.id === defaultBrowser) radio.checked = true
+      label.appendChild(radio)
+      label.appendChild(document.createTextNode(' ' + b.name + (b.installed ? '' : ' (not installed)')))
+      row.appendChild(label)
+      list.appendChild(row)
+    }
+    list.querySelectorAll('input[name="defaultBrowser"]').forEach(r => {
+      r.addEventListener('change', async () => {
+        if (!r.checked) return
+        const cfg = await window.w2gp.configLoad()
+        cfg.defaultBrowser = r.value
+        await window.w2gp.configSave(cfg)
+        appendLog(`[*] Default browser set to: ${r.value}`)
+      })
+    })
+  } catch (e) { appendLog(`[!] Browser detection failed: ${e.message}`) }
+}
 // ── Theme ──
 function applyTheme(theme) {
   const html = document.documentElement
@@ -132,14 +213,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (installed.repo && installed.env) {
     show('dashboard')
     refreshDashboard()
-    // Live system metrics polling
-    setInterval(async function() {
-      var m = await window.w2gp.getSystemMetrics()
-      if (m) {
-        if (m.ramFree) $('specRamFree').textContent = '(' + m.ramFree + ' free)'
-        if (m.vramFree) $('specVramFree').textContent = '(' + m.vramFree + ' free)'
-      }
-    }, 5000)
+    // Live system metrics polling (topbar sparklines + dashboard free-text)
+    startMetricsPolling()
   } else {
     $('splashStatus').textContent = 'First-time setup...'
     const hw = await window.w2gp.detectHardware()
@@ -179,6 +254,57 @@ async function loadHardware() {
   const s = await window.w2gp.detectHardware()
   $('specCpu').textContent=s.cpu||'—'; $('specRam').textContent=s.ram||'—'
   $('specGpu').textContent=s.gpu||'—'; $('specVram').textContent=s.vram||'—'
+}
+
+// ── Live topbar metrics (CPU/GPU/RAM/VRAM sparklines) ──
+const _sparkHistory = { cpu: [], gpu: [], ram: [], vram: [] }
+const _sparkMax = 60  // samples kept (~2 min at 2s)
+
+function drawSpark(id, data, color) {
+  const c = $(id); if (!c) return
+  const ctx = c.getContext('2d')
+  const w = c.width, h = c.height
+  ctx.clearRect(0, 0, w, h)
+  if (data.length < 2) return
+  const max = 100
+  ctx.beginPath()
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - (Math.max(0, Math.min(max, v)) / max) * h
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+  })
+  ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.stroke()
+  // fill under curve
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
+  ctx.fillStyle = color + '22'; ctx.fill()
+}
+
+function pushMetric(key, val) {
+  const arr = _sparkHistory[key]
+  arr.push(val == null ? 0 : val)
+  if (arr.length > _sparkMax) arr.shift()
+}
+
+function startMetricsPolling() {
+  const tick = async () => {
+    let m
+    try { m = await window.w2gp.getSystemMetrics() } catch { return }
+    if (!m) return
+    if (m.ramFree) { const el = $('specRamFree'); if (el) el.textContent = '(' + m.ramFree + ' free)' }
+    if (m.vramFree) { const el = $('specVramFree'); if (el) el.textContent = '(' + m.vramFree + ' free)' }
+    pushMetric('cpu', m.cpu); pushMetric('gpu', m.gpu); pushMetric('ram', m.ram); pushMetric('vram', m.vram)
+    if ($('valCpu')) $('valCpu').textContent = m.cpu != null ? m.cpu + '%' : '—'
+    if ($('valGpu')) $('valGpu').textContent = m.gpu != null ? m.gpu + '%' : '—'
+    if ($('valRam')) $('valRam').textContent = m.ramUsed ? m.ramUsed + '/' + m.ramTotal : '—'
+    if ($('valVram')) $('valVram').textContent = m.vramUsed ? m.vramUsed + '/' + m.vramTotal : '—'
+    drawSpark('sparkCpu', _sparkHistory.cpu, '#4ADE80')
+    drawSpark('sparkGpu', _sparkHistory.gpu, '#60A5FA')
+    drawSpark('sparkRam', _sparkHistory.ram, '#FBBF24')
+    drawSpark('sparkVram', _sparkHistory.vram, '#F472B6')
+  }
+  window.__metricsTick = tick
+  tick()
+  setInterval(tick, 2000)
 }
 
 // ── Task List ──
@@ -461,6 +587,14 @@ async function refreshDashboard(){
   $('checkPkgUpdatesBtn').textContent = '↻ Check Updates'
   $('checkPkgUpdatesBtn').disabled = false
   refreshEnvUnlink()
+  // Enable/disable no-GPU button based on Chrome availability
+  ;(async () => {
+    const available = await window.w2gp.chromeAvailable()
+    const btn = $('browserNoGpuBtn')
+    const hint = $('noGpuHint')
+    if (btn) btn.disabled = !available
+    if (hint) hint.style.display = available ? 'none' : 'block'
+  })()
 }
 
 // ── Env unlink button visibility ──
@@ -724,7 +858,7 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 })
 
-// ── Launch in Browser ──
+// ── Launch in Browser (uses the user's chosen default browser) ──
 $('browserBtn').addEventListener('click', async () => {
   $('browserBtn').disabled = true; $('browserBtn').textContent = 'Starting...'
   $('launchInfo').classList.remove('hidden')
@@ -732,34 +866,160 @@ $('browserBtn').addEventListener('click', async () => {
   try {
     const result = await window.w2gp.launch()
     currentUrl = result.url
-    window.w2gp.openExternal(currentUrl)
+    await window.w2gp.launchBrowser(result.url)
     $('launchInfo').classList.add('hidden')
   } catch(e){
     appendLog(`[LAUNCH ERROR] ${e.message}`)
   } finally {
-    $('browserBtn').disabled = false; $('browserBtn').textContent = 'Launch Wan2GP'
+    $('browserBtn').disabled = false; $('browserBtn').textContent = 'Launch Wan2GP in Browser'
+  }
+})
+
+// ── Launch in Browser with GPU disabled (start-chrome-no-gpu script) ──
+$('browserNoGpuBtn').addEventListener('click', async () => {
+  $('browserNoGpuBtn').disabled = true; $('browserNoGpuBtn').textContent = 'Starting...'
+  $('launchInfo').classList.remove('hidden')
+  try {
+    const result = await window.w2gp.launch()
+    currentUrl = result.url
+    const r = await window.w2gp.launchBrowserNoGpu(result.url)
+    if (!r || !r.success) throw new Error(r && r.error ? r.error : 'no-GPU launch failed')
+    appendLog(`[*] Launched in browser with GPU disabled.`)
+    $('launchInfo').classList.add('hidden')
+  } catch(e){
+    appendLog(`[LAUNCH ERROR] ${e.message}`)
+  } finally {
+    $('browserNoGpuBtn').disabled = false; $('browserNoGpuBtn').textContent = 'Launch in Chrome (no GPU script)'
   }
 })
 
 let currentUrl = null
 
-// ── Terminal Toggle (inline dashboard terminal) ──
-function toggleTerm(panelId, followBtnId){
-  const panel=$(panelId)
-  if(!panel) return
-  const isOpen = panel.classList.contains('open')
-  document.querySelectorAll('.terminal-panel').forEach(p => p.classList.remove('open'))
-  if(!isOpen){
-    panel.style.display = ''
-    panel.classList.add('open')
-    if(!panel.style.height||panel.style.height==='auto') panel.style.height='180px'
-    renderTerminals()
-    if(followBtnId){
-      const btn=$(followBtnId)
-      if(btn){ termFollow[panel.querySelector('.term-body')?.id]=true; btn.classList.add('active'); const ft=btn.querySelector('.follow-text'); if(ft) ft.textContent='Follow' }
+// ── Launch in App (BrowserView — renders Gradio reliably on Electron 40; intercepts
+//     /manifest.json to dodge gradio#11553 blank-page bug) ──
+$('appBtn').addEventListener('click', async () => {
+  $('appBtn').disabled = true; $('appBtn').textContent = 'Starting...'
+  $('launchInfo').classList.remove('hidden')
+
+  try {
+    const result = await window.w2gp.launchWebview()
+    currentUrl = result.url
+    const created = await window.w2gp.createBrowserView(result.url)
+    if (!created || created.error) throw new Error(created && created.error ? created.error : 'failed to create embed')
+    $('dashBody').style.display = 'none'
+    $('webviewContainer').classList.remove('hidden')
+    $('launchInfo').classList.add('hidden')
+    showWebviewUI()
+    updateLed('running')
+    updateFtStatus('running')
+    const overlay = $('launchOverlay')
+    if (overlay) {
+      overlay.classList.remove('hidden')
+      setTimeout(() => overlay.classList.add('hidden'), 30000)
     }
-    const body = panel.querySelector('.term-body')
-    if(body) setTimeout(()=>body.scrollTop=body.scrollHeight, 50)
+    // Open the floating terminal per the saved default dock (or stay minimised)
+    const cfg = await window.w2gp.configLoad()
+    const dock = cfg.termDockDefault || 'bottom'
+    if (dock === 'minimised') {
+      if (!$('floatingTerminal').classList.contains('hidden')) closeFloatingTerm()
+    } else {
+      if ($('floatingTerminal').classList.contains('hidden')) toggleFloatingTerm()
+      setFtDock(dock)
+    }
+  } catch(e){
+    // Never leave the dashboard hidden behind a blank embed
+    $('dashBody').style.display = ''
+    $('webviewContainer').classList.add('hidden')
+    hideWebviewUI()
+    appendLog(`[LAUNCH ERROR] ${e.message}`)
+  } finally {
+    $('appBtn').disabled = false; $('appBtn').textContent = 'Launch Wan2GP in Desktop'
+  }
+})
+
+function showWebviewUI() {
+  $('wvControls').style.display = 'flex'
+  $('runningLed').style.display = 'inline-flex'
+  $('stopWangpBtn').style.display = ''
+}
+
+function hideWebviewUI() {
+  $('wvControls').style.display = 'none'
+  $('runningLed').style.display = 'none'
+}
+
+async function closeWebview() {
+  await window.w2gp.destroyBrowserView()
+  $('webviewContainer').classList.add('hidden')
+  $('dashBody').style.display = ''
+  hideWebviewUI()
+  appendLog('[*] Webview closed. Server still running.')
+  if (!$('floatingTerminal').classList.contains('hidden')) closeFloatingTerm()
+}
+
+$('backToDashboardBtn').addEventListener('click', closeWebview)
+
+// ── BrowserView navigation / zoom (relayed via main process) ──
+$('wvBackBtn').addEventListener('click', () => window.w2gp.bvNavigate('back'))
+$('wvFwdBtn').addEventListener('click', () => window.w2gp.bvNavigate('forward'))
+$('wvReloadBtn').addEventListener('click', () => window.w2gp.bvNavigate('reload'))
+$('zoomSlider').addEventListener('input', () => {
+  const pct = parseInt($('zoomSlider').value)
+  $('zoomLabel').textContent = pct + '%'
+  window.w2gp.bvSetZoom(pct / 100)
+})
+
+$('popoutBtn')?.addEventListener('click', () => {
+  if (currentUrl) window.w2gp.popoutWebview(currentUrl)
+})
+
+// ── Running LED ──
+function updateLed(state) {
+  const led = $('runningLed')
+  const dot = $('ledDot')
+  const txt = $('ledText')
+  if (!led || !dot || !txt) return
+  led.style.display = 'inline-flex'
+  if (state === 'running') {
+    dot.className = 'led-dot led-running'
+    txt.textContent = 'Running'
+  } else {
+    dot.className = 'led-dot led-stopped'
+    txt.textContent = 'Stopped'
+  }
+}
+
+// ── Stop Wan2GP button ──
+$('stopWangpBtn').addEventListener('click', async () => {
+  $('stopWangpBtn').style.display = 'none'
+  appendLog('[*] Stopping Wan2GP server...')
+  await window.w2gp.stopWangp()
+  updateLed('stopped')
+  updateFtStatus('stopped')
+})
+
+// ── Reset UI when server exits on its own ──
+window.w2gp.onWangpExit(c => {
+  appendLog(`[!] Wan2GP process exited (code ${c})`)
+  if (!$('webviewContainer').classList.contains('hidden')) closeWebview()
+  $('stopWangpBtn').style.display = 'none'
+  updateLed('stopped')
+  updateFtStatus('stopped')
+})
+
+// ── Floating Terminal (Desktop/webview mode only) ──
+function updateFtStatus(state) {
+  const st = $('ftServerStatus')
+  const dot = $('ftStatusDot')
+  const txt = $('ftStatusText')
+  if (!st || !dot || !txt) return
+  st.style.display = ''
+  if (state === 'running') {
+    dot.className = 'ft-status-dot running'
+    txt.textContent = 'Running'
+  } else {
+    dot.className = 'ft-status-dot stopped'
+    txt.textContent = 'Stopped'
   }
 }
 
@@ -767,7 +1027,7 @@ function toggleTerm(panelId, followBtnId){
 $('updateBtn').addEventListener('click',async()=>{
   $('updateBtn').disabled=true; $('updateBtn').textContent='Working...'
   try{ await window.w2gp.update(); appendLog('[*] Wan2GP update complete'); refreshDashboard() }catch(e){ appendLog('[!] Update failed: '+e.message); alert('Update: '+e.message) }
-  $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP'
+  $('updateBtn').disabled=false; $('updateBtn').textContent='↻ Update Wan2GP (DeepBeepMeep)'
 })
 document.querySelectorAll('.theme-toggle').forEach(btn => btn.addEventListener('click', toggleTheme))
 
@@ -805,7 +1065,7 @@ $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pip
 $('desktopShortcutBtn').addEventListener('click', async function() {
   this.disabled = true; this.textContent = 'Creating...'
   var r = await window.w2gp.createDesktopShortcut()
-  this.disabled = false; this.textContent = 'Desktop Shortcut'
+  this.disabled = false; this.textContent = 'Create Desktop Shortcut'
   if (r && r.success) {
     showToast('✓ Shortcut created on desktop: Launch Wan2GP.bat')
   } else {
@@ -813,12 +1073,62 @@ $('desktopShortcutBtn').addEventListener('click', async function() {
   }
 })
 
-$('dashTermFollowBtn').addEventListener('click',()=>{
-  termFollow.termBody=!termFollow.termBody
-  const b=$('dashTermFollowBtn'); b.classList.toggle('active')
-  const ft=b.querySelector('.follow-text')
-  if(ft) ft.textContent=termFollow.termBody?'Follow':'Paused'
-  if(termFollow.termBody){ const e=$('termBody'); if(e) setTimeout(()=>e.scrollTop=e.scrollHeight,10) }
+// ── Floating Terminal events ──
+$('ftToggleBtn')?.addEventListener('click', toggleFloatingTerm)
+$('ftCloseBtn')?.addEventListener('click', closeFloatingTerm)
+// Dock buttons (always visible)
+document.querySelectorAll('.dock-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const dock = btn.dataset.dock
+    document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.dock === dock))
+    const ft = $('floatingTerminal')
+    ft.className = 'floating-term dock-' + dock + (ft.classList.contains('hidden') ? ' hidden' : '')
+    // Dragging (dock-floating) writes inline left/top that override dock CSS — clear
+    // them on any non-floating dock so the class rules (bottom/left/top/right) take effect.
+    if (dock !== 'floating') ft.style.cssText = ''
+    window.w2gp.bvSetDock(dock)
+  })
+})
+// Floating drag for dock-floating mode
+let _fdrag = null
+$('floatingTerminal').addEventListener('mousedown', (e) => {
+  if (!$('floatingTerminal').classList.contains('dock-floating')) return
+  if (e.target.closest('.term-btn-small, .dock-menu')) return
+  const r = $('floatingTerminal').getBoundingClientRect()
+  _fdrag = { dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height }
+  document.addEventListener('mousemove', _fdragMove)
+  document.addEventListener('mouseup', _fdragEnd)
+})
+function _fdragMove(e) {
+  if (!_fdrag) return
+  const p = $('floatingTerminal')
+  let x = e.clientX - _fdrag.dx, y = e.clientY - _fdrag.dy
+  x = Math.max(0, Math.min(x, window.innerWidth - _fdrag.w))
+  y = Math.max(0, Math.min(y, window.innerHeight - 30))
+  p.style.left = x + 'px'; p.style.top = y + 'px'; p.style.right = 'auto'; p.style.bottom = 'auto'
+}
+function _fdragEnd() { _fdrag = null; document.removeEventListener('mousemove', _fdragMove); document.removeEventListener('mouseup', _fdragEnd) }
+// Follow toggle
+$('ftFollowBtn').addEventListener('click', () => {
+  termFollow.ftTermBody = !termFollow.ftTermBody
+  const b = $('ftFollowBtn'); b.classList.toggle('active')
+  const ft = b.querySelector('.follow-text')
+  if (ft) ft.textContent = termFollow.ftTermBody ? 'Follow' : 'Paused'
+  if (termFollow.ftTermBody) { const e = $('ftTermBody'); if (e) setTimeout(() => e.scrollTop = e.scrollHeight, 10) }
+})
+// Keyboard shortcut: Ctrl+` toggles floating terminal
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+  if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleFloatingTerm() }
+})
+
+// ── Dashboard console follow ──
+$('dashTermFollowBtn').addEventListener('click', () => {
+  termFollow.termBody = !termFollow.termBody
+  const b = $('dashTermFollowBtn'); b.classList.toggle('active')
+  const ft = b.querySelector('.follow-text')
+  if (ft) ft.textContent = termFollow.termBody ? 'Follow' : 'Paused'
+  if (termFollow.termBody) { const e = $('termBody'); if (e) setTimeout(() => e.scrollTop = e.scrollHeight, 10) }
 })
 $('installFollowBtn').addEventListener('click',()=>{
   termFollow.installTermBody=!termFollow.installTermBody
@@ -826,6 +1136,49 @@ $('installFollowBtn').addEventListener('click',()=>{
   const ft=b.querySelector('.follow-text')
   if(ft) ft.textContent=termFollow.installTermBody?'Follow':'Paused'
   if(termFollow.installTermBody){ const e=$('installTermBody'); if(e) setTimeout(()=>e.scrollTop=e.scrollHeight,10) }
+})
+
+// ── Floating terminal: search, export, resize ──
+let _lastFilter = ''
+$('logSearch')?.addEventListener('input', () => {
+  const q = ($('logSearch')?.value || '').toLowerCase()
+  if (q === _lastFilter) return; _lastFilter = q
+  const ft = $('ftTermBody')
+  if (ft) ft.textContent = (q ? logBuffer.filter(l => l.toLowerCase().includes(q)) : logBuffer).join('\n')
+})
+$('logExportBtn')?.addEventListener('click', () => {
+  const blob = new Blob([logBuffer.join('\n')], { type: 'text/plain' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob); a.download = 'wan2gp-console.log'; a.click()
+})
+// Resize handle
+let _resize = null
+$('ftResize').addEventListener('mousedown', (e) => {
+  e.preventDefault()
+  const ft = $('floatingTerminal')
+  if (!ft.classList.contains('dock-bottom') && !ft.classList.contains('dock-top')) return
+  _resize = { startY: e.clientY, startH: ft.offsetHeight, dock: ft.classList.contains('dock-top') ? 'top' : 'bottom' }
+  document.addEventListener('mousemove', _resizeMove)
+  document.addEventListener('mouseup', _resizeEnd)
+})
+function _resizeMove(e) {
+  if (!_resize) return
+  const dh = e.clientY - _resize.startY
+  let h = _resize.dock === 'top' ? _resize.startH + dh : _resize.startH - dh
+  h = Math.max(80, Math.min(h, window.innerHeight * 0.6))
+  $('floatingTerminal').style.height = h + 'px'
+}
+function _resizeEnd() { _resize = null; document.removeEventListener('mousemove', _resizeMove); document.removeEventListener('mouseup', _resizeEnd) }
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+  // Ctrl+` toggles floating terminal
+  if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleFloatingTerm(); return }
+  // Escape closes the webview/BrowserView
+  if (e.key === 'Escape' && $('dashBody').style.display === 'none') { closeWebview(); return }
+  // Ctrl+W closes the webview/BrowserView
+  if (e.ctrlKey && (e.key === 'w' || e.key === 'W') && $('dashBody').style.display === 'none') { e.preventDefault(); closeWebview() }
 })
 
 function showToast(msg) {
@@ -851,6 +1204,38 @@ $('updateDismissBtn').addEventListener('click', () => {
 
 // ── Settings ──
 $('settingsBackBtn').addEventListener('click',closeSettings)
+$('browserRefreshBtn')?.addEventListener('click', loadBrowserList)
+document.querySelectorAll('input[name="termDock"]').forEach(r => {
+  r.addEventListener('change', async () => {
+    if (!r.checked) return
+    const cfg = await window.w2gp.configLoad()
+    cfg.termDockDefault = r.value
+    await window.w2gp.configSave(cfg)
+    appendLog(`[*] Floating terminal default set to: ${r.value}`)
+  })
+})
+
+// Developer Tools toggle (Electron menu is hidden, so this is the only entry)
+$('devToolsBtn')?.addEventListener('click', async () => {
+  const r = await window.w2gp.toggleDevTools()
+  if (!r || !r.success) appendLog(`[!] DevTools: ${r && r.error ? r.error : 'failed'}`)
+})
+
+// Topbar refresh: re-poll dashboard + hardware + a fresh metrics tick
+$('refreshBtn')?.addEventListener('click', async () => {
+  try { refreshDashboard() } catch {}
+  try { loadHardware() } catch {}
+  try {
+    const m = await window.w2gp.getSystemMetrics()
+    if (m) {
+      if (m.ramFree) { const el = $('specRamFree'); if (el) el.textContent = '(' + m.ramFree + ' free)' }
+      if (m.vramFree) { const el = $('specVramFree'); if (el) el.textContent = '(' + m.vramFree + ' free)' }
+      // nudge sparkline redraw via the polling tick
+      if (window.__metricsTick) window.__metricsTick()
+    }
+  } catch {}
+  showToast('Refreshed')
+})
 
 $('tokenSaveBtn')?.addEventListener('click', async () => {
   const token = $('githubTokenInput')?.value
