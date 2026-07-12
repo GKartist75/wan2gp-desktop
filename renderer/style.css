@@ -97,6 +97,7 @@ body {
 #splash .splash-status { font-size: 0.6875rem; color: var(--text-tertiary); font-family: 'Geist Mono', 'SF Mono', monospace; }
 #splash .splash-status .dot { display: inline-block; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.splash-error { margin-top: 16px; padding: 10px 16px; background: var(--signal-red-bg); color: var(--signal-red); font-size: 0.75rem; font-family: 'Geist Mono', monospace; border-radius: var(--radius-sm); max-width: 400px; text-align: left; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
 
 /* ── Topbar ── */
 .topbar {

@@ -21,7 +21,13 @@ function killProcessTree(proc) {
   }
 }
 
-// No GPU override — Electron uses SwiftShader by default.
+// Disable GPU acceleration only when the user opts out (config electronGpu:false).
+// Default electronGpu:true keeps hardware compositing (regression fix, was v2.1.5).
+try {
+  const _cfg = JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
+  if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
+} catch {}
+
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
 // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
@@ -34,12 +40,6 @@ try {
       app.setPath('userData', ed)
     }
   }
-} catch {}
-
-// GPU-free Electron mode — frees VRAM for Wan2GP (requires restart)
-try {
-  const cfg = JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
-  if (cfg.electronGpu === false) app.disableHardwareAcceleration()
 } catch {}
 
 function getDataDir() {
@@ -554,7 +554,6 @@ ipcMain.handle('popout-webview', (_, url) => {
   try {
     detachedWin = new BrowserWindow({
       width: 1280, height: 800, title: 'Wan2GP',
-      webPreferences: { webviewTag: true },
     })
     detachedWin.loadURL(url)
     detachedWin.on('closed', () => { detachedWin = null; mainWin?.webContents.send('webview-returned') })
@@ -1213,10 +1212,12 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
   if (cfg.prompt_enhancer_randomize_seed === undefined) cfg.prompt_enhancer_randomize_seed = true
   // Enable real-time RAM/VRAM stats display in Wan2GP UI
   if (cfg.display_stats === undefined || cfg.display_stats === 0) cfg.display_stats = 1
-  // Save outputs to desktop data dir instead of default repo path
-  cfg.save_path = path.join(getDataDir(), 'outputs')
-  cfg.image_save_path = cfg.save_path
-  cfg.audio_save_path = cfg.save_path
+  // Default outputs to desktop data dir only when the user picked no custom folder
+  if (!cfg.save_path) {
+    cfg.save_path = path.join(getDataDir(), 'outputs')
+    cfg.image_save_path = cfg.save_path
+    cfg.audio_save_path = cfg.save_path
+  }
   // Ensure all tensors default to cuda:0
   if (cfg.device === undefined) cfg.device = 'cuda:0'
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
@@ -1868,9 +1869,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
-      webviewTag: true,
     },
-    show: true, backgroundColor: '#0f0f0f', maximizable: true,
+    show: false, backgroundColor: '#0f0f0f', maximizable: true,
   })
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
@@ -1902,7 +1902,7 @@ function createWindow() {
   mainWin.on('hide', () => updateTrayMenu())
 
   mainWin.once('ready-to-show', () => {
-    if (!savedState.maximized) mainWin.show()
+    mainWin.show()
   })
   mainWin.on('closed', () => { mainWin = null })
 }

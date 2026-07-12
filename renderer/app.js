@@ -196,8 +196,19 @@ async function toggleTheme() {
 
 let prevPhaseId = null
 
+// Show renderer errors on splash so blank-screen root cause is visible
+window.addEventListener('error', e => {
+  const el = $('splashError')
+  if (el) { el.textContent = e.error?.stack || e.message || String(e); el.classList.remove('hidden') }
+})
+window.addEventListener('unhandledrejection', e => {
+  const el = $('splashError')
+  if (el) { el.textContent = e.reason?.stack || String(e.reason); el.classList.remove('hidden') }
+})
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
+  try {
   const installed = await window.w2gp.checkInstalled()
 
   window.w2gp.getDesktopVersion().then(function(v) {
@@ -280,6 +291,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       $('installPkgs').style.display = ''
     })
   }
+  } catch (e) {
+    const el = $('splashError')
+    if (el) { el.textContent = e.stack || String(e); el.classList.remove('hidden') }
+    $('splashStatus').textContent = 'Startup error'
+  }
 })
 
 // ── Hardware ──
@@ -335,9 +351,10 @@ function startMetricsPolling() {
     drawSpark('sparkRam', _sparkHistory.ram, '#FBBF24')
     drawSpark('sparkVram', _sparkHistory.vram, '#F472B6')
   }
+  if (window.__metricsTimer) clearInterval(window.__metricsTimer)
   window.__metricsTick = tick
   tick()
-  setInterval(tick, 2000)
+  window.__metricsTimer = setInterval(tick, 2000)
 }
 
 // ── Task List ──
@@ -534,7 +551,7 @@ async function doInstall(installed, mode) {
       appendLog(`[!] Failed to write model config: ${e.message}`)
     }
     taskComplete('done'); $('installSubtitle').textContent='Wan2GP is ready!'; appendLog('[*] Installation complete!')
-    setTimeout(()=>{ show('dashboard'); refreshDashboard() }, 1200)
+    setTimeout(()=>{ show('dashboard'); refreshDashboard(); startMetricsPolling() }, 1200)
   } catch(e){ taskComplete('done',true); $('installSubtitle').textContent='Installation failed'; appendLog(`[ERROR] ${e.message}`) }
 }
 
@@ -821,9 +838,9 @@ async function loadPaths(skipModelPaths) {
     $('pathFreeSpace').textContent = freeGb + ' GB free';
   });
   if (!skipModelPaths && p.appData) {
-    setModelPath('ckpts', p.appData + '\\ckpt')
-    setModelPath('loras', p.appData + '\\lora')
-    setModelPath('output', p.appData + '\\outputs')
+    if (!_modelCkpts) setModelPath('ckpts', p.appData + '\\ckpt')
+    if (!_modelLoras) setModelPath('loras', p.appData + '\\lora')
+    if (!_modelOutput) setModelPath('output', p.appData + '\\outputs')
   }
 }
 

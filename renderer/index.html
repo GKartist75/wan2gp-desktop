@@ -6,9 +6,9 @@
 <title>Wan2GP Desktop Launcher</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="style.css">
-<style>html,body{background:#1A1A1A}</style>
+<style>html,body{background:#1A1A1A}.screen{display:none;height:100%;flex-direction:column}.screen.active{display:flex}#splash{align-items:center;justify-content:center;background:#242424;gap:6px}.splash-error{margin-top:16px;padding:10px 16px;background:#FDEBEC;color:#9F2F2D;font-size:0.75rem;border-radius:6px;max-width:400px;text-align:left;white-space:pre-wrap;word-break:break-all;line-height:1.4;display:none}.splash-error:not(.hidden){display:block}#splash .brand-mark{font-family:'Instrument Serif','Georgia',serif;font-size:3.5rem;font-weight:400;line-height:1;letter-spacing:-0.04em;color:#E8E6E1}#splash .brand-mark span{color:#666}#splash .brand-sub{font-family:'Instrument Serif','Georgia',serif;font-size:.9375rem;color:#A0A0A0;letter-spacing:.15em;text-transform:uppercase;margin-bottom:36px}.splash-status{font-size:.6875rem;color:#666;font-family:'Geist Mono','SF Mono',monospace}.hidden{display:none!important}</style>
 </head>
 <body>
 <div id="app">
@@ -18,6 +18,7 @@
     <div class="brand-mark">GK<span> Artist</span></div>
     <div class="brand-sub">DeepBeepMeep Wan2GP Desktop Launcher</div>
     <p class="splash-status"><span class="dot">&#9679;</span> <span id="splashStatus">Checking installation...</span></p>
+    <div id="splashError" class="splash-error hidden"></div>
   </div>
 
   <!-- Settings Overlay -->
@@ -372,6 +373,7 @@
 
   </div>
 
+  </div>
   <!-- Installer -->
   <div id="installer" class="screen">
     <div class="install-card">
@@ -500,11 +502,10 @@
             </div>
           </div>
 
+            <div class="term-body" id="installTermBody" style="flex:1"></div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
 
   <!-- Floating Terminal for Desktop (webview) mode -->
   <div id="floatingTerminal" class="floating-term dock-bottom hidden">
