@@ -9,3 +9,5 @@ nul
 showcase.html
 .hermes/
 renderer/__pycache__/
+scripts/cdp-test.mjs
+scripts/dummy-wan2gp.js

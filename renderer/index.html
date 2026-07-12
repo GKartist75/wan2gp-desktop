@@ -74,14 +74,18 @@
           </div>
         </div>
         <div class="settings-section">
-          <h3>Developer Tools</h3>
-          <p class="token-hint">The standard Electron menu (File / Edit / View / Window) is hidden. Use this to open Chromium DevTools for debugging.</p>
-          <button class="btn btn-ghost small" id="devToolsBtn">Toggle Developer Tools</button>
-        </div>
-        <div class="settings-section">
           <h3>Electron GPU</h3>
           <p class="token-hint">Disable hardware acceleration for the launcher window to free VRAM for Wan2GP generation. Requires restart to take effect.</p>
           <label class="toggle-row"><input type="checkbox" id="electronGpuToggle"> <span>Enable GPU acceleration</span></label>
+        </div>
+        <div class="settings-section">
+          <h3>Desktop</h3>
+          <label class="toggle-row"><input type="checkbox" id="autoStartToggle"> <span>Auto-start with Windows</span></label>
+          <p class="token-hint">Launch Wan2GP Desktop automatically when you log in.</p>
+          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="followSystemThemeToggle"> <span>Follow system theme</span></label>
+          <p class="token-hint">Automatically switch between dark and light themes based on your Windows setting. Disables manual theme toggle.</p>
+          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="notificationsToggle" checked> <span>Desktop notifications</span></label>
+          <p class="token-hint">Show a notification when Wan2GP server is ready or stops.</p>
         </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">

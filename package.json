@@ -1,6 +1,6 @@
 {
   "name": "wan2gp-desktop",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {
@@ -8,8 +8,8 @@
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
-    "publish:win": "electron-builder --win --publish onTag",
-    "release:win": "npm --no-git-tag-version version 2.1.4 && git add -A && git commit -m \"v2.1.4\" && git tag v2.1.4 && git push origin main --tags && npm run publish:win"
+    "publish:win": "electron-builder --win --publish always",
+    "release:win": "bash scripts/release-win.sh 2.1.5"
   },
   "author": "GKartist75",
   "license": "MIT",

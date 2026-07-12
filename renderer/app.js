@@ -98,6 +98,34 @@ function openSettings() {
         showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
       }
     }
+    // Auto-start toggle
+    const autoStart = $('autoStartToggle')
+    if (autoStart) {
+      autoStart.checked = cfg.autoStart === true
+      autoStart.onchange = async () => {
+        const r = await window.w2gp.setAutoStart(autoStart.checked)
+        if (r && r.success) showToast(autoStart.checked ? 'Will start with Windows' : 'Removed from startup')
+        else showToast('✗ ' + (r && r.error ? r.error : 'Failed'))
+      }
+    }
+    // Follow system theme toggle
+    const followTheme = $('followSystemThemeToggle')
+    if (followTheme) {
+      followTheme.checked = cfg.themeFollowSystem === true
+      followTheme.onchange = async () => {
+        await window.w2gp.setThemeFollowSystem(followTheme.checked)
+        showToast(followTheme.checked ? 'Theme will follow system' : 'Manual theme control restored')
+      }
+    }
+    // Desktop notifications toggle
+    const notifications = $('notificationsToggle')
+    if (notifications) {
+      notifications.checked = cfg.notificationsEnabled !== false
+      notifications.onchange = async () => {
+        await window.w2gp.setNotificationsEnabled(notifications.checked)
+        showToast(notifications.checked ? 'Notifications enabled' : 'Notifications disabled')
+      }
+    }
   })
   loadBrowserList()
 }
@@ -207,6 +235,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const cfg = await window.w2gp.configLoad()
   if (cfg.theme === 'dark') applyTheme('dark')
+
+  // Listen for system theme changes (native theme follow)
+  window.w2gp.onSystemThemeChange(function(theme) {
+    applyTheme(theme)
+  })
 
   loadHardware()
 
@@ -1215,11 +1248,8 @@ document.querySelectorAll('input[name="termDock"]').forEach(r => {
   })
 })
 
-// Developer Tools toggle (Electron menu is hidden, so this is the only entry)
-$('devToolsBtn')?.addEventListener('click', async () => {
-  const r = await window.w2gp.toggleDevTools()
-  if (!r || !r.success) appendLog(`[!] DevTools: ${r && r.error ? r.error : 'failed'}`)
-})
+// F12 is built-in DevTools shortcut. The IPC handler in main.js is kept
+// (it opens the BrowserView DevTools when embedded), just no UI button needed.
 
 // Topbar refresh: re-poll dashboard + hardware + a fresh metrics tick
 $('refreshBtn')?.addEventListener('click', async () => {

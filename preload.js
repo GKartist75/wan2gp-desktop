@@ -93,7 +93,16 @@ contextBridge.exposeInMainWorld('w2gp', {
   installPackage: (pkgName) => ipcRenderer.invoke('install-package', pkgName),
   restoreRequirements: () => ipcRenderer.invoke('restore-requirements'),
 
-  // Events
+  // Desktop experience: tray, auto-start, notifications, theme
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
+  setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
+  setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
+  onSystemThemeChange: (cb) => {
+    const h = (_e, theme) => cb(theme)
+    ipcRenderer.on('system-theme-changed', h)
+    return () => ipcRenderer.removeListener('system-theme-changed', h)
+  },
   onSetupOutput: (cb) => {
     const h = (_e, d) => cb(d)
     ipcRenderer.on('setup-output', h)

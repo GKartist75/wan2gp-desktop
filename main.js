@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, shell, Menu, MenuItem, dialog } = require('electron')
+const { app, BrowserWindow, BrowserView, ipcMain, shell, Menu, MenuItem, dialog, Tray, nativeTheme, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -48,6 +48,8 @@ const IS_WIN = PLATFORM === 'win32'
 
 let mainWin = null, setupProc = null, _wangpProc = null
 let _currentPort = 7860 // tracked across launches/restarts
+let tray = null
+app.isQuitting = false
 
 function sysPython() {
   try {
@@ -499,6 +501,8 @@ ipcMain.handle('launch', async () => {
   try {
     await waitForPort('localhost', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
+    // Desktop notification
+    try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
     // Monitor process — report when it stops (terminal closed / crash)
     let monitorInterval = setInterval(() => {
       const sock = new net.Socket()
@@ -509,6 +513,7 @@ ipcMain.handle('launch', async () => {
         clearInterval(monitorInterval)
         send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
         send('wangp-exit', -1)
+        try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
       })
       sock.on('timeout', () => { sock.destroy() })
       sock.connect(port, 'localhost')
@@ -547,10 +552,11 @@ ipcMain.handle('launch-webview', async () => {
   _wangpProc = proc
   proc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
   proc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
-  proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code) })
+  proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code); try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {} })
   try {
     await waitForPort('localhost', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
+    try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
     return { url: `http://localhost:${port}`, port }
   } catch (err) { if (_wangpProc) { _wangpProc.kill(); _wangpProc = null } throw err }
 })
@@ -1710,6 +1716,40 @@ ipcMain.handle('get-system-metrics', () => {
   return result
 })
 
+// ── Desktop experience IPC handlers (tray, auto-start, notifications, theme) ──
+ipcMain.handle('set-auto-start', (_, enabled) => {
+  try {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+    const cfg = loadConfig(); cfg.autoStart = enabled; saveConfig(cfg)
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('set-theme-follow-system', (_, enabled) => {
+  try {
+    const cfg = loadConfig(); cfg.themeFollowSystem = enabled; saveConfig(cfg)
+    // Re-register or remove the native theme listener
+    nativeTheme.removeAllListeners('updated')
+    if (enabled) {
+      nativeTheme.on('updated', () => {
+        mainWin?.webContents.send('system-theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+      })
+      // Send initial state immediately
+      mainWin?.webContents.send('system-theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    }
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('set-notifications-enabled', (_, enabled) => {
+  const cfg = loadConfig(); cfg.notificationsEnabled = enabled; saveConfig(cfg)
+  return { success: true }
+})
+
+ipcMain.handle('quit-app', () => {
+  app.isQuitting = true; app.quit()
+})
+
 // ── Auto-updater ──
 autoUpdater.autoDownload = true
 autoUpdater.allowPrerelease = false
@@ -1755,7 +1795,7 @@ ipcMain.handle('download-update', async () => {
 
 ipcMain.handle('install-update', async () => autoUpdater.quitAndInstall())
 
-// ── Webview native context menu (copy/paste/select all) ──
+// ── Webview native context menu (copy/paste/select all) + DevTools lifecycle ──
 app.on('web-contents-created', (_event, contents) => {
   contents.on('context-menu', (_event, params) => {
     const menu = new Menu()
@@ -1770,12 +1810,75 @@ app.on('web-contents-created', (_event, contents) => {
     menu.append(new MenuItem({ label: 'Select All', role: 'selectAll' }))
     menu.popup({ window: contents })
   })
+  // Ensure DevTools renderer process is cleaned up when closing the DevTools window.
+  // Electron undocked DevTools window can leave the renderer alive in background.
+  contents.on('devtools-closed', () => {
+    setImmediate(() => { try { contents.closeDevTools() } catch {} })
+  })
+  // Route F12 to BrowserView DevTools when in desktop mode, so the user can inspect
+  // the embedded Wan2GP page instead of the Electron shell. Falls back to the focused
+  // webContents' own DevTools when no BrowserView is active.
+  contents.on('before-input-event', (event, input) => {
+    if ((input.key === 'F12' || (input.control && input.shift && input.key === 'I')) && input.type === 'keyDown') {
+      event.preventDefault()
+      setImmediate(() => {
+        try {
+          if (_bv && mainWin && mainWin.getBrowserViews().includes(_bv)) {
+            // Both DevTools available — let the user pick
+            const picker = Menu.buildFromTemplate([
+              { label: 'Wan2GP (embedded content)',  click: () => toggleDevTools(_bv.webContents) },
+              { label: 'Electron Shell (launcher UI)', click: () => toggleDevTools(mainWin.webContents) },
+            ])
+            picker.popup({ window: mainWin })
+          } else {
+            toggleDevTools(contents)
+          }
+        } catch {}
+      })
+    }
+  })
 })
 
+// ── System Tray (minimize-to-tray with context menu) ──
+function updateTrayMenu() {
+  if (!tray) return
+  const isRunning = _wangpProc !== null || _currentPort > 0
+  const showLabel = mainWin && mainWin.isVisible() ? 'Hide Window' : 'Show Window'
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: showLabel, click: () => { if (mainWin) { mainWin.isVisible() ? mainWin.hide() : mainWin.show() } } },
+    { type: 'separator' },
+    { label: isRunning ? 'Stop Wan2GP Server' : 'Wan2GP Stopped', enabled: isRunning, click: () => {
+      if (_wangpProc) { _wangpProc.kill(); _wangpProc = null }
+      send('wangp-exit', -1); send('launch-log', '[!] Wan2GP stopped via tray.\n')
+    }},
+    { type: 'separator' },
+    { label: 'Quit', click: () => { app.isQuitting = true; app.quit() } },
+  ]))
+}
+
+function createTray() {
+  const iconPath = path.join(__dirname, 'icon.png')
+  try {
+    tray = new Tray(iconPath)
+    tray.setToolTip('Wan2GP Desktop')
+    updateTrayMenu()
+  } catch (e) { console.error('[TRAY] Failed to create tray:', e.message) }
+}
+
 // ── Window ──
+
+function toggleDevTools(wc) {
+  if (wc.isDevToolsOpened()) wc.closeDevTools()
+  else wc.openDevTools({ mode: 'detach' })
+}
+
 function createWindow() {
+  const savedState = (loadConfig().windowState || {})
+
   mainWin = new BrowserWindow({
-    width: 1280, height: 800, minWidth: 900, minHeight: 600,
+    width: savedState.width || 1280, height: savedState.height || 800,
+    minWidth: 900, minHeight: 600,
+    x: savedState.x, y: savedState.y,
     title: 'Wan2GP Desktop Launcher',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
@@ -1788,7 +1891,39 @@ function createWindow() {
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
-  mainWin.once('ready-to-show', () => { mainWin.maximize() })
+
+  // Restore maximized state after load
+  if (savedState.maximized) mainWin.maximize()
+
+  // Save window state on changes
+  const saveWindowState = () => {
+    if (!mainWin || app.isQuitting) return
+    const cfg = loadConfig()
+    const state = { maximized: mainWin.isMaximized() }
+    if (!state.maximized) {
+      const b = mainWin.getBounds()
+      state.x = b.x; state.y = b.y; state.width = b.width; state.height = b.height
+    }
+    cfg.windowState = state
+    saveConfig(cfg)
+  }
+  mainWin.on('resize', saveWindowState)
+  mainWin.on('move', saveWindowState)
+
+  // Intercept close → hide to tray (unless app.isQuitting)
+  mainWin.on('close', (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault()
+      mainWin.hide()
+      updateTrayMenu()
+    }
+  })
+  mainWin.on('show', () => updateTrayMenu())
+  mainWin.on('hide', () => updateTrayMenu())
+
+  mainWin.once('ready-to-show', () => {
+    if (!savedState.maximized) mainWin.show()
+  })
   mainWin.on('closed', () => { mainWin = null })
 }
 
@@ -1805,6 +1940,18 @@ app.whenReady().then(() => {
     }
   } catch {}
   createWindow()
+  createTray()
+
+  // Native theme auto-follow
+  try {
+    const startupCfg = loadConfig()
+    if (startupCfg.themeFollowSystem) {
+      nativeTheme.on('updated', () => {
+        mainWin?.webContents.send('system-theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+      })
+    }
+  } catch {}
+
   setTimeout(() => {
     try {
       const cfg = loadConfig()
@@ -1824,10 +1971,14 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (setupProc) setupProc.kill()
   if (_wangpProc) _wangpProc.kill()
+  app.isQuitting = true
   if (PLATFORM !== 'darwin') app.quit()
 })
 app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
+  app.isQuitting = true
   if (setupProc) setupProc.kill()
   if (_wangpProc) _wangpProc.kill()
+  // Close any open DevTools to prevent orphan renderer processes
+  try { if (mainWin) { if (mainWin.webContents.isDevToolsOpened()) mainWin.webContents.closeDevTools(); if (_bv && mainWin.getBrowserViews().includes(_bv) && _bv.webContents.isDevToolsOpened()) _bv.webContents.closeDevTools() } } catch {}
 })
