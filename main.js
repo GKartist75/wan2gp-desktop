@@ -8,6 +8,19 @@ const http = require('http')
 const https = require('https')
 const { autoUpdater } = require('electron-updater')
 
+// ── Force-kill a process and its entire tree ──
+function killProcessTree(proc) {
+  if (!proc || !proc.pid) return
+  try {
+    if (process.platform === 'win32')
+      execSync('taskkill /pid ' + proc.pid + ' /f /t', { windowsHide: true, timeout: 3000 })
+    else
+      process.kill(-proc.pid, 'SIGKILL')
+  } catch (e) {
+    // Already dead or permission denied — that's fine
+  }
+}
+
 // No GPU override — Electron uses SwiftShader by default.
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
@@ -448,54 +461,25 @@ ipcMain.handle('launch', async () => {
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
 
-  // Include HF_TOKEN in temp script if configured
+  // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
-  const hfLine = launchCfg.hfToken ? ['set HF_TOKEN=' + launchCfg.hfToken, 'set HUGGINGFACE_HUB_TOKEN=' + launchCfg.hfToken] : []
 
-  // Create temp launch script (visible terminal window)
-  const repoDir = getRepoDir()
-  const tmpDir = require('os').tmpdir()
-  const scriptPath = path.join(tmpDir, 'wan2gp-launch' + (IS_WIN ? '.bat' : '.sh'))
-
-  if (IS_WIN) {
-    const bat = [
-      '@echo off',
-      'title Wan2GP',
-      'cd /d "' + repoDir + '"',
-      'echo.',
-      'echo [Wan2GP Desktop Launcher]',
-      'echo Starting Wan2GP on port ' + port + '...',
-      'echo First launch loads models + compiles CUDA kernels - this will take some extra time.',
-      'echo.',
-      ...hfLine,
-      '"' + py + '" -u wgp.py ' + extraArgs.join(' '),
-      'echo.',
-      'if errorlevel 1 echo [Wan2GP] Process exited with code %errorlevel% ^(see above for errors^)',
-      'echo [Wan2GP] You can close this window.',
-      'pause',
-    ].join('\n')
-    fs.writeFileSync(scriptPath, bat, 'utf8')
-  } else {
-    const sh = [
-      '#!/bin/bash',
-      'echo "[Wan2GP Desktop Launcher]"',
-      'echo "Starting Wan2GP on port ' + port + '..."',
-      'echo',
-      'cd "' + repoDir + '"',
-      '"' + py + '" -u wgp.py ' + extraArgs.join(' '),
-      'echo',
-      'echo "[Wan2GP] Process exited. You can close this terminal."',
-      'read -p "Press Enter to close..."',
-    ].join('\n')
-    fs.writeFileSync(scriptPath, sh, 'utf8')
-    fs.chmodSync(scriptPath, 0o755)
-  }
-
-  // Open in new terminal window
-  const cmd = IS_WIN
-    ? `start "Wan2GP" cmd /c "${scriptPath}"`
-    : `x-terminal-emulator -e "${scriptPath}" 2>/dev/null || xterm -e "${scriptPath}" 2>/dev/null || gnome-terminal -- "${scriptPath}"`
-  exec(cmd, { windowsHide: false, detached: true })
+  send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
+  _wangpProc = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
+    cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false,
+    env: {
+      ...process.env, PYTHONUNBUFFERED: '1',
+      ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+    }
+  })
+  _wangpProc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  _wangpProc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  _wangpProc.on('close', code => {
+    _wangpProc = null; _currentPort = 0
+    send('launch-log', `[!] Wan2GP process exited (code ${code})\n`)
+    send('wangp-exit', code)
+    try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {}
+  })
 
   send('launch-log', '[*] Waiting for Gradio server...\n')
   try {
@@ -558,10 +542,10 @@ ipcMain.handle('launch-webview', async () => {
     send('launch-log', '[*] Wan2GP is ready!\n')
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
     return { url: `http://localhost:${port}`, port }
-  } catch (err) { if (_wangpProc) { _wangpProc.kill(); _wangpProc = null } throw err }
+  } catch (err) { killProcessTree(_wangpProc); _wangpProc = null; throw err }
 })
 
-ipcMain.handle('stop-wangp', () => { if (_wangpProc) { _wangpProc.kill(); _wangpProc = null; return true } return false })
+ipcMain.handle('stop-wangp', () => { if (_wangpProc) { killProcessTree(_wangpProc); _wangpProc = null; return true } return false })
 ipcMain.handle('is-wangp-running', () => _wangpProc !== null)
 
 // ── Phase 4: Pop-out webview ──
@@ -1848,7 +1832,7 @@ function updateTrayMenu() {
     { label: showLabel, click: () => { if (mainWin) { mainWin.isVisible() ? mainWin.hide() : mainWin.show() } } },
     { type: 'separator' },
     { label: isRunning ? 'Stop Wan2GP Server' : 'Wan2GP Stopped', enabled: isRunning, click: () => {
-      if (_wangpProc) { _wangpProc.kill(); _wangpProc = null }
+      killProcessTree(_wangpProc); _wangpProc = null
       send('wangp-exit', -1); send('launch-log', '[!] Wan2GP stopped via tray.\n')
     }},
     { type: 'separator' },
@@ -1910,13 +1894,9 @@ function createWindow() {
   mainWin.on('resize', saveWindowState)
   mainWin.on('move', saveWindowState)
 
-  // Intercept close → hide to tray (unless app.isQuitting)
+  // Close → quit app so tray is always cleaned up in before-quit
   mainWin.on('close', (e) => {
-    if (!app.isQuitting) {
-      e.preventDefault()
-      mainWin.hide()
-      updateTrayMenu()
-    }
+    if (!app.isQuitting) { e.preventDefault(); app.quit() }
   })
   mainWin.on('show', () => updateTrayMenu())
   mainWin.on('hide', () => updateTrayMenu())
@@ -1929,6 +1909,19 @@ function createWindow() {
 
 process.on('uncaughtException', err => console.error('[FATAL]', err))
 process.on('unhandledRejection', reason => console.error('[FATAL] Unhandled Rejection:', reason))
+
+// ── Single-instance lock: re-runs focus the existing window instead of stacking ──
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWin) {
+      if (mainWin.isMinimized()) mainWin.restore()
+      mainWin.focus()
+    }
+  })
+}
 
 app.whenReady().then(() => {
   // Pin data dir on first launch so it never shifts between updates
@@ -1969,16 +1962,18 @@ app.whenReady().then(() => {
   }, 5000)
 })
 app.on('window-all-closed', () => {
-  if (setupProc) setupProc.kill()
-  if (_wangpProc) _wangpProc.kill()
+  killProcessTree(setupProc); setupProc = null
+  killProcessTree(_wangpProc); _wangpProc = null
   app.isQuitting = true
   if (PLATFORM !== 'darwin') app.quit()
 })
 app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
   app.isQuitting = true
-  if (setupProc) setupProc.kill()
-  if (_wangpProc) _wangpProc.kill()
+  killProcessTree(setupProc); setupProc = null
+  killProcessTree(_wangpProc); _wangpProc = null
   // Close any open DevTools to prevent orphan renderer processes
   try { if (mainWin) { if (mainWin.webContents.isDevToolsOpened()) mainWin.webContents.closeDevTools(); if (_bv && mainWin.getBrowserViews().includes(_bv) && _bv.webContents.isDevToolsOpened()) _bv.webContents.closeDevTools() } } catch {}
+  // Destroy tray so the icon doesn't linger in notification area
+  try { if (tray) { tray.destroy(); tray = null } } catch {}
 })
