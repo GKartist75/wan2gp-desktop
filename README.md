@@ -51,7 +51,8 @@ The launcher automates those steps and manages the environment for you.
 No need to pre-install anything — the launcher sets up Git, Python 3.11, uv, and
 Miniconda for you automatically. To actually run Wan2GP you'll need an NVIDIA GPU
 
-- driver (CUDA 12.8+) and about 50 GB free plus an internet connection.
+- driver (CUDA 12.8+) and an internet connection. The launcher itself is about
+  90 MB to download and 250 MB installed.
 
 For manual installation or troubleshooting of any prerequisite, see
 [PREREQUISITES.md](PREREQUISITES.md).

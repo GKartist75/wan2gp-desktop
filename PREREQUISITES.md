@@ -3,14 +3,14 @@
 The Wan2GP Desktop Launcher installs these tools automatically if they're missing.
 This page is for when you'd rather set them up yourself, or need to troubleshoot.
 
-| Tool                           | Needed for                  | Auto-install | Manual                                                              |
-| ------------------------------ | --------------------------- | ------------ | ------------------------------------------------------------------- |
-| **Git**                        | Clone repo                  | ✅           | [git-scm.com](https://git-scm.com/downloads)                        |
-| **Python 3.11**                | env creation                | ✅ via uv    | [python.org](https://www.python.org/downloads)                      |
-| **uv** (optional)              | Faster installs             | ✅           | [docs.astral.sh/uv](https://docs.astral.sh/uv/#installation)        |
-| **Miniconda** (optional)       | `conda` envs                | ✅           | [docs.anaconda.com/miniconda](https://docs.anaconda.com/miniconda/) |
-| **NVIDIA GPU + driver**        | Running Wan2GP (CUDA 12.8+) | ❌           | [nvidia.com/drivers](https://www.nvidia.com/drivers)                |
-| **~50 GB free** + **Internet** | Repo + models + deps        | —            | —                                                                   |
+| Tool                                    | Needed for                  | Auto-install | Manual                                                              |
+| --------------------------------------- | --------------------------- | ------------ | ------------------------------------------------------------------- |
+| **Git**                                 | Clone repo                  | ✅           | [git-scm.com](https://git-scm.com/downloads)                        |
+| **Python 3.11**                         | env creation                | ✅ via uv    | [python.org](https://www.python.org/downloads)                      |
+| **uv** (optional)                       | Faster installs             | ✅           | [docs.astral.sh/uv](https://docs.astral.sh/uv/#installation)        |
+| **Miniconda** (optional)                | `conda` envs                | ✅           | [docs.anaconda.com/miniconda](https://docs.anaconda.com/miniconda/) |
+| **NVIDIA GPU + driver**                 | Running Wan2GP (CUDA 12.8+) | ❌           | [nvidia.com/drivers](https://www.nvidia.com/drivers)                |
+| **~90 MB download / ~250 MB installed** | Launcher                    | —            | —                                                                   |
 
 ## Notes
 
@@ -21,5 +21,6 @@ This page is for when you'd rather set them up yourself, or need to troubleshoot
   recommended for faster, wheel-based installs.
 - **NVIDIA GPU + driver** — cannot be auto-installed. Wan2GP needs CUDA 12.8 or
   newer to run.
-- **Disk & network** — the repo, models, and dependencies need roughly 50 GB and a
-  working internet connection on first setup.
+- **Disk & network** — the launcher downloads at about 90 MB and installs to roughly
+  250 MB. Running Wan2GP and fetching its models needs additional disk space beyond
+  that, plus a working internet connection on first setup.
