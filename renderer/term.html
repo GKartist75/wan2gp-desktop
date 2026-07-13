@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Wan2GP Console</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: var(--surface); }
+    .ft-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    .floating-term { position: static; display: flex; flex-direction: column; height: 100%; background: var(--surface); }
+    .floating-term.dock-floating { border-radius: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div class="ft-wrap">
+    <div id="floatingTerminal" class="floating-term dock-floating">
+      <div class="floating-term-header">
+        <span class="floating-term-title">Console</span>
+        <div class="floating-term-actions">
+          <button class="term-btn-small active" id="ftFollowBtn">
+            <span class="follow-text">Follow</span>
+          </button>
+          <div class="dock-btns">
+            <button class="dock-btn" data-dock="bottom" title="Dock bottom">⬇</button>
+            <button class="dock-btn" data-dock="left" title="Dock left">⬅</button>
+            <button class="dock-btn" data-dock="top" title="Dock top">⬆</button>
+            <button class="dock-btn" data-dock="right" title="Dock right">➡</button>
+            <button class="dock-btn active" data-dock="floating" title="Floating">⤢</button>
+          </div>
+          <button class="term-btn-small" id="ftCloseBtn">✕</button>
+        </div>
+      </div>
+      <div class="term-body" id="ftTermBody" style="flex:1"></div>
+      <div class="ft-search-row">
+        <input type="text" id="logSearch" class="ft-search" placeholder="Search logs...">
+        <button class="term-btn-small" id="logExportBtn" title="Export logs">Export</button>
+      </div>
+    </div>
+  </div>
+  <script src="term.js"></script>
+</body>
+</html>

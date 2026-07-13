@@ -91,6 +91,7 @@ function installPython() {
 
 function send(ch, data) {
   mainWin?.webContents.send(ch, data)
+  _termWin?.webContents.send(ch, data)
 }
 
 function loadConfig() {
@@ -570,7 +571,7 @@ const TOPBAR_H = 44
 const MANAGE_W = 420
 let _bv = null
 let _bvResizeHandler = null
-let _ftDock = 'bottom'   // terminal dock: bottom | top | left | floating
+let _ftDock = 'bottom'   // terminal dock: bottom | top | left | right | floating
 let _panel = null        // null | 'term' | 'manage' — which panel is open
 
 function bvBounds() {
@@ -654,11 +655,54 @@ ipcMain.handle('detach-browser-view', () => {
 })
 ipcMain.handle('reattach-browser-view', () => {
   try {
-    if (_bv && !mainWin.getBrowserViews().includes(_bv)) {
-      mainWin.addBrowserView(_bv)
-      _panel = null
-      bvBounds()
+    if (_bv && !mainWin.getBrowserViews().includes(_bv)) mainWin.addBrowserView(_bv)
+    // Always restore the full view — even if already attached, the terminal may have left
+    // _panel='term' set, which would keep the BrowserView shrunk (grey gap on close).
+    _panel = null
+    bvBounds()
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Floating-terminal window (a SEPARATE, movable BrowserWindow) ──
+// For the 'floating' dock the console must be a real window so it can be dragged onto another
+// monitor and is not confined inside the main Electron window. Wan2GP stays full + interactable;
+// the console lives in its own window (parented so it groups with / closes with the app).
+let _termWin = null
+ipcMain.handle('create-term-view', () => {
+  try {
+    if (!_termWin) {
+      _termWin = new BrowserWindow({
+        width: 480, height: 320, minWidth: 320, minHeight: 160,
+        title: 'Wan2GP Console',
+        parent: mainWin,
+        webPreferences: { preload: path.join(__dirname, 'renderer', 'term-preload.js'), nodeIntegration: false, contextIsolation: true }
+      })
+      _termWin.loadURL('file://' + path.join(__dirname, 'renderer', 'term.html'))
+      _termWin.on('closed', () => { _termWin = null })
     }
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+ipcMain.handle('destroy-term-view', () => {
+  try {
+    if (_termWin) { _termWin.close(); _termWin = null }
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+// Dock change coming from the floating window itself → tell the renderer to switch modes.
+ipcMain.handle('term-set-dock', (_, dock) => {
+  mainWin?.webContents.send('term-dock-changed', dock)
+  return { success: true }
+})
+ipcMain.handle('term-close', () => {
+  mainWin?.webContents.send('term-closed')
+  return { success: true }
+})
+ipcMain.handle('term-export', async (_, text) => {
+  try {
+    const { filePath } = await dialog.showSaveDialog(_termWin || mainWin, { defaultPath: 'wan2gp-console.log', filters: [{ name: 'Log', extensions: ['log', 'txt'] }] })
+    if (filePath) fs.writeFileSync(filePath, text || '')
     return { success: true }
   } catch (e) { return { error: e.message } }
 })

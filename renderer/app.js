@@ -51,24 +51,60 @@ function breakPath(p) { if (!p) return p; const zwsp = String.fromCharCode(0x200
 
 // ── Floating Terminal state/helpers (hoisted so the launch handler can use them) ──
 let _ftVisible = false
+// A BrowserView always composites above DOM, so the terminal (plain DOM) can't sit on top of
+// Wan2GP. Strategy: docked (bottom/top/left/right) → shrink the view, DOM console sits beside
+// Wan2GP (side-by-side); floating → console is its OWN window (movable to another monitor) and
+// Wan2GP is detached so the main window isn't left showing a grey Wan2GP panel.
+function currentDock() {
+  const ft = $('floatingTerminal')
+  for (const d of ['bottom', 'top', 'left', 'right', 'floating']) {
+    if (ft.classList.contains('dock-' + d)) return d
+  }
+  return 'bottom'
+}
+// Show the console for the current dock. Returns nothing.
+function showTerminal() {
+  const floating = $('floatingTerminal').classList.contains('dock-floating')
+  if (floating) {
+    // Wan2GP stays visible & full; the console lives in its own movable window.
+    $('floatingTerminal').classList.add('hidden')
+    window.w2gp.destroyTermView()
+    window.w2gp.reattachBrowserView()
+    window.w2gp.createTermView()
+  } else {
+    // DOM panel beside a shrunk Wan2GP.
+    window.w2gp.destroyTermView()
+    $('floatingTerminal').classList.remove('hidden')
+    window.w2gp.reattachBrowserView()
+    window.w2gp.bvSetDock(currentDock())
+    window.w2gp.hideBrowserView('term')
+  }
+}
+function hideTerminal() {
+  $('floatingTerminal').classList.add('hidden')
+  window.w2gp.destroyTermView()
+  window.w2gp.reattachBrowserView()   // ensure Wan2GP is full again (no-op when already)
+}
 function toggleFloatingTerm() {
-  _ftVisible = !_ftVisible
-  $('floatingTerminal').classList.toggle('hidden', !_ftVisible)
-  if (_ftVisible) { renderTerminals(); window.w2gp.hideBrowserView('term') }
-  else { window.w2gp.showBrowserView() }
+  if ($('dashBody').style.display === 'none') {
+    _ftVisible = !_ftVisible
+    if (_ftVisible) { renderTerminals(); showTerminal() }
+    else { hideTerminal() }
+  }
 }
 function closeFloatingTerm() {
   _ftVisible = false
-  $('floatingTerminal').classList.add('hidden')
-  window.w2gp.showBrowserView()
+  hideTerminal()
 }
 // Apply a dock position to the floating terminal (className + IPC), without toggling visibility.
+// When the console is open this also switches the rendering mode (DOM vs overlay) as needed.
 function setFtDock(dock) {
   const ft = $('floatingTerminal')
   ft.className = 'floating-term dock-' + dock + (ft.classList.contains('hidden') ? ' hidden' : '')
   if (dock !== 'floating') ft.style.cssText = ''
   document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.dock === dock))
   window.w2gp.bvSetDock(dock)
+  if ($('dashBody').style.display === 'none' && _ftVisible) showTerminal()
 }
 function openSettings() {
   $('settingsPanel').classList.add('open'); $('settingsOverlay').classList.add('visible')
@@ -133,7 +169,9 @@ function closeSettings() { $('settingsPanel').classList.remove('open'); $('setti
   // Restore the BrowserView (re-attach the still-alive view) when leaving Manage in webview mode.
   if ($('dashBody').style.display === 'none') {
     $('settingsOverlay').classList.remove('opaque')
-    window.w2gp.reattachBrowserView()
+    // Don't reattach over an open terminal — restore the correct view state instead.
+    if (_ftVisible) showTerminal()
+    else window.w2gp.reattachBrowserView()
   }
  }
 // Populate the Manage "Default Browser" list from the main process.
@@ -1128,16 +1166,20 @@ $('ftToggleBtn')?.addEventListener('click', toggleFloatingTerm)
 $('ftCloseBtn')?.addEventListener('click', closeFloatingTerm)
 // Dock buttons (always visible)
 document.querySelectorAll('.dock-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const dock = btn.dataset.dock
-    document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.dock === dock))
-    const ft = $('floatingTerminal')
-    ft.className = 'floating-term dock-' + dock + (ft.classList.contains('hidden') ? ' hidden' : '')
-    // Dragging (dock-floating) writes inline left/top that override dock CSS — clear
-    // them on any non-floating dock so the class rules (bottom/left/top/right) take effect.
-    if (dock !== 'floating') ft.style.cssText = ''
-    window.w2gp.bvSetDock(dock)
-  })
+  btn.addEventListener('click', () => setFtDock(btn.dataset.dock))
+})
+// Events coming from the floating-terminal overlay (its own BrowserView, used for 'floating' dock)
+window.w2gp.onTermDockChanged(dock => {
+  const ft = $('floatingTerminal')
+  ft.className = 'floating-term dock-' + dock + (ft.classList.contains('hidden') ? ' hidden' : '')
+  if (dock !== 'floating') ft.style.cssText = ''
+  document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.dock === dock))
+  window.w2gp.bvSetDock(dock)
+  if (_ftVisible) showTerminal()
+})
+window.w2gp.onTermClosed(() => {
+  _ftVisible = false
+  hideTerminal()
 })
 // Floating drag for dock-floating mode
 let _fdrag = null

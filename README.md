@@ -31,6 +31,8 @@ That's the whole user journey. The launcher does the boring, error-prone parts.
 - **Refresh button.** One-click refresh for dashboard, hardware detection, and all live metrics — no full restart needed.
 - **Stay informed.** Live server log, RAM/VRAM metrics, and a 27-package version overview with one-click installs.
 
+> New in v2.1.8: Terminal is now rock-solid — closing the console always leaves Wan2GP full and interactable (no grey gap), floating mode keeps Wan2GP visible while the console lives in its own movable window, and the floating console now resizes with its window. See changelog.
+
 > New in v2.1.7: Fixed a critical **blank/gray-screen on launch** (installer was mis-nested under the dashboard and collapsed to 0×0). Also fixed installer model-folder paths being ignored, live topbar metrics not starting on a fresh install, and the empty installer console. See changelog.
 
 > New in v2.1.5: System tray integration, window state persistence, auto-start with Windows, follow system theme, desktop notifications when server is ready/stops, and an F12 popup picker to choose between inspecting embedded Wan2GP content or the Electron shell. See changelog.
@@ -77,6 +79,7 @@ npm run build:win  # Windows NSIS installer
 ```
 
 ## Changelog
+- **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
 - **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](CHANGELOG-v2.1.7.md).
 - **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](CHANGELOG-v2.1.6.md).
 - **v2.1.5** — **System tray** — minimize to tray (close hides to tray, context menu with Show/Hide, Stop Server, Quit). **Window state persistence** — remembers position, size, and maximized state across sessions. **Auto-start with Windows** — toggle in Settings → Desktop via `app.setLoginItemSettings()`. **Follow system theme** — auto-switch dark/light based on Windows theme setting. **Desktop notifications** — native notification when Wan2GP server is ready or stops (toggleable in Settings). **F12 DevTools picker** — popup menu to choose between inspecting embedded Wan2GP content or the Electron shell. **Orphan DevTools cleanup** — DevTools windows closed on quit to prevent orphan renderer processes. **Release automation** — `scripts/release-win.sh` handles the full bump→commit→tag→push→build→API-upload flow. See [CHANGELOG-v2.1.5.md](CHANGELOG-v2.1.5.md).

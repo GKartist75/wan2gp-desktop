@@ -29,6 +29,20 @@ contextBridge.exposeInMainWorld('w2gp', {
   bvSetZoom: (factor) => ipcRenderer.invoke('bv-set-zoom', factor),
   bvSetDock: (dock) => ipcRenderer.invoke('bv-set-dock', dock),
 
+  // Floating-terminal overlay (BrowserView above Wan2GP, used for the 'floating' dock)
+  createTermView: () => ipcRenderer.invoke('create-term-view'),
+  destroyTermView: () => ipcRenderer.invoke('destroy-term-view'),
+  onTermDockChanged: (cb) => {
+    const h = (_e, dock) => cb(dock)
+    ipcRenderer.on('term-dock-changed', h)
+    return () => ipcRenderer.removeListener('term-dock-changed', h)
+  },
+  onTermClosed: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('term-closed', h)
+    return () => ipcRenderer.removeListener('term-closed', h)
+  },
+
   // Manage
   update: () => ipcRenderer.invoke('update'),
   manageList: () => ipcRenderer.invoke('manage-list'),
