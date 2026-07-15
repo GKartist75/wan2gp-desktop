@@ -8,6 +8,10 @@ so you don't have to configure them manually.
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
+## Screenshots
+
+![Launcher plugin screenshot](screenshots/launcher-plugin.png)
+
 ## Why a launcher
 
 Wan2GP's manual setup involves cloning the repo, installing Python 3.11, selecting a
