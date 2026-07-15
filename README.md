@@ -11,6 +11,7 @@ so you don't have to configure them manually.
 ## Screenshots
 
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)
+![Launcher screenshot](screenshots/launcher-screenshot-2.png)
 
 ## Why a launcher
 
