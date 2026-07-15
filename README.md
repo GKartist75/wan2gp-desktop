@@ -37,6 +37,7 @@ The launcher automates those steps and manages the environment for you.
 
 - **Desktop mode** (green) — Wan2GP runs inside the launcher with browser controls (back/forward/reload, zoom 25–200%) and a popout to a separate window.
 - **Browser mode** (amber) — runs in a visible console and auto-opens your browser when the server is ready.
+- **External Terminal mode** (blue) — launches the server in a real Windows Terminal / cmd window using a generated `Launch Wan2GP.bat`-style script (env activation + your port and extra args from Manage). In-app Running LED + Stop kills the server accurately by PID; closing the window also stops it.
 - **No-GPU Chrome script** — launch in Chrome with GPU disabled to free VRAM for generation.
 - **Browser picker** — detects Chrome, Edge, Firefox, Brave, Opera, Vivaldi; choose your default.
 
@@ -49,7 +50,7 @@ The launcher automates those steps and manages the environment for you.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.1.8** — terminal docking/floating reliability: closing the console restores Wan2GP to full size, floating mode keeps Wan2GP visible with the console in its own window, and the floating console resizes with its window. [Full changelog →](CHANGELOG-v2.1.8.md)
+> **New in v2.1.9** — **Launch in External Terminal** mode: run the server in a real cmd window (like the desktop `Launch Wan2GP.bat` shortcut) with env activation, your port, and Manage-menu args, plus an in-app Stop that kills it by PID. Also fixes the white-flash/freeze when switching to the floating terminal, double log replay, and the "back to menu" overlap. [Full changelog →](CHANGELOG-v2.1.9.md)
 
 ## Prerequisites
 
@@ -94,6 +95,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.1.9** — **Feature + bugfix** — new **Launch in External Terminal** mode (real cmd window via generated `.bat`, PID-accurate Stop) and fixes for the floating-terminal white-flash/freeze, double log replay, and "back to menu" overlap. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
 - **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
 - **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](CHANGELOG-v2.1.7.md).
 - **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](CHANGELOG-v2.1.6.md).
