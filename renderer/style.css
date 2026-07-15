@@ -75,6 +75,8 @@ body {
 [data-theme="dark"] .launch-btn.launch-amber:hover { background: #78350f; border-color: #f59e0b; }
 [data-theme="dark"] .launch-btn.launch-muted { background: #1a1a2e; color: #6b7280; border-color: #2d2d44; }
 [data-theme="dark"] .launch-btn.launch-muted:hover { background: #2d2d44; border-color: #6b7280; }
+[data-theme="dark"] .launch-btn.launch-term { background: #08233b; color: #38bdf8; border-color: #0c4a6e; }
+[data-theme="dark"] .launch-btn.launch-term:hover { background: #0c4a6e; border-color: #0ea5e9; }
 
 /* ── App Shell ── */
 #app { height: 100vh; display: flex; flex-direction: column; position: relative; background: var(--canvas); }
@@ -248,6 +250,8 @@ body {
 .launch-btn.launch-amber:hover { background: #92400e; border-color: #f59e0b; }
 .launch-btn.launch-muted { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
 .launch-btn.launch-muted:hover { background: #374151; border-color: #6b7280; }
+.launch-btn.launch-term { background: #0c4a6e; color: #7dd3fc; border: 1px solid #075985; }
+.launch-btn.launch-term:hover { background: #075985; border-color: #0ea5e9; }
 .launch-btn:hover { background: var(--accent-hover); }
 .launch-btn:active { transform: scale(0.98); }
 .launch-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

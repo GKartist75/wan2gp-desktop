@@ -21,6 +21,47 @@ function killProcessTree(proc) {
   }
 }
 
+// ── Stop the Wan2GP server (works for both tracked-child and external-terminal modes) ──
+function stopWangpServer() {
+  if (_terminalTitle || _terminalPidFile) {
+    // External-terminal mode: prefer killing the exact python PID we captured (bulletproof),
+    // then also close the terminal window by title as a fallback / to dismiss the window.
+    if (_terminalPidFile && fs.existsSync(_terminalPidFile)) {
+      try {
+        const pid = parseInt(fs.readFileSync(_terminalPidFile, 'utf8').trim(), 10)
+        if (pid) execSync('taskkill /pid ' + pid + ' /f /t', { windowsHide: true, timeout: 5000 })
+      } catch {}
+      try { fs.unlinkSync(_terminalPidFile) } catch {}
+    }
+    if (_terminalTitle) {
+      try { execSync(`taskkill /fi "WINDOWTITLE eq ${_terminalTitle}*" /f /t`, { windowsHide: true, timeout: 5000 }) } catch {}
+    }
+    if (_terminalBatFile) { try { fs.unlinkSync(_terminalBatFile) } catch {} }
+    _terminalTitle = null
+    _terminalPidFile = null
+    _terminalBatFile = null
+    return true
+  }
+  if (_wangpProc) { killProcessTree(_wangpProc); _wangpProc = null; return true }
+  return false
+}
+
+// Find the running Wan2GP python PID (used to make external-terminal Stop bulletproof).
+// Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a wmic CommandLine filter.
+function findWan2gpPid() {
+  try {
+    const list = execSync('tasklist /fi "IMAGENAME eq python.exe" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
+    const pids = [...list.matchAll(/"(\d+)"/g)].map(m => m[1])
+    for (const pid of pids) {
+      try {
+        const cl = execSync('wmic process where ProcessId=' + pid + ' get CommandLine', { windowsHide: true, timeout: 5000 }).toString()
+        if (cl.includes('wgp.py')) return parseInt(pid, 10)
+      } catch {}
+    }
+  } catch {}
+  return null
+}
+
 // Disable GPU acceleration only when the user opts out (config electronGpu:false).
 // Default electronGpu:true keeps hardware compositing (regression fix, was v2.1.5).
 try {
@@ -60,6 +101,9 @@ const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
 let mainWin = null, setupProc = null, _wangpProc = null
+let _terminalTitle = null   // set when launched in external-terminal mode (tracked by title for Stop)
+let _terminalPidFile = null // temp file holding the python PID for a bulletproof kill
+let _terminalBatFile = null // temp .bat launched in the external terminal (cmd window, like the desktop shortcut)
 let _currentPort = 7860 // tracked across launches/restarts
 let tray = null
 app.isQuitting = false
@@ -89,7 +133,16 @@ function installPython() {
   return null
 }
 
+// ── Log history buffer (replayed to floating terminal window on create) ──
+const _logHistory = []
+const _LOG_HISTORY_MAX = 5000
+
 function send(ch, data) {
+  // Capture log channels for replay when a floating terminal window opens
+  if (ch === 'setup-output' || ch === 'launch-log') {
+    _logHistory.push({ channel: ch, data })
+    while (_logHistory.length > _LOG_HISTORY_MAX) _logHistory.shift()
+  }
   mainWin?.webContents.send(ch, data)
   _termWin?.webContents.send(ch, data)
 }
@@ -430,7 +483,8 @@ function checkPort(host, port, timeoutMs = 2000) {
 }
 
 // ── Launch with proper port check ──
-ipcMain.handle('launch', async () => {
+// mode: 'browser' (default, python in a visible window) | 'terminal' (run.bat style: real cmd.exe /K window)
+ipcMain.handle('launch', async (_, mode = 'browser') => {
   const env = getActiveEnv()
   if (!env) throw new Error('No active environment')
   const py = getPythonForEnv(env)
@@ -465,26 +519,115 @@ ipcMain.handle('launch', async () => {
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
 
-  send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
-  _wangpProc = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
-    cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false,
-    env: {
-      ...process.env, PYTHONUNBUFFERED: '1',
-      ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+  let child = null
+  if (mode === 'terminal') {
+    // External-terminal mode (run.bat / desktop-shortcut style): generate a .bat that mirrors the
+    // "Launch Wan2GP.bat" shortcut (env activation, launch args, background server, wait + open
+    // browser, "close this window to stop"), and run it in a real cmd window via Windows Terminal
+    // (wt.exe) or a plain conhost window. Not a child of the launcher — the user controls it.
+    // Stop is bulletproof via the captured python PID (Node side) and the window title fallback.
+    _terminalTitle = 'Wan2GP-Launcher-' + Date.now()
+    _terminalPidFile = path.join(os.tmpdir(), 'wan2gp-terminal.pid')
+    _terminalBatFile = path.join(os.tmpdir(), 'wan2gp-terminal.bat')
+
+    // Env activation (mirrors the desktop shortcut) so the right python is used.
+    let activateLine = '', setPathLine = ''
+    const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
+    if (env.type === 'venv' || env.type === 'uv') {
+      const activateScript = IS_WIN ? path.join(envPath, 'Scripts', 'activate') : path.join(envPath, 'bin', 'activate')
+      if (fs.existsSync(activateScript)) {
+        activateLine = 'call "' + activateScript + '"'
+        if (IS_WIN && (env.type === 'venv' || env.type === 'uv')) setPathLine = 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%'
+      }
+    } else if (env.type === 'conda') {
+      activateLine = 'call conda activate "' + envPath + '"'
     }
-  })
-  _wangpProc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
-  _wangpProc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
-  _wangpProc.on('close', code => {
-    _wangpProc = null; _currentPort = 0
-    send('launch-log', `[!] Wan2GP process exited (code ${code})\n`)
-    send('wangp-exit', code)
-    try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {}
-  })
+
+    const argsStr = extraArgs.join(' ')
+    const batLines = [
+      '@echo off',
+      'title ' + _terminalTitle,
+      'cd /d "' + getRepoDir() + '"',
+      'echo.',
+      'echo [Wan2GP Desktop Launcher]',
+      'echo Starting Wan2GP on port ' + preferredPort + '...',
+      'echo.'
+    ]
+    if (activateLine) {
+      batLines.push('echo Activating environment: ' + env.name + ' (' + env.type + ')')
+      batLines.push(activateLine)
+      if (setPathLine) batLines.push(setPathLine)
+      batLines.push('echo.')
+    }
+    batLines.push('echo Starting wgp.py in background...')
+    batLines.push('start /b "" cmd /c "python -u wgp.py ' + argsStr + '" 2>&1')
+    batLines.push('echo.')
+    batLines.push('echo Waiting for Wan2GP server on port ' + preferredPort + '...')
+    batLines.push(':waitloop')
+    batLines.push('timeout /t 2 /nobreak >nul')
+    batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
+    batLines.push('goto waitloop')
+    batLines.push(':ready')
+    batLines.push('echo Wan2GP is ready! Opening browser...')
+    batLines.push('start http://localhost:' + preferredPort)
+    batLines.push('echo.')
+    batLines.push('echo [Wan2GP] Server is running. Close this window to stop it.')
+    batLines.push('pause >nul')
+    try { fs.writeFileSync(_terminalBatFile, batLines.join('\r\n'), 'utf8') } catch (e) { send('launch-log', `[!] Failed to write terminal script: ${e.message}\n`) }
+
+    let useWt = false
+    try { execSync('where wt', { windowsHide: true, timeout: 3000 }); useWt = true } catch {}
+    if (useWt) {
+      send('launch-log', '[*] Starting Wan2GP in Windows Terminal (run.bat style)...\n')
+      child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', _terminalTitle, 'cmd.exe', '/K', _terminalBatFile], {
+        cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
+        env: {
+          ...process.env, PYTHONUNBUFFERED: '1',
+          ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+        }
+      })
+    } else {
+      send('launch-log', '[*] Starting Wan2GP in an external terminal window (run.bat style)...\n')
+      child = spawn('cmd.exe', ['/c', 'start', `"${_terminalTitle}"`, 'cmd.exe', '/K', _terminalBatFile], {
+        cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
+        env: {
+          ...process.env, PYTHONUNBUFFERED: '1',
+          ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+        }
+      })
+    }
+    // The launcher-side process (wt.exe / start wrapper) exits independently — it is NOT the server.
+    _wangpProc = null
+  } else {
+    send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
+    child = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
+      cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false,
+      env: {
+        ...process.env, PYTHONUNBUFFERED: '1',
+        ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+      }
+    })
+    _wangpProc = child
+    child.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+    child.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  }
+  if (child && mode !== 'terminal') {
+    child.on('close', code => {
+      _wangpProc = null; _currentPort = 0
+      send('launch-log', `[!] Wan2GP process exited (code ${code})\n`)
+      send('wangp-exit', code)
+      try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {}
+    })
+  }
 
   send('launch-log', '[*] Waiting for Gradio server...\n')
   try {
     await waitForPort('localhost', port, 180000)
+    // For external-terminal mode, capture the python PID now (server is up) for a bulletproof Stop.
+    if (mode === 'terminal') {
+      const pid = findWan2gpPid()
+      if (pid) { try { fs.writeFileSync(_terminalPidFile, String(pid), 'utf8') } catch {} }
+    }
     send('launch-log', '[*] Wan2GP is ready!\n')
     // Desktop notification
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
@@ -496,6 +639,10 @@ ipcMain.handle('launch', async () => {
       sock.on('error', () => {
         sock.destroy()
         clearInterval(monitorInterval)
+        _terminalTitle = null
+        _currentPort = 0
+        if (_terminalPidFile) { try { fs.unlinkSync(_terminalPidFile) } catch {} _terminalPidFile = null }
+        if (_terminalBatFile) { try { fs.unlinkSync(_terminalBatFile) } catch {} _terminalBatFile = null }
         send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
         send('wangp-exit', -1)
         try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
@@ -546,7 +693,7 @@ ipcMain.handle('launch-webview', async () => {
   } catch (err) { killProcessTree(_wangpProc); _wangpProc = null; throw err }
 })
 
-ipcMain.handle('stop-wangp', () => { if (_wangpProc) { killProcessTree(_wangpProc); _wangpProc = null; return true } return false })
+ipcMain.handle('stop-wangp', () => { stopWangpServer() })
 ipcMain.handle('is-wangp-running', () => _wangpProc !== null)
 
 // ── Phase 4: Pop-out webview ──
@@ -675,6 +822,7 @@ ipcMain.handle('create-term-view', () => {
       _termWin = new BrowserWindow({
         width: 480, height: 320, minWidth: 320, minHeight: 160,
         title: 'Wan2GP Console',
+        backgroundColor: '#0d0f14',
         parent: mainWin,
         webPreferences: { preload: path.join(__dirname, 'renderer', 'term-preload.js'), nodeIntegration: false, contextIsolation: true }
       })
@@ -705,6 +853,10 @@ ipcMain.handle('term-export', async (_, text) => {
     if (filePath) fs.writeFileSync(filePath, text || '')
     return { success: true }
   } catch (e) { return { error: e.message } }
+})
+
+ipcMain.handle('get-log-history', () => {
+  return _logHistory
 })
 
 ipcMain.handle('bv-set-dock', (_, dock) => {
@@ -1877,7 +2029,7 @@ function updateTrayMenu() {
     { label: showLabel, click: () => { if (mainWin) { mainWin.isVisible() ? mainWin.hide() : mainWin.show() } } },
     { type: 'separator' },
     { label: isRunning ? 'Stop Wan2GP Server' : 'Wan2GP Stopped', enabled: isRunning, click: () => {
-      killProcessTree(_wangpProc); _wangpProc = null
+      stopWangpServer()
       send('wangp-exit', -1); send('launch-log', '[!] Wan2GP stopped via tray.\n')
     }},
     { type: 'separator' },
@@ -2007,7 +2159,7 @@ app.whenReady().then(() => {
 })
 app.on('window-all-closed', () => {
   killProcessTree(setupProc); setupProc = null
-  killProcessTree(_wangpProc); _wangpProc = null
+  stopWangpServer()
   app.isQuitting = true
   if (PLATFORM !== 'darwin') app.quit()
 })
@@ -2015,7 +2167,7 @@ app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
   app.isQuitting = true
   killProcessTree(setupProc); setupProc = null
-  killProcessTree(_wangpProc); _wangpProc = null
+  stopWangpServer()
   // Close any open DevTools to prevent orphan renderer processes
   try { if (mainWin) { if (mainWin.webContents.isDevToolsOpened()) mainWin.webContents.closeDevTools(); if (_bv && mainWin.getBrowserViews().includes(_bv) && _bv.webContents.isDevToolsOpened()) _bv.webContents.closeDevTools() } } catch {}
   // Destroy tray so the icon doesn't linger in notification area

@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   getStatus: () => ipcRenderer.invoke('get-status'),
 
   // Run
-  launch: () => ipcRenderer.invoke('launch'),
+  launch: (mode) => ipcRenderer.invoke('launch', mode),
   launchWebview: () => ipcRenderer.invoke('launch-webview'),
   stopWangp: () => ipcRenderer.invoke('stop-wangp'),
   isWangpRunning: () => ipcRenderer.invoke('is-wangp-running'),

@@ -1,16 +1,46 @@
 // Floating-terminal overlay (its own BrowserView, layered above Wan2GP).
+// Uses the SAME line-accumulation logic as app.js appendLog() so both views
+// produce identical output — handles \r (progress overwrites), \n line splits,
+// and accumulates partial lines across chunks.
 const body = document.getElementById('ftTermBody')
 const search = document.getElementById('logSearch')
 let follow = true
 let buf = []
+let _lastLine = ''
 const MAX = 5000
 
 function strip(t) {
   return t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x08/g, '')
 }
+
+// Mirrors app.js appendLog() exactly — same line-accumulation strategy
+function appendToBuf(text) {
+  if (!text) return
+  const parts = text.replace(/\r\n/g, '\n').split(/(\r|\n)/)
+  for (const part of parts) {
+    if (part === '\r') {
+      if (_lastLine && buf.length > 0) buf[buf.length - 1] = _lastLine
+      _lastLine = ''
+    } else if (part === '\n') {
+      if (_lastLine.trim()) buf.push(_lastLine.trim())
+      _lastLine = ''
+    } else {
+      _lastLine += part
+    }
+  }
+  while (buf.length > MAX) buf.shift()
+  render()
+}
+
+let _renderQueued = false
 function render() {
-  body.textContent = buf.join('\n')
-  if (follow) body.scrollTop = body.scrollHeight
+  if (_renderQueued) return
+  _renderQueued = true
+  requestAnimationFrame(() => {
+    _renderQueued = false
+    body.textContent = buf.join('\n')
+    if (follow) body.scrollTop = body.scrollHeight
+  })
 }
 function setFollow(v) {
   follow = v
@@ -19,12 +49,19 @@ function setFollow(v) {
   b.querySelector('.follow-text').textContent = follow ? 'Follow' : 'Paused'
 }
 
+// Load existing log history on startup — pipe through appendToBuf for consistency
+window.w2gp.getLogHistory().then(entries => {
+  for (const entry of entries) {
+    appendToBuf(strip(entry.data))
+  }
+})
+
 window.w2gp.onLaunchLog(t => {
-  const s = strip(t)
-  if (!s) return
-  buf.push(s)
-  while (buf.length > MAX) buf.shift()
-  render()
+  appendToBuf(strip(t))
+})
+
+window.w2gp.onSetupOutput(t => {
+  appendToBuf(strip(t))
 })
 
 body.addEventListener('scroll', () => {

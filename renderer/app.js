@@ -75,6 +75,8 @@ function showTerminal() {
     // DOM panel beside a shrunk Wan2GP.
     window.w2gp.destroyTermView()
     $('floatingTerminal').classList.remove('hidden')
+    // Sync DOM terminal with the latest buffer (logs may have arrived while floating was active)
+    renderTerminals()
     window.w2gp.reattachBrowserView()
     window.w2gp.bvSetDock(currentDock())
     window.w2gp.hideBrowserView('term')
@@ -948,24 +950,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Launch in Browser (uses the user's chosen default browser) ──
 $('browserBtn').addEventListener('click', async () => {
-  $('browserBtn').disabled = true; $('browserBtn').textContent = 'Starting...'
+  // Already running in browser mode → just re-open the URL (don't re-spawn the server).
+  if (browserRunning && currentUrl) { await window.w2gp.launchBrowser(currentUrl); return }
+  const btn = $('browserBtn')
+  btn.disabled = true; btn.textContent = 'Starting...'
   $('launchInfo').classList.remove('hidden')
-
   try {
     const result = await window.w2gp.launch()
     currentUrl = result.url
     await window.w2gp.launchBrowser(result.url)
-    $('launchInfo').classList.add('hidden')
+    browserRunning = true
+    serverMode = 'browser'
+    showBrowserRunningUI()
+    btn.textContent = 'Open Wan2GP in Browser'
+    $('browserNoGpuBtn').style.display = 'none'
   } catch(e){
     appendLog(`[LAUNCH ERROR] ${e.message}`)
   } finally {
-    $('browserBtn').disabled = false; $('browserBtn').textContent = 'Launch Wan2GP in Browser'
+    $('launchInfo').classList.add('hidden')
+    $('browserBtn').disabled = false
+    if (!browserRunning) $('browserBtn').textContent = 'Launch Wan2GP in Browser'
   }
 })
 
 // ── Launch in Browser with GPU disabled (start-chrome-no-gpu script) ──
 $('browserNoGpuBtn').addEventListener('click', async () => {
-  $('browserNoGpuBtn').disabled = true; $('browserNoGpuBtn').textContent = 'Starting...'
+  if (browserRunning && currentUrl) { await window.w2gp.launchBrowser(currentUrl); return }
+  const btn = $('browserNoGpuBtn')
+  btn.disabled = true; btn.textContent = 'Starting...'
   $('launchInfo').classList.remove('hidden')
   try {
     const result = await window.w2gp.launch()
@@ -973,15 +985,52 @@ $('browserNoGpuBtn').addEventListener('click', async () => {
     const r = await window.w2gp.launchBrowserNoGpu(result.url)
     if (!r || !r.success) throw new Error(r && r.error ? r.error : 'no-GPU launch failed')
     appendLog(`[*] Launched in browser with GPU disabled.`)
+    browserRunning = true
+    serverMode = 'browser'
+    showBrowserRunningUI()
+    $('browserBtn').textContent = 'Open Wan2GP in Browser'
+    btn.textContent = 'Open in Chrome (no GPU)'
+    $('browserBtn').style.display = 'none'
     $('launchInfo').classList.add('hidden')
   } catch(e){
     appendLog(`[LAUNCH ERROR] ${e.message}`)
+    $('launchInfo').classList.add('hidden')
   } finally {
-    $('browserNoGpuBtn').disabled = false; $('browserNoGpuBtn').textContent = 'Launch in Chrome (no GPU script)'
+    $('browserNoGpuBtn').disabled = false
+    if (!browserRunning) $('browserNoGpuBtn').textContent = 'Launch in Chrome (no GPU script)'
+  }
+})
+
+// ── Launch in a real terminal (run.bat style: server runs in a cmd window) ──
+$('termBtn').addEventListener('click', async () => {
+  if (browserRunning && currentUrl) { await window.w2gp.launchBrowser(currentUrl); return }
+  const btn = $('termBtn')
+  btn.disabled = true; btn.textContent = 'Starting...'
+  $('launchInfo').classList.remove('hidden')
+  try {
+    const result = await window.w2gp.launch('terminal')
+    currentUrl = result.url
+    // The generated .bat opens localhost itself (mirrors the desktop shortcut), so we don't double-open.
+    browserRunning = true
+    serverMode = 'browser'   // UI treatment identical to browser mode (running + Stop + re-open)
+    showBrowserRunningUI()
+    btn.textContent = 'Open Wan2GP in Browser'
+    $('browserBtn').style.display = 'none'
+    $('browserNoGpuBtn').style.display = 'none'
+    $('launchInfo').classList.add('hidden')
+  } catch(e){
+    appendLog(`[LAUNCH ERROR] ${e.message}`)
+    $('launchInfo').classList.add('hidden')
+  } finally {
+    $('termBtn').disabled = false
+    if (!browserRunning) $('termBtn').textContent = 'Launch in External Terminal'
   }
 })
 
 let currentUrl = null
+// Tracks which launcher path started the server so we can reset the right UI on exit.
+let serverMode = null      // 'app' | 'browser' | null
+let browserRunning = false // browser-mode server currently up (button acts as re-open)
 
 // ── Launch in App (BrowserView — renders Gradio reliably on Electron 40; intercepts
 //     /manifest.json to dodge gradio#11553 blank-page bug) ──
@@ -1000,6 +1049,8 @@ $('appBtn').addEventListener('click', async () => {
     showWebviewUI()
     updateLed('running')
     updateFtStatus('running')
+    serverMode = 'app'
+    if (browserRunning) resetBrowserLaunchUI()
     const overlay = $('launchOverlay')
     if (overlay) {
       overlay.classList.remove('hidden')
@@ -1037,12 +1088,15 @@ function hideWebviewUI() {
 }
 
 async function closeWebview() {
+  // Close the terminal first — hideTerminal() re-attaches the Wan2GP BrowserView (correct for a
+  // normal terminal toggle-off). Destroy the view LAST so it can't be left compositing on top of
+  // the dashboard when we go back to menu.
+  if (!$('floatingTerminal').classList.contains('hidden')) closeFloatingTerm()
   await window.w2gp.destroyBrowserView()
   $('webviewContainer').classList.add('hidden')
   $('dashBody').style.display = ''
   hideWebviewUI()
   appendLog('[*] Webview closed. Server still running.')
-  if (!$('floatingTerminal').classList.contains('hidden')) closeFloatingTerm()
 }
 
 $('backToDashboardBtn').addEventListener('click', closeWebview)
@@ -1077,6 +1131,30 @@ function updateLed(state) {
   }
 }
 
+// ── Browser-mode running UI (server runs in user's browser; dashboard stays visible) ──
+function showBrowserRunningUI() {
+  updateLed('running')
+  $('stopWangpBtn').style.display = ''
+}
+function hideBrowserRunningUI() {
+  $('runningLed').style.display = 'none'
+  $('stopWangpBtn').style.display = 'none'
+}
+// Restore the dashboard launch buttons to their default (pre-launch) state.
+function resetBrowserLaunchUI() {
+  browserRunning = false
+  serverMode = null
+  $('browserBtn').textContent = 'Launch Wan2GP in Browser'
+  $('browserBtn').style.display = ''
+  $('browserBtn').disabled = false
+  $('browserNoGpuBtn').textContent = 'Launch in Chrome (no GPU script)'
+  $('browserNoGpuBtn').style.display = ''
+  $('browserNoGpuBtn').disabled = false
+  $('termBtn').textContent = 'Launch in External Terminal'
+  $('termBtn').style.display = ''
+  $('termBtn').disabled = false
+}
+
 // ── Stop Wan2GP button ──
 $('stopWangpBtn').addEventListener('click', async () => {
   $('stopWangpBtn').style.display = 'none'
@@ -1086,10 +1164,15 @@ $('stopWangpBtn').addEventListener('click', async () => {
   updateFtStatus('stopped')
 })
 
-// ── Reset UI when server exits on its own ──
+// ── Reset UI when server exits (manual stop or crash) ──
 window.w2gp.onWangpExit(c => {
   appendLog(`[!] Wan2GP process exited (code ${c})`)
-  if (!$('webviewContainer').classList.contains('hidden')) closeWebview()
+  if (serverMode === 'app') {
+    if (!$('webviewContainer').classList.contains('hidden')) closeWebview()
+  } else if (serverMode === 'browser') {
+    hideBrowserRunningUI()
+    resetBrowserLaunchUI()
+  }
   $('stopWangpBtn').style.display = 'none'
   updateLed('stopped')
   updateFtStatus('stopped')
