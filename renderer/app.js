@@ -1532,3 +1532,143 @@ window.w2gp.onUpdateStatus((status) => {
       break
   }
 })
+
+// ════════════════════════════════════════════
+//  Auto-Tune
+// ════════════════════════════════════════════
+
+let _autotuneHardware = null
+let _autotuneRecommendation = null
+
+/** Render hardware info into the card. */
+function renderAutoTuneHardware(hw) {
+  const el = $('autotuneHardwareInfo')
+  if (!hw) {
+    el.innerHTML = '<p class="token-hint" style="margin:0">Click <strong>Detect</strong> to scan your system.</p>'
+    return
+  }
+  if (!hw.cuda_available) {
+    el.innerHTML = '<p class="token-hint" style="margin:0;color:var(--text-secondary)">No NVIDIA GPU detected.</p>'
+    return
+  }
+
+  const badges = []
+  if (hw.supports_fp8) badges.push('<span class="env-type-tag" style="background:#2D4A2E;color:#8BC48B">FP8</span>')
+  if (hw.supports_nvfp4) badges.push('<span class="env-type-tag" style="background:#2D3A5E;color:#8AB4F8">NVFP4</span>')
+  if (hw.supports_flash) badges.push('<span class="env-type-tag" style="background:#3A2D4E;color:#C58AF8">Flash</span>')
+  if (hw.supports_sage) badges.push('<span class="env-type-tag" style="background:#2D4A3E;color:#8AF8C5">Sage</span>')
+  if (hw.supports_triton) badges.push('<span class="env-type-tag" style="background:#4A3D2E;color:#F8C58A">Triton</span>')
+
+  el.innerHTML = '\
+    <div class="spec-grid" style="margin-bottom:8px">\
+      <div class="spec-row"><span class="spec-label">GPU</span><span class="spec-value">' + escHtml(hw.gpu_name) + '</span></div>\
+      <div class="spec-row"><span class="spec-label">VRAM</span><span class="spec-value">' + hw.gpu_vram_gb + ' GB</span></div>\
+      <div class="spec-row"><span class="spec-label">RAM</span><span class="spec-value">' + hw.ram_gb + ' GB</span></div>\
+      <div class="spec-row"><span class="spec-label">CUDA</span><span class="spec-value">' + (hw.cuda_version || '—') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Capability</span><span class="spec-value">' + (hw.gpu_capability || '—') + '</span></div>\
+    </div>\
+    <div style="display:flex;gap:6px;flex-wrap:wrap">' + badges.join('') + '</div>'
+}
+
+/** Render recommendation into the card. */
+function renderAutoTuneRecommendation(rec) {
+  const el = $('autotuneRecommendInfo')
+  const btn = $('autotuneApplyBtn')
+  if (!rec) {
+    el.innerHTML = '<p class="token-hint" style="margin:0">Run detection first.</p>'
+    btn.disabled = true
+    return
+  }
+
+  const profileLabels = {
+    1: 'HighRAM \u00b7 HighVRAM',
+    2: 'HighRAM \u00b7 LowVRAM',
+    3: 'LowRAM \u00b7 HighVRAM',
+    3.5: 'VeryLowRAM \u00b7 HighVRAM',
+    4: 'LowRAM \u00b7 LowVRAM',
+    4.5: 'LowRAM \u00b7 LowVRAM+',
+    5: 'VeryLowRAM \u00b7 LowVRAM'
+  }
+  var vaeLabels = ['Default', 'Tiling', 'Spilt-Tiling', 'No Encode']
+
+  el.innerHTML = '\
+    <div class="spec-grid" style="margin-bottom:8px">\
+      <div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + rec.video_profile + ' \u00b7 ' + escHtml(profileLabels[rec.video_profile] || 'Custom') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + rec.image_profile + ' \u00b7 ' + escHtml(profileLabels[rec.image_profile] || 'Custom') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + rec.audio_profile + ' \u00b7 ' + escHtml(profileLabels[rec.audio_profile] || 'Custom') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value"><code>' + escHtml(rec.transformer_quantization) + '</code></span></div>\
+      <div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value">' + rec.vae_config + ' \u00b7 ' + escHtml(vaeLabels[rec.vae_config] || 'Default') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">VRAM Safety Coeff</span><span class="spec-value">' + rec.vram_safety_coefficient + '</span></div>\
+    </div>\
+    <p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '</p>'
+  btn.disabled = false
+}
+
+function escHtml(s) {
+  if (typeof s !== 'string') return String(s)
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+// ── Auto-Tune: Detect ──
+$('autotuneDetectBtn').addEventListener('click', async () => {
+  var btn = $('autotuneDetectBtn')
+  var status = $('autotuneStatus')
+  btn.disabled = true
+  btn.textContent = '\u27b3 Scanning\u2026'
+  status.classList.add('hidden')
+
+  try {
+    var result = await window.w2gp.autoTuneFullTune()
+    _autotuneHardware = result.hardware
+    _autotuneRecommendation = result.recommendation
+
+    renderAutoTuneHardware(_autotuneHardware)
+    renderAutoTuneRecommendation(_autotuneRecommendation)
+
+    status.className = ''
+    status.style.background = 'var(--bg-tertiary)'
+    if (result.applyResult.success) {
+      status.innerHTML = '\u2705 Settings applied to <code>' + escHtml(result.applyResult.path) + '</code><br><small>Keys: ' + result.applyResult.applied.join(', ') + '</small>'
+    } else {
+      status.innerHTML = '\u2139\ufe0f Detection complete. <strong>Apply</strong> to write settings.'
+    }
+  } catch (e) {
+    status.className = ''
+    status.style.background = '#3A1E1E'
+    status.innerHTML = '\u274c Detection failed: ' + escHtml(e.message)
+  } finally {
+    btn.disabled = false
+    btn.textContent = '\u27b3 Detect'
+  }
+})
+
+// ── Auto-Tune: Apply ──
+$('autotuneApplyBtn').addEventListener('click', async () => {
+  var btn = $('autotuneApplyBtn')
+  var status = $('autotuneStatus')
+  if (!_autotuneRecommendation) return
+
+  btn.disabled = true
+  btn.textContent = 'Applying\u2026'
+  status.classList.add('hidden')
+
+  try {
+    var result = await window.w2gp.autoTuneApply(_autotuneRecommendation)
+    if (result.success) {
+      status.className = ''
+      status.style.background = '#1E3A1E'
+      status.innerHTML = '\u2705 Applied to <code>' + escHtml(result.path) + '</code><br><small>Keys: ' + result.applied.join(', ') + '</small>'
+    } else {
+      status.className = ''
+      status.style.background = '#3A1E1E'
+      status.innerHTML = '\u274c ' + escHtml(result.error || 'Unknown error')
+    }
+  } catch (e) {
+    status.className = ''
+    status.style.background = '#3A1E1E'
+    status.innerHTML = '\u274c Apply failed: ' + escHtml(e.message)
+  } finally {
+    btn.disabled = false
+    btn.textContent = 'Apply to Wan2GP'
+  }
+})
