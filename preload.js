@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('w2gp', {
   configLoad: () => ipcRenderer.invoke('config-load'),
   configSave: (cfg) => ipcRenderer.invoke('config-save', cfg),
 
+  // Auto-Tune
+  autoTuneDetect: () => ipcRenderer.invoke('auto-tune:detect'),
+  autoTuneRecommend: (hw) => ipcRenderer.invoke('auto-tune:recommend', hw),
+  autoTuneApply: (settings) => ipcRenderer.invoke('auto-tune:apply', settings),
+  autoTuneFullTune: () => ipcRenderer.invoke('auto-tune:full-tune'),
+
   // Hardware
   detectHardware: () => ipcRenderer.invoke('detect-hardware'),
   getHardwareProfile: () => ipcRenderer.invoke('get-hardware-profile'),

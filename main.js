@@ -1809,6 +1809,27 @@ ipcMain.handle('detect-hardware', () => {
   return info
 })
 
+// ── Auto-Tune (detect → recommend → apply to wgp_config.json) ──
+const autoTune = require('./services/auto-tune.js')
+
+ipcMain.handle('auto-tune:detect', () => {
+  return autoTune.detect()
+})
+
+ipcMain.handle('auto-tune:recommend', (_, hw) => {
+  // If caller passes hardware data, use it; otherwise detect first
+  const data = hw || autoTune.detect()
+  return autoTune.recommend(data)
+})
+
+ipcMain.handle('auto-tune:apply', (_, settings) => {
+  return autoTune.apply(settings, getRepoDir(), getDataDir())
+})
+
+ipcMain.handle('auto-tune:full-tune', () => {
+  return autoTune.fullTune(getRepoDir(), getDataDir())
+})
+
 // ── Hardware profile: maps detected GPU → expected install packages ──
 ipcMain.handle('get-hardware-profile', () => {
   const profiles = {
