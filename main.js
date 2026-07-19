@@ -628,14 +628,19 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   // Ensure --server-port in args
   const hasPort = extraArgs.some(a => a === '--server-port')
   if (!hasPort) { extraArgs.push('--server-port', String(preferredPort)) }
+  // Ensure --server-name is set (default 127.0.0.1 to avoid proxy/DNS issues that
+  // cause Gradio 5.x to raise "When localhost is not accessible, a shareable link
+  // must be created…" — see gradio-app/gradio#4046)
+  const hasServerName = extraArgs.some(a => a === '--server-name')
+  if (!hasServerName) { extraArgs.push('--server-name', '127.0.0.1') }
 
   const port = preferredPort
   _currentPort = port
 
   // If already running (e.g. from Desktop mode), just connect
-  if (await checkPort('localhost', port)) {
+  if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Opening browser...\n`)
-    return { url: `http://localhost:${port}`, port }
+    return { url: `http://127.0.0.1:${port}`, port }
   }
 
   send('launch-log', '[*] Starting Wan2GP...\n')
@@ -695,11 +700,11 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     batLines.push('timeout /t 2 /nobreak >nul')
     batLines.push('set /a RETRY_COUNT+=1')
     batLines.push('if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. ^& pause ^& exit /b 1)')
-    batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
+    batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://127.0.0.1:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
     batLines.push('goto waitloop')
     batLines.push(':ready')
     batLines.push('echo Wan2GP is ready! Opening browser...')
-    batLines.push('start http://localhost:' + preferredPort)
+    batLines.push('start http://127.0.0.1:' + preferredPort)
     batLines.push('echo.')
     batLines.push('echo [Wan2GP] Server is running. Close this window to stop it.')
     batLines.push('pause >nul')
@@ -714,6 +719,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         env: {
           ...process.env, PYTHONUNBUFFERED: '1',
           TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+          NO_PROXY: 'localhost,127.0.0.1,::1',
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -724,6 +730,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         env: {
           ...process.env, PYTHONUNBUFFERED: '1',
           TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+          NO_PROXY: 'localhost,127.0.0.1,::1',
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -737,6 +744,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       env: {
         ...process.env, PYTHONUNBUFFERED: '1',
         TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+        NO_PROXY: 'localhost,127.0.0.1,::1',
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
       }
     })
@@ -755,7 +763,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
 
   send('launch-log', '[*] Waiting for Gradio server...\n')
   try {
-    await waitForPort('localhost', port, 180000)
+    await waitForPort('127.0.0.1', port, 180000)
     // For external-terminal mode, capture the python PID now (server is up) for a bulletproof Stop.
     if (mode === 'terminal') {
       const pid = findWan2gpPid()
@@ -781,9 +789,9 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
       })
       sock.on('timeout', () => { sock.destroy() })
-      sock.connect(port, 'localhost')
+      sock.connect(port, '127.0.0.1')
     }, 8000)
-    return { url: `http://localhost:${port}`, port }
+    return { url: `http://127.0.0.1:${port}`, port }
   } catch (err) {
     throw err
   }
@@ -800,12 +808,13 @@ ipcMain.handle('launch-webview', async () => {
   let port = cfg.serverPort || 7860
   const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
   if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
+  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', '127.0.0.1')
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
-  if (await checkPort('localhost', port)) {
+  if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Connecting...\n`)
-    return { url: `http://localhost:${port}`, port }
+    return { url: `http://127.0.0.1:${port}`, port }
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
@@ -813,6 +822,7 @@ ipcMain.handle('launch-webview', async () => {
     cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     env: { ...process.env, PYTHONUNBUFFERED: '1',
       TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+      NO_PROXY: 'localhost,127.0.0.1,::1',
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
@@ -820,10 +830,10 @@ ipcMain.handle('launch-webview', async () => {
   proc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
   proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code); try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {} })
   try {
-    await waitForPort('localhost', port, 180000)
+    await waitForPort('127.0.0.1', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
-    return { url: `http://localhost:${port}`, port }
+    return { url: `http://127.0.0.1:${port}`, port }
   } catch (err) { killProcessTree(_wangpProc); _wangpProc = null; throw err }
 })
 
@@ -1633,8 +1643,11 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'echo.\n'
     batContent += 'echo Starting wgp.py in background...\n'
     // Run wgp.py in background so we can monitor + open browser when ready
+    // Ensure --server-name is set (default 127.0.0.1 to avoid proxy/localhost Gradio issues)
+    const hasServerName = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--server-name')
+    const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
     const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(escapeBatCmdArg).join(' ') : ''
-    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${escapedExtra}" 2>&1\n`
+    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${serverNameArg}${escapedExtra}" 2>&1\n`
     batContent += 'echo.\n'
     batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
     // Poll via HTTP (wait for real Gradio response, not just TCP socket)
@@ -1643,11 +1656,11 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'timeout /t 2 /nobreak >nul\n'
     batContent += 'set /a RETRY_COUNT+=1\n'
     batContent += 'if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. & pause & exit /b 1)\n'
-    batContent += 'powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + port + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready\n'
+    batContent += 'powershell -Command "try{$(Invoke-WebRequest -Uri http://127.0.0.1:' + port + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready\n'
     batContent += 'goto waitloop\n'
     batContent += ':ready\n'
     batContent += 'echo Wan2GP is ready! Opening browser...\n'
-    batContent += 'start http://localhost:' + port + '\n'
+    batContent += 'start http://127.0.0.1:' + port + '\n'
     batContent += 'echo.\n'
     batContent += 'echo [Wan2GP] Server is running. Close this window to stop it.\n'
     batContent += 'pause >nul\n'

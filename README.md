@@ -96,6 +96,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.2.1** — **Bugfix release** — fixes Gradio "localhost not accessible" error on launch when proxy env vars are set. Passes `--server-name 127.0.0.1` and sets `NO_PROXY` in all launch modes. See [CHANGELOG-v2.2.1.md](CHANGELOG-v2.2.1.md).
 - **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).
 - **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
 - **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
