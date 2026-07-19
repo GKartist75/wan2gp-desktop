@@ -7,25 +7,32 @@ const search = document.getElementById('logSearch')
 let follow = true
 let buf = []
 let _lastLine = ''
+let _carriageReturn = false  // next text part replaces _lastLine instead of appending
 const MAX = 5000
 
 function strip(t) {
   return t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x08/g, '')
 }
 
-// Mirrors app.js appendLog() exactly — same line-accumulation strategy
 function appendToBuf(text) {
   if (!text) return
   const parts = text.replace(/\r\n/g, '\n').split(/(\r|\n)/)
   for (const part of parts) {
     if (part === '\r') {
-      if (_lastLine && buf.length > 0) buf[buf.length - 1] = _lastLine
-      _lastLine = ''
+      // \r = go to start of line — next text OVERWRITES _lastLine, doesn't append.
+      // Don't push anything to buffer; the render() shows _lastLine as the in-progress line.
+      _carriageReturn = true
     } else if (part === '\n') {
       if (_lastLine.trim()) buf.push(_lastLine.trim())
       _lastLine = ''
+      _carriageReturn = false
     } else {
-      _lastLine += part
+      if (_carriageReturn) {
+        _lastLine = part
+        _carriageReturn = false
+      } else {
+        _lastLine += part
+      }
     }
   }
   while (buf.length > MAX) buf.shift()
@@ -38,7 +45,9 @@ function render() {
   _renderQueued = true
   requestAnimationFrame(() => {
     _renderQueued = false
-    body.textContent = buf.join('\n')
+    // Include the in-progress \r-updated line (_lastLine) so progress bars are visible
+    // before a \n arrives. When _lastLine is empty show buffer only.
+    body.textContent = buf.join('\n') + (_lastLine ? '\n' + _lastLine : '')
     if (follow) body.scrollTop = body.scrollHeight
   })
 }
@@ -75,11 +84,12 @@ document.querySelectorAll('.dock-btn').forEach(b => {
   b.addEventListener('click', () => window.w2gp.setDock(b.dataset.dock))
 })
 document.getElementById('ftCloseBtn').addEventListener('click', () => window.w2gp.closeTerm())
-document.getElementById('logExportBtn').addEventListener('click', () => window.w2gp.exportLogs(buf.join('\n')))
+document.getElementById('logExportBtn').addEventListener('click', () => window.w2gp.exportLogs(buf.join('\n') + (_lastLine ? '\n' + _lastLine : '')))
 
 search.addEventListener('input', () => {
   const q = search.value.toLowerCase()
   if (!q) { render(); return }
-  body.textContent = buf.filter(l => l.toLowerCase().includes(q)).join('\n')
+  const allLines = [...buf, ...(_lastLine ? [_lastLine] : [])]
+  body.textContent = allLines.filter(l => l.toLowerCase().includes(q)).join('\n')
   body.scrollTop = body.scrollHeight
 })

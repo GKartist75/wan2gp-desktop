@@ -36,6 +36,7 @@
       <button class="settings-tab active" data-tab="general">General</button>
       <button class="settings-tab" data-tab="launch">Launch</button>
       <button class="settings-tab" data-tab="about">About</button>
+      <button class="settings-tab" data-tab="autotune">⚡ Auto-Tune</button>
     </div>
     <div class="settings-scroll">
       <div class="settings-tab-content active" data-tab="general">
@@ -88,6 +89,11 @@
           <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="notificationsToggle" checked> <span>Desktop notifications</span></label>
           <p class="token-hint">Show a notification when Wan2GP server is ready or stops.</p>
         </div>
+        <div class="settings-section">
+          <h3>Xet Storage (hf_xet)</h3>
+          <p class="token-hint" id="xetStatusLine">Speeds up HuggingFace model downloads with delta compression. Status: <span id="xetStatus">checking...</span></p>
+          <button class="btn btn-primary small" id="xetInstallBtn">Install hf_xet</button>
+        </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">
         <div class="settings-section">
@@ -130,6 +136,39 @@
           <p class="token-hint">Version <span id="settingsVersionNum">—</span></p>
           <p class="token-hint">Desktop launcher for <a href="#" id="settingsWgpLink">Wan2GP</a> — the video generation AI toolkit.</p>
         </div>
+      </div>
+
+      <!-- ═══════ Auto-Tune Tab ═══════ -->
+      <div class="settings-tab-content" data-tab="autotune">
+        <div class="settings-section">
+          <h3>⚡ Performance Auto-Tune</h3>
+          <p class="token-hint">Detects your hardware and recommends optimal performance settings for Wan2GP. These settings are written directly to <code>wgp_config.json</code>.</p>
+        </div>
+
+        <!-- Hardware Card -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-header">
+            <span class="card-title">Hardware</span>
+            <button class="btn btn-ghost small" id="autotuneDetectBtn" style="margin-left:auto">⟳ Detect</button>
+          </div>
+          <div id="autotuneHardwareInfo" style="padding:4px 12px 12px">
+            <p class="token-hint" style="margin:0">Click <strong>Detect</strong> to scan your system.</p>
+          </div>
+        </div>
+
+        <!-- Recommendation Card -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-header">
+            <span class="card-title">Recommendation</span>
+            <button class="btn btn-primary small" id="autotuneApplyBtn" style="margin-left:auto" disabled>Apply to Wan2GP</button>
+          </div>
+          <div id="autotuneRecommendInfo" style="padding:4px 12px 12px">
+            <p class="token-hint" style="margin:0">Run detection first.</p>
+          </div>
+        </div>
+
+        <!-- Status / Result -->
+        <div id="autotuneStatus" class="hidden" style="padding:10px 14px;border-radius:8px;font-size:0.75rem;line-height:1.5;background:var(--bg-tertiary)"></div>
       </div>
     </div>
   </div>

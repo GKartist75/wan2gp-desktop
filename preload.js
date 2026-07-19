@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('w2gp', {
   configLoad: () => ipcRenderer.invoke('config-load'),
   configSave: (cfg) => ipcRenderer.invoke('config-save', cfg),
 
+  // Auto-Tune
+  autoTuneDetect: () => ipcRenderer.invoke('auto-tune:detect'),
+  autoTuneRecommend: (hw) => ipcRenderer.invoke('auto-tune:recommend', hw),
+  autoTuneApply: (settings) => ipcRenderer.invoke('auto-tune:apply', settings),
+  autoTuneFullTune: () => ipcRenderer.invoke('auto-tune:full-tune'),
+
   // Hardware
   detectHardware: () => ipcRenderer.invoke('detect-hardware'),
   getHardwareProfile: () => ipcRenderer.invoke('get-hardware-profile'),
@@ -105,6 +111,8 @@ contextBridge.exposeInMainWorld('w2gp', {
   checkPackageUpdates: (versions) => ipcRenderer.invoke('check-package-updates', versions),
   upgradePackage: (pkgName) => ipcRenderer.invoke('upgrade-package', pkgName),
   installPackage: (pkgName) => ipcRenderer.invoke('install-package', pkgName),
+  uninstallPackage: (pkgName) => ipcRenderer.invoke('uninstall-package', pkgName),
+  checkPackage: (pkgName) => ipcRenderer.invoke('check-package', pkgName),
   restoreRequirements: () => ipcRenderer.invoke('restore-requirements'),
 
   // Desktop experience: tray, auto-start, notifications, theme

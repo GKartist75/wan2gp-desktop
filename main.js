@@ -3,9 +3,78 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { spawn, exec, execSync } = require('child_process')
+
+// ── GPU info cache (TTL 30s, avoids redundant nvidia-smi calls across handlers) ──
+let _gpuCache = { result: null, ts: 0 }
+const GPU_CACHE_TTL = 30000
+function getGpuInfo() {
+  if (_gpuCache.result && Date.now() - _gpuCache.ts < GPU_CACHE_TTL) return _gpuCache.result
+  const result = { name: '', vramMB: 0, vendor: '' }
+  try {
+    const ns = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
+    if (ns) {
+      const parts = ns.split(', ')
+      result.name = parts[0] || ''
+      result.vramMB = parseFloat(parts[1]) || 0
+      result.vendor = 'NVIDIA'
+    }
+  } catch {
+    try {
+      const wmi = execSync('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ForEach-Object {$_.Name + \'|\' + $_.AdapterRAM}"', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+      if (wmi) {
+        const parts = wmi.split('|')
+        result.name = (parts[0] || '').trim()
+        result.vramMB = Math.round((parseInt(parts[1]) || 0) / (1024 * 1024))
+        result.vendor = /radeon|amd/i.test(result.name) ? 'AMD' : 'INTEL'
+      }
+    } catch {}
+  }
+  _gpuCache = { result, ts: Date.now() }
+  return result
+}
 const net = require('net')
 const http = require('http')
 const https = require('https')
+
+// ── Structured error logging (replaces silent catch blocks) ──
+function logError(context, err) {
+  const msg = err ? (err.stack || err.message || String(err)) : String(err)
+  console.error(`[${context}]`, msg)
+}
+
+// ── Safer batch-file string escaping ──
+// Escape a value for use in a Windows batch (.bat) file context.
+// Replaces metacharacters so the value is treated as literal text
+// both in `echo` statements and inside `cmd /c "..."` arguments.
+function escapeBat(s) {
+  if (typeof s !== 'string') return String(s)
+  // ^ is cmd's escape char — must be escaped first so later ^-insertions aren't doubled
+  return s.replace(/\^/g, '^^')
+          .replace(/&/g, '^&')
+          .replace(/\|/g, '^|')
+          .replace(/>/g, '^>')
+          .replace(/</g, '^<')
+          .replace(/%/g, '%%')
+          .replace(/"/g, '""')
+}
+
+// Escape a value for use inside cmd /c "..." (inside double quotes).
+// In that context ^ is literal, and only %, " and ! (delayed expansion) are special.
+function escapeBatCmdArg(s) {
+  if (typeof s !== 'string') return String(s)
+  return s.replace(/%/g, '%%')
+          .replace(/"/g, '""')
+          .replace(/!/g, '^^!')
+}
+
+// Ensure a resolved path is inside the repo directory (prevent path traversal).
+function ensureInsideRepo(envPath) {
+  const repo = getRepoDir()
+  if (!repo) return false
+  const rel = path.relative(repo, path.resolve(envPath))
+  return !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
 const { autoUpdater } = require('electron-updater')
 
 // ── Force-kill a process and its entire tree ──
@@ -14,8 +83,13 @@ function killProcessTree(proc) {
   try {
     if (process.platform === 'win32')
       execSync('taskkill /pid ' + proc.pid + ' /f /t', { windowsHide: true, timeout: 3000 })
-    else
-      process.kill(-proc.pid, 'SIGKILL')
+    else {
+      // Use pkill to kill children, then kill the parent.
+      // process.kill(-pid, 'SIGKILL') requires process group leadership which
+      // Node's default spawn doesn't set, so use shell commands instead.
+      try { execSync('pkill -P ' + proc.pid + ' 2>/dev/null', { timeout: 2000 }) } catch {}
+      try { process.kill(proc.pid, 'SIGKILL') } catch {}
+    }
   } catch (e) {
     // Already dead or permission denied — that's fine
   }
@@ -67,21 +141,12 @@ function findWan2gpPid() {
 try {
   const _cfg = JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
-} catch {}
+} catch (e) { logError('gpu-config', e) }
 
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
-// Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
-try {
-  if (fs.existsSync(DATA_DIR_OVERRIDE)) {
-    const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
-    if (d) {
-      const ed = path.join(d, '.electron')
-      fs.mkdirSync(ed, { recursive: true })
-      app.setPath('userData', ed)
-    }
-  }
-} catch {}
+// Redirect Electron's internal runtime data is done inside app.whenReady()
+// (see below) — calling app.setPath before ready can fail on some platforms.
 
 function getDataDir() {
   try {
@@ -89,13 +154,63 @@ function getDataDir() {
       const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
       if (d) return d
     }
-  } catch {}
+  } catch (e) { logError('getDataDir', e) }
   return path.join(app.getPath('userData'), 'Wan2GP')
 }
 
 function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
 function getRepoDir() { return path.join(getDataDir(), 'Wan2GP') }
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
+
+// ── Progress-forcing bootstrap ──
+// Writes inline Python to a temp file so child Python can access it
+// even from inside app.asar (asar is Node-only virtual filesystem).
+const BOOTSTRAP_SCRIPT = (() => {
+  // Concatenated to avoid template-literal indentation issues
+  const lines = [
+    '#!/usr/bin/env python3',
+    'import os, sys, runpy',
+    'def _patch_tty():',
+    '    os.environ["PYTHONUNBUFFERED"] = "1"',
+    '    os.environ["TQDM_DISABLE"] = "0"',
+    '    os.environ["TQDM_MININTERVAL"] = "0"',
+    '    os.environ["TQDM_MINITERS"] = "1"',
+    '    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"',
+    '    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"',
+    '    os.environ["TERM"] = "xterm-256color"',
+    '    class _TTYStream:',
+    '        __slots__ = ("_inner",)',
+    '        def __init__(self, inner): self._inner = inner',
+    '        def isatty(self): return True',
+    '        def __getattr__(self, n): return getattr(self._inner, n)',
+    '        def fileno(self):',
+    '            try: return self._inner.fileno()',
+    '            except OSError: raise',
+    '    sys.stderr = _TTYStream(sys.stderr)',
+    '    sys.stdout = _TTYStream(sys.stdout)',
+    '    sys.__stderr__ = sys.stderr',
+    '    sys.__stdout__ = sys.stdout',
+    '    print("[bootstrap] active", flush=True)',
+    'def main():',
+    '    if len(sys.argv) < 2 or sys.argv[1].startswith("-"):',
+    '        print("Usage: bootstrap.py <target> [args...]", file=sys.stderr)',
+    '        sys.exit(1)',
+    '    target = os.path.abspath(sys.argv[1])',
+    '    if not os.path.isfile(target):',
+    '        print("[bootstrap] Target not found: " + target, file=sys.stderr)',
+    '        sys.exit(1)',
+    '    _patch_tty()',
+    '    sys.argv = sys.argv[1:]',
+    '    d = os.path.dirname(target)',
+    '    if d not in sys.path: sys.path.insert(0, d)',
+    '    runpy.run_path(target, run_name="__main__")',
+    'if __name__ == "__main__":',
+    '    main()',
+  ]
+  const p = path.join(os.tmpdir(), 'wan2gp-bootstrap.py')
+  try { fs.writeFileSync(p, lines.join('\n'), 'utf8') } catch {}
+  return p
+})()
 
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
@@ -150,7 +265,7 @@ function send(ch, data) {
 function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
-  } catch {}
+  } catch (e) { logError('loadConfig', e) }
   return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true }
 }
 
@@ -232,9 +347,10 @@ function runSetup(args) {
       send('setup-output', '[!] Python 3.11 not found (uv python find 3.11 failed). Falling back to system Python — this may break builds (e.g. pygame on 3.14).\n')
       py = sysPython()
     }
-    const proc = spawn(py, ['-u', 'setup.py', ...args], {
+    const proc = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'setup.py', ...args], {
       cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic' }
+      env: { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
+        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
     })
     setupProc = proc
     let lineBuf = ''
@@ -310,44 +426,46 @@ ipcMain.handle('check-installed', () => ({
 }))
 
 ipcMain.handle('detect-gpu', () => {
-  // ponytail: direct shell detection (matches detect-hardware). The old code wrapped
-  // nvidia-smi in a `python -c "..."` one-liner via sysPython(); that broke when the
-  // first `python` on PATH was an unrelated venv (e.g. a bundled agent venv) whose
-  // multi-line -c quoting failed, yielding {vendor:''}. Detect directly here.
+  // Uses getGpuInfo() cache when available (reduces redundant nvidia-smi calls).
+  // Falls back to platform-specific detection for non-NVIDIA GPUs.
   try {
+    const cached = getGpuInfo()
+    if (cached.name && cached.vendor) {
+      return { vendor: cached.vendor, name: cached.name }
+    }
     let name = '', vendor = 'UNKNOWN'
     if (IS_WIN) {
       try {
         const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim().split('\n')[0].trim()
         if (nv) { name = nv; vendor = 'NVIDIA' }
-      } catch {}
+      } catch { logError('detect-gpu-nv', 'nvidia-smi failed') }
       if (!name) {
         try {
           const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
           if (wmi) { name = wmi; vendor = /radeon|amd/i.test(wmi) ? 'AMD' : 'INTEL' }
-        } catch {}
+        } catch { logError('detect-gpu-wmi', 'WMI query failed') }
       }
     } else if (PLATFORM === 'darwin') {
       try {
         const m = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model"', { encoding: 'utf8', timeout: 10000 }).trim()
         if (m) { name = m.replace('Chipset Model:', '').trim(); vendor = 'APPLE' }
-      } catch {}
+      } catch { logError('detect-gpu-mac', 'system_profiler failed') }
     } else {
       try {
         const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null', { encoding: 'utf8', timeout: 10000, shell: true }).trim().split('\n')[0].trim()
         if (nv) { name = nv; vendor = 'NVIDIA' }
-      } catch {}
+      } catch { logError('detect-gpu-linux-nv', 'nvidia-smi failed') }
       if (!name) {
         try {
           const l = execSync('lspci | grep -i "vga\\|3d" | head -1', { encoding: 'utf8', timeout: 10000, shell: true }).trim()
           if (/nvidia/i.test(l)) { name = l; vendor = 'NVIDIA' }
           else if (/amd|radeon/i.test(l)) { name = l; vendor = 'AMD' }
-        } catch {}
+        } catch { logError('detect-gpu-lspci', 'lspci failed') }
       }
     }
     if (!name) return { vendor: 'UNKNOWN', name: 'Unknown' }
     return { vendor, name }
-  } catch { return { vendor: 'UNKNOWN', name: 'Unknown' } }
+  } catch (e) { logError('detect-gpu', e); return { vendor: 'UNKNOWN', name: 'Unknown' } }
 })
 
 ipcMain.handle('install', async (_, envType) => {
@@ -386,7 +504,7 @@ ipcMain.handle('install', async (_, envType) => {
     send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
   }
   await runSetup(['install', '--env', env, '--auto'])
-  // Post-install: ensure huggingface_hub is installed (avoids Xet warning)
+  // Post-install: ensure huggingface_hub + hf_xet are installed
   send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
   try {
     const envData = getActiveEnv()
@@ -395,6 +513,15 @@ ipcMain.handle('install', async (_, envType) => {
       if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: getRepoDir(), windowsHide: true })
     }
   } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
+  send('setup-output', '[*] Installing hf_xet (Xet Storage) for faster model downloads...\n')
+  try {
+    const envData = getActiveEnv()
+    if (envData) {
+      const py = getPythonForEnv(envData)
+      if (py) execSync(`"${py}" -m pip install hf_xet -q`, { stdio: 'pipe', timeout: 60000, cwd: getRepoDir(), windowsHide: true })
+    }
+  } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
+    send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
   return true
 })
 
@@ -543,7 +670,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       activateLine = 'call conda activate "' + envPath + '"'
     }
 
-    const argsStr = extraArgs.join(' ')
+    const argsStr = extraArgs.map(escapeBatCmdArg).join(' ')
     const batLines = [
       '@echo off',
       'title ' + _terminalTitle,
@@ -554,17 +681,20 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       'echo.'
     ]
     if (activateLine) {
-      batLines.push('echo Activating environment: ' + env.name + ' (' + env.type + ')')
+      batLines.push('echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')')
       batLines.push(activateLine)
       if (setPathLine) batLines.push(setPathLine)
       batLines.push('echo.')
     }
     batLines.push('echo Starting wgp.py in background...')
-    batLines.push('start /b "" cmd /c "python -u wgp.py ' + argsStr + '" 2>&1')
+    batLines.push(`start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py ${argsStr}" 2>&1`)
     batLines.push('echo.')
     batLines.push('echo Waiting for Wan2GP server on port ' + preferredPort + '...')
+    batLines.push('set RETRY_COUNT=0')
     batLines.push(':waitloop')
     batLines.push('timeout /t 2 /nobreak >nul')
+    batLines.push('set /a RETRY_COUNT+=1')
+    batLines.push('if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. ^& pause ^& exit /b 1)')
     batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
     batLines.push('goto waitloop')
     batLines.push(':ready')
@@ -583,6 +713,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
         env: {
           ...process.env, PYTHONUNBUFFERED: '1',
+          TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -592,6 +723,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
         env: {
           ...process.env, PYTHONUNBUFFERED: '1',
+          TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -600,10 +732,11 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     _wangpProc = null
   } else {
     send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
-    child = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
+    child = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'wgp.py', ...extraArgs], {
       cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false,
       env: {
         ...process.env, PYTHONUNBUFFERED: '1',
+        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
       }
     })
@@ -676,9 +809,10 @@ ipcMain.handle('launch-webview', async () => {
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
-  const proc = spawn(py, ['-u', 'wgp.py', ...extraArgs], {
+  const proc = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'wgp.py', ...extraArgs], {
     cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     env: { ...process.env, PYTHONUNBUFFERED: '1',
+      TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
@@ -931,6 +1065,11 @@ ipcMain.handle('uninstall-env', async (_, name) => {
   if (entry?.path && entry.type !== 'none') {
     const envPath = path.isAbsolute(entry.path) ? entry.path : path.join(getRepoDir(), entry.path)
     send('setup-output', `[${name}] path: ${envPath}\n`)
+    if (!ensureInsideRepo(envPath)) {
+      send('setup-output', `[${name}] SECURITY: env path outside repo — skipped deletion
+`)
+      return { error: 'Environment path outside repo — deletion blocked' }
+    }
     if (fs.existsSync(envPath)) {
       try {
         // Show folder size before deleting
@@ -969,8 +1108,11 @@ ipcMain.handle('uninstall-env', async (_, name) => {
 })
 
 ipcMain.handle('open-external', (_, url) => {
-  if (typeof url !== 'string' || !url.startsWith('http')) return
-  try { new URL(url) } catch { return }
+  if (typeof url !== 'string') return
+  let parsed
+  try { parsed = new URL(url) } catch { return }
+  // Only allow http/https URLs to avoid protocol-handler abuse
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
   shell.openExternal(url)
 })
 
@@ -1277,27 +1419,9 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
 function getHardwareDefaults() {
   const out = { attention: 'auto', compile: '', profile: 5, hierarchy: 1 }
   try {
-    let gpuName = '', vramMB = 0
-    // Try nvidia-smi first
-    try {
-      const ns = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
-      if (ns) {
-        const parts = ns.split(', ')
-        gpuName = parts[0] || ''
-        vramMB = parseFloat(parts[1]) || 0
-      }
-    } catch {}
-    // Fallback to WMI for non-NVIDIA GPUs
-    if (!gpuName && IS_WIN) {
-      try {
-        const wmi = execSync('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ForEach-Object {$_.Name + \'|\' + $_.AdapterRAM}"', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
-        if (wmi) {
-          const parts = wmi.split('|')
-          gpuName = (parts[0] || '').trim()
-          vramMB = Math.round((parseInt(parts[1]) || 0) / (1024*1024))
-        }
-      } catch {}
-    }
+    const gpu = getGpuInfo()
+    const gpuName = gpu.name || ''
+    const vramMB = gpu.vramMB || 0
 
     // Detect total RAM
     let ramGB = 0
@@ -1500,7 +1624,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'echo Starting Wan2GP on port ' + port + '...\n'
     batContent += 'echo.\n'
     if (activate) {
-      batContent += 'echo Activating environment: ' + env.name + ' (' + env.type + ')\n'
+      batContent += 'echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')\n'
       batContent += activate + '\n'
       if (IS_WIN && (env.type === 'venv' || env.type === 'uv')) {
         batContent += 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%\n'
@@ -1509,12 +1633,16 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'echo.\n'
     batContent += 'echo Starting wgp.py in background...\n'
     // Run wgp.py in background so we can monitor + open browser when ready
-    batContent += 'start /b "" cmd /c "python -u wgp.py --server-port ' + port + (extraArgs ? ' ' + extraArgs : '') + '" 2>&1\n'
+    const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(escapeBatCmdArg).join(' ') : ''
+    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${escapedExtra}" 2>&1\n`
     batContent += 'echo.\n'
     batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
     // Poll via HTTP (wait for real Gradio response, not just TCP socket)
+    batContent += 'set RETRY_COUNT=0\n'
     batContent += ':waitloop\n'
     batContent += 'timeout /t 2 /nobreak >nul\n'
+    batContent += 'set /a RETRY_COUNT+=1\n'
+    batContent += 'if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. & pause & exit /b 1)\n'
     batContent += 'powershell -Command "try{$(Invoke-WebRequest -Uri http://localhost:' + port + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready\n'
     batContent += 'goto waitloop\n'
     batContent += ':ready\n'
@@ -1639,7 +1767,7 @@ ipcMain.handle('upgrade-package', async (_, pkgName) => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', pkgName], {
         cwd: getRepoDir(), timeout: 120000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -1667,7 +1795,7 @@ ipcMain.handle('install-package', async (_, pkgName) => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', pkgName], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -1680,6 +1808,69 @@ ipcMain.handle('install-package', async (_, pkgName) => {
     send('launch-log', '[*] ' + pkgName + ' installed successfully.\n')
     return { success: true }
   } catch (e) { return { error: e.message } }
+})
+
+// ── Uninstall a single package from the active env ──
+ipcMain.handle('uninstall-package', async (_, pkgName) => {
+  try {
+    const env = getActiveEnv()
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python' }
+    send('launch-log', `[*] Uninstalling ${pkgName}...\n`)
+    const { spawn } = require('child_process')
+    await new Promise((resolve, reject) => {
+      const proc = spawn(py, ['-m', 'pip', 'uninstall', '--yes', pkgName], {
+        cwd: getRepoDir(), timeout: 60000, windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      })
+      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error('pip uninstall exited code ' + code))
+      })
+      proc.on('error', reject)
+    })
+    send('launch-log', `[*] ${pkgName} uninstalled successfully.\n`)
+    return { success: true }
+  } catch (e) { return { error: e.message } }
+})
+
+// ── Check if a package is installed in the active env ──
+// Whitelist of packages that can be checked via check-package IPC.
+const _CHECK_PKG_WHITELIST = [
+  'hf_xet', 'triton', 'flash_attn', 'sageattention', 'xformers',
+  'torch', 'diffusers', 'transformers', 'gradio', 'accelerate',
+  'bitsandbytes', 'opencv-python', 'moviepy', 'insightface'
+]
+ipcMain.handle('check-package', async (_, pkgName) => {
+  if (!_CHECK_PKG_WHITELIST.includes(pkgName)) {
+    console.warn('[SECURITY] check-package blocked for:', pkgName)
+    return { installed: false, error: 'Package not in whitelist' }
+  }
+  try {
+    const env = getActiveEnv()
+    if (!env) return { installed: false }
+    const py = getPythonForEnv(env)
+    if (!py) return { installed: false }
+    // Use a Python helper script written to disk (not inline code) to avoid injection.
+    // The package name is written into the script as a JSON string before execution.
+    const helperPath = path.join(getDataDir(), '.check_pkg.py')
+    const script = [
+      'import sys, json',
+      'try:',
+      '  import importlib',
+      '  mod = sys.argv[1]',
+      '  importlib.import_module(mod)',
+      '  print("ok")',
+      'except:',
+      '  print("no")',
+    ].join('\n')
+    fs.writeFileSync(helperPath, script)
+    const r = execSync(`"${py}" "${helperPath}" "${pkgName.replace(/-/g, '_')}"`, { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: getRepoDir() }).trim()
+    return { installed: r === 'ok' }
+  } catch { return { installed: false } }
 })
 
 // ── Restore all packages from requirements.txt ──
@@ -1696,7 +1887,7 @@ ipcMain.handle('restore-requirements', async () => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '-r', reqPath], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -1809,6 +2000,27 @@ ipcMain.handle('detect-hardware', () => {
   return info
 })
 
+// ── Auto-Tune (detect → recommend → apply to wgp_config.json) ──
+const autoTune = require('./services/auto-tune.js')
+
+ipcMain.handle('auto-tune:detect', () => {
+  return autoTune.detect(getRepoDir())
+})
+
+ipcMain.handle('auto-tune:recommend', (_, hw) => {
+  // If caller passes hardware data, use it; otherwise detect first
+  const data = hw || autoTune.detect(getRepoDir())
+  return autoTune.recommend(data)
+})
+
+ipcMain.handle('auto-tune:apply', (_, settings) => {
+  return autoTune.apply(settings, getRepoDir(), getDataDir())
+})
+
+ipcMain.handle('auto-tune:full-tune', () => {
+  return autoTune.fullTune(getRepoDir(), getDataDir())
+})
+
 // ── Hardware profile: maps detected GPU → expected install packages ──
 ipcMain.handle('get-hardware-profile', () => {
   const profiles = {
@@ -1857,6 +2069,8 @@ ipcMain.handle('get-hardware-profile', () => {
 // code spawned PowerShell twice per tick (Get-CimInstance ~440ms + Get-Counter ~1450ms) —
 // ~1.9s of main-thread blocking every 2s froze the whole UI ("running is very slow").
 // VRAM stays on nvidia-smi (cheap, ~75ms, no PowerShell).
+// CPU values are deltas across successive calls (live utilization, not boot cumulative).
+let _prevCpuTimes = null
 ipcMain.handle('get-system-metrics', () => {
   const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null }
   try {
@@ -1867,13 +2081,19 @@ ipcMain.handle('get-system-metrics', () => {
     result.ramTotal = gb(total)
     result.ramUsed = gb(used)
     result.ram = Math.min(100, Math.round(used / total * 100))
-    // Load over the last minute (os.cpus times are cumulative since boot; the
-    // deltas over a window would need caching, so use the 1-min average which is
-    // instant and good enough for a sparkline).
+    // CPU utilization via delta between successive samples (live, not cumulative).
     const cpus = os.cpus()
     let idle = 0, busy = 0
-    for (const c of cpus) for (const k in c.times) { if (k === 'idle') idle += c.times[k]; else busy += c.times[k] }
-    result.cpu = cpus.length ? Math.round((busy / (idle + busy)) * 100) : null
+    for (const c of cpus) { for (const k in c.times) { if (k === 'idle') idle += c.times[k]; else busy += c.times[k] } }
+    if (_prevCpuTimes) {
+      const dIdle = idle - _prevCpuTimes.idle
+      const dBusy = busy - _prevCpuTimes.busy
+      const dTotal = dIdle + dBusy
+      result.cpu = dTotal > 0 ? Math.round((dBusy / dTotal) * 100) : 0
+    } else {
+      result.cpu = null // first tick — no delta yet
+    }
+    _prevCpuTimes = { idle, busy }
   } catch { }
   try {
     const nvOut = execSync('nvidia-smi --query-gpu=memory.free,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
@@ -2127,7 +2347,16 @@ app.whenReady().then(() => {
       fs.mkdirSync(d, { recursive: true })
       fs.writeFileSync(DATA_DIR_OVERRIDE, d)
     }
-  } catch {}
+    // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
+    if (fs.existsSync(DATA_DIR_OVERRIDE)) {
+      const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
+      if (d) {
+        const ed = path.join(d, '.electron')
+        fs.mkdirSync(ed, { recursive: true })
+        app.setPath('userData', ed)
+      }
+    }
+  } catch (e) { logError('data-dir-init', e) }
   createWindow()
   createTray()
 
