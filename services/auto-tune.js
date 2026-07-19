@@ -80,6 +80,9 @@ function queryCudaVersion() {
 /**
  * Full hardware detection.
  *
+ * @param {string} [repoDir] - Wan2GP repo directory (needed for Python import checks).
+ *                             Pass null/undefined to skip Python-import checks.
+ *
  * Returns a flat dict similar to the Python hardware_detect.detect_hardware():
  *
  *   cuda_available     bool
@@ -96,7 +99,7 @@ function queryCudaVersion() {
  *   supports_flash     bool
  *   supports_triton    bool
  */
-function detect() {
+function detect(repoDir) {
   const nv = queryNvidiaSmi()
   const cudaVer = queryCudaVersion()
 
@@ -130,7 +133,8 @@ function detect() {
   // In Node.js we can't import Python modules directly. We check by trying
   // a lightweight shell probe (import in a python one-liner from the active env).
   // Falls back to capability-based estimation.
-  const env = getActiveEnv()
+  // repoDir must be provided to find the envs.json; if omitted, skip import checks.
+  const env = repoDir ? getActiveEnv(repoDir) : null
   const py = env ? getPythonForEnv(env) : null
 
   const supportsTriton = checkPythonImport(py, 'triton')
@@ -398,7 +402,7 @@ function apply(settings, repoDir, dataDir) {
  * @returns {{ hardware: object, recommendation: object, applyResult: object }}
  */
 function fullTune(repoDir, dataDir) {
-  const hw = detect()
+  const hw = detect(repoDir)
   const rec = recommend(hw)
   const app = apply(rec, repoDir, dataDir)
   return { hardware: hw, recommendation: rec, applyResult: app }

@@ -89,6 +89,11 @@
           <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="notificationsToggle" checked> <span>Desktop notifications</span></label>
           <p class="token-hint">Show a notification when Wan2GP server is ready or stops.</p>
         </div>
+        <div class="settings-section">
+          <h3>Xet Storage (hf_xet)</h3>
+          <p class="token-hint" id="xetStatusLine">Speeds up HuggingFace model downloads with delta compression. Status: <span id="xetStatus">checking...</span></p>
+          <button class="btn btn-primary small" id="xetInstallBtn">Install hf_xet</button>
+        </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">
         <div class="settings-section">

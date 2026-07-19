@@ -127,7 +127,6 @@ body {
   -webkit-app-region: no-drag;
 }
 .topbar-spacer { flex: 1; }
-.topbar-right { display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
 
 /* ── Buttons ── */
 .btn {
@@ -243,7 +242,7 @@ body {
 }
 .launch-btn.primary-sub { background: var(--signal-blue-bg); color: var(--signal-blue); border: 1px solid transparent; }
 .launch-btn.primary-sub:hover { border-color: var(--signal-blue); }
-/* Per-button accent colours */
+/* Per-button accent colours — dark theme defaults; light theme inherits from .launch-btn base */
 .launch-btn.launch-green { background: #14532d; color: #6ee7b7; border: 1px solid #166534; }
 .launch-btn.launch-green:hover { background: #166534; border-color: #22c55e; }
 .launch-btn.launch-amber { background: #78350f; color: #fcd34d; border: 1px solid #92400e; }
@@ -539,9 +538,6 @@ body {
 .launch-args-help summary { cursor: pointer; color: var(--text-primary); font-weight: 500; }
 .args-table { width: 100%; margin-top: 8px; border-collapse: collapse; }
 .args-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.args-table td:first-child { white-space: nowrap; font-family: 'Geist Mono', monospace; font-size: 0.5625rem; color: var(--accent); }
-.args-table td:last-child { font-size: 0.5625rem; color: var(--text-secondary); width: 100%; }
-
 /* ── Shared ── */
 .hidden { display: none !important; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }

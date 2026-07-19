@@ -2,19 +2,27 @@
 const logBuffer = []
 const MAX_LOG = 5000
 let lastLine = ''
+let _carriageReturn = false  // next text part replaces lastLine instead of appending (tqdm progress bars)
 function appendLog(text) {
   if (!text) return
   // Normalize Windows \r\n to \n first (avoids \r clearing lastLine before \n pushes it)
   const parts = text.replace(/\r\n/g, '\n').split(/(\r|\n)/)
   for (const part of parts) {
     if (part === '\r') {
-      if (lastLine && logBuffer.length > 0) logBuffer[logBuffer.length - 1] = lastLine
-      lastLine = ''
+      // \r = go to start of line — next text OVERWRITES lastLine, doesn't append.
+      // The render shows lastLine as the in-progress line, so progress bars stay visible.
+      _carriageReturn = true
     } else if (part === '\n') {
       if (lastLine.trim()) logBuffer.push(lastLine.trim())
       lastLine = ''
+      _carriageReturn = false
     } else {
-      lastLine += part
+      if (_carriageReturn) {
+        lastLine = part
+        _carriageReturn = false
+      } else {
+        lastLine += part
+      }
     }
   }
   while (logBuffer.length > MAX_LOG) logBuffer.shift()
@@ -25,7 +33,9 @@ const termFollow = { termBody: true, ftTermBody: true, installTermBody: true }
 const termAutoScroll = {}
 
 function renderTerminals() {
-  const text = logBuffer.join('\n')
+  // Include the in-progress (carriage-return-updated) line so progress bars are visible
+  // before a newline arrives. When lastLine is empty we show buffer only.
+  const text = logBuffer.join('\n') + (lastLine ? '\n' + lastLine : '')
   ;['termBody','ftTermBody','installTermBody'].forEach(id => {
     const el = document.getElementById(id)
     if (!el) return
@@ -108,7 +118,39 @@ function setFtDock(dock) {
   window.w2gp.bvSetDock(dock)
   if ($('dashBody').style.display === 'none' && _ftVisible) showTerminal()
 }
+// Settings toggle handlers registered once (avoids memory leak from repeated onchange reassignment).
+let _settingsTogglesReady = false
+function initSettingsToggles() {
+  if (_settingsTogglesReady) return
+  _settingsTogglesReady = true
+
+  $('electronGpuToggle')?.addEventListener('change', async () => {
+    const gpu = $('electronGpuToggle')
+    const c = await window.w2gp.configLoad()
+    c.electronGpu = gpu.checked
+    await window.w2gp.configSave(c)
+    showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
+  })
+  $('autoStartToggle')?.addEventListener('change', async () => {
+    const el = $('autoStartToggle')
+    const r = await window.w2gp.setAutoStart(el.checked)
+    if (r && r.success) showToast(el.checked ? 'Will start with Windows' : 'Removed from startup')
+    else showToast('✗ ' + (r && r.error ? r.error : 'Failed'))
+  })
+  $('followSystemThemeToggle')?.addEventListener('change', async () => {
+    const el = $('followSystemThemeToggle')
+    await window.w2gp.setThemeFollowSystem(el.checked)
+    showToast(el.checked ? 'Theme will follow system' : 'Manual theme control restored')
+  })
+  $('notificationsToggle')?.addEventListener('change', async () => {
+    const el = $('notificationsToggle')
+    await window.w2gp.setNotificationsEnabled(el.checked)
+    showToast(el.checked ? 'Notifications enabled' : 'Notifications disabled')
+  })
+}
+
 function openSettings() {
+  initSettingsToggles()
   $('settingsPanel').classList.add('open'); $('settingsOverlay').classList.add('visible')
   // In webview (desktop) mode a BrowserView always composites above DOM, so it can't be
   // covered — detach it while Manage is open so the panel renders in front of the viewer.
@@ -125,47 +167,19 @@ function openSettings() {
     // Floating terminal default dock
     const td = cfg.termDockDefault || 'bottom'
     document.querySelectorAll('input[name="termDock"]').forEach(r => { r.checked = (r.value === td) })
-    // Electron GPU toggle
+    // Sync toggle states from config (handlers already registered via initSettingsToggles)
     const gpu = $('electronGpuToggle')
-    if (gpu) {
-      gpu.checked = cfg.electronGpu !== false
-      gpu.onchange = async () => {
-        const c = await window.w2gp.configLoad()
-        c.electronGpu = gpu.checked
-        await window.w2gp.configSave(c)
-        showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
-      }
-    }
-    // Auto-start toggle
+    if (gpu) gpu.checked = cfg.electronGpu !== false
     const autoStart = $('autoStartToggle')
-    if (autoStart) {
-      autoStart.checked = cfg.autoStart === true
-      autoStart.onchange = async () => {
-        const r = await window.w2gp.setAutoStart(autoStart.checked)
-        if (r && r.success) showToast(autoStart.checked ? 'Will start with Windows' : 'Removed from startup')
-        else showToast('✗ ' + (r && r.error ? r.error : 'Failed'))
-      }
-    }
-    // Follow system theme toggle
+    if (autoStart) autoStart.checked = cfg.autoStart === true
     const followTheme = $('followSystemThemeToggle')
-    if (followTheme) {
-      followTheme.checked = cfg.themeFollowSystem === true
-      followTheme.onchange = async () => {
-        await window.w2gp.setThemeFollowSystem(followTheme.checked)
-        showToast(followTheme.checked ? 'Theme will follow system' : 'Manual theme control restored')
-      }
-    }
-    // Desktop notifications toggle
+    if (followTheme) followTheme.checked = cfg.themeFollowSystem === true
     const notifications = $('notificationsToggle')
-    if (notifications) {
-      notifications.checked = cfg.notificationsEnabled !== false
-      notifications.onchange = async () => {
-        await window.w2gp.setNotificationsEnabled(notifications.checked)
-        showToast(notifications.checked ? 'Notifications enabled' : 'Notifications disabled')
-      }
-    }
+    if (notifications) notifications.checked = cfg.notificationsEnabled !== false
   })
   loadBrowserList()
+  // Check hf_xet install status
+  updateXetStatus()
 }
 function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible')
   // Restore the BrowserView (re-attach the still-alive view) when leaving Manage in webview mode.
@@ -723,21 +737,21 @@ function refreshEnvUnlink() {
     }
   }
 
-var _labelToKey = {'Python':'python','Torch':'torch','CUDA':'cuda','Triton':'triton','Sage Attn':'sageattention','Flash Attn':'flash_attn','Diffusers':'diffusers','Transformers':'transformers','Gradio':'gradio','Accelerate':'accelerate','onnxruntime':'onnxruntime','OpenCV':'opencv','PEFT':'peft','hf_hub':'huggingface_hub'}
+const _labelToKey = {'Python':'python','Torch':'torch','CUDA':'cuda','Triton':'triton','Sage Attn':'sageattention','Flash Attn':'flash_attn','Diffusers':'diffusers','Transformers':'transformers','Gradio':'gradio','Accelerate':'accelerate','onnxruntime':'onnxruntime','OpenCV':'opencv','PEFT':'peft','hf_hub':'huggingface_hub'}
 
 $('checkPkgUpdatesBtn').addEventListener('click', async function() {
   this.textContent = 'Checking...'
   this.classList.add('check-updates-loading')
   this.disabled = true
-  var versions = {}
+  const versions = {}
   document.querySelectorAll('.env-detail .spec-row').forEach(function(row) {
-    var labelEl = row.querySelector('.spec-label')
-    var valEl = row.querySelector('.spec-value')
+    const labelEl = row.querySelector('.spec-label')
+    const valEl = row.querySelector('.spec-value')
     if (!labelEl || !valEl) return
-    var label = labelEl.textContent.trim()
-    var key = _labelToKey[label]
+    const label = labelEl.textContent.trim()
+    const key = _labelToKey[label]
     if (!key) return
-    var val = valEl.textContent.trim()
+    const val = valEl.textContent.trim()
     if (val && val !== '—') versions[key] = val
   })
   if (Object.keys(versions).length === 0) {
@@ -751,16 +765,16 @@ $('checkPkgUpdatesBtn').addEventListener('click', async function() {
   this.classList.remove('check-updates-loading')
   this.disabled = false
   if (!results || !results.length) { showToast('No update info available'); return }
-  var updateCount = 0
+  let updateCount = 0
   results.forEach(function(r) {
-    var row = document.querySelector('.env-detail .spec-row[data-pkg="' + r.name + '"]')
+    let row = document.querySelector('.env-detail .spec-row[data-pkg="' + r.name + '"]')
     if (!row) {
-      var revMap = {}
-      for (var k in _labelToKey) revMap[_labelToKey[k]] = k
-      var label = revMap[r.name]
+      const revMap = {}
+      for (const k in _labelToKey) revMap[_labelToKey[k]] = k
+      const label = revMap[r.name]
       if (!label) return
-      var rows = document.querySelectorAll('.env-detail .spec-row')
-      for (var i = 0; i < rows.length; i++) {
+      const rows = document.querySelectorAll('.env-detail .spec-row')
+      for (let i = 0; i < rows.length; i++) {
         if (rows[i].querySelector('.spec-label') && rows[i].querySelector('.spec-label').textContent.trim() === label) {
           row = rows[i]
           row.setAttribute('data-pkg', r.name)
@@ -769,14 +783,14 @@ $('checkPkgUpdatesBtn').addEventListener('click', async function() {
       }
     }
     if (!row) return
-    var valEl = row.querySelector('.spec-value')
+    const valEl = row.querySelector('.spec-value')
     if (!valEl) return
-    var oldLatest = row.querySelector('.spec-latest')
+    const oldLatest = row.querySelector('.spec-latest')
     if (oldLatest) oldLatest.remove()
-    var oldBtn = row.querySelector('.spec-update-btn')
+    const oldBtn = row.querySelector('.spec-update-btn')
     if (oldBtn) oldBtn.remove()
     if (!r.latest) return
-    var latestSpan = document.createElement('span')
+    const latestSpan = document.createElement('span')
     latestSpan.className = 'spec-latest'
     latestSpan.textContent = '→ ' + r.latest
     valEl.after(latestSpan)
@@ -784,9 +798,9 @@ $('checkPkgUpdatesBtn').addEventListener('click', async function() {
       row.classList.add('has-update')
       row.classList.remove('up-to-date')
       updateCount++
-      var dot = row.querySelector('.spec-dot')
+      const dot = row.querySelector('.spec-dot')
       if (dot) { dot.classList.remove('installed','error','installing'); dot.classList.add('has-update') }
-      var upBtn = document.createElement('button')
+      const upBtn = document.createElement('button')
       upBtn.className = 'spec-update-btn'
       upBtn.textContent = '↑'
       upBtn.title = 'Upgrade ' + r.name + ' to ' + r.latest
@@ -1217,11 +1231,11 @@ $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 
 // ── Quick pip install ──
 $('pipInstallBtn').addEventListener('click', async () => {
-  var input = $('pipInput')
-  var pkg = (input?.value || '').trim()
+  const input = $('pipInput')
+  const pkg = (input?.value || '').trim()
   if (!pkg) return
   input.disabled = true; $('pipInstallBtn').disabled = true; $('pipInstallBtn').textContent = 'installing...'
-  var r = await window.w2gp.installPackage(pkg)
+  const r = await window.w2gp.installPackage(pkg)
   input.disabled = false; $('pipInstallBtn').disabled = false; $('pipInstallBtn').textContent = 'pip install'
   if (r && r.success) {
     input.value = ''
@@ -1235,7 +1249,7 @@ $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pip
 
 $('desktopShortcutBtn').addEventListener('click', async function() {
   this.disabled = true; this.textContent = 'Creating...'
-  var r = await window.w2gp.createDesktopShortcut()
+  const r = await window.w2gp.createDesktopShortcut()
   this.disabled = false; this.textContent = 'Create Desktop Shortcut'
   if (r && r.success) {
     showToast('✓ Shortcut created on desktop: Launch Wan2GP.bat')
@@ -1357,11 +1371,11 @@ document.addEventListener('keydown', (e) => {
 })
 
 function showToast(msg) {
-  var t = document.createElement('div')
+  const t = document.createElement('div')
   t.textContent = msg
   t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#e8e6e1;padding:8px 16px;border-radius:6px;font-size:13px;z-index:9999;font-family:Geist Mono,monospace;transition:opacity 0.3s;max-width:90vw;text-align:center'
   document.body.appendChild(t)
-  setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove() }, 400) }, 2500)
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400) }, 2500)
 }
 
 $('updateCheckBtn').addEventListener('click', () => {
@@ -1611,14 +1625,14 @@ function escHtml(s) {
 
 // ── Auto-Tune: Detect ──
 $('autotuneDetectBtn').addEventListener('click', async () => {
-  var btn = $('autotuneDetectBtn')
-  var status = $('autotuneStatus')
+  const btn = $('autotuneDetectBtn')
+  const status = $('autotuneStatus')
   btn.disabled = true
   btn.textContent = '\u27b3 Scanning\u2026'
   status.classList.add('hidden')
 
   try {
-    var result = await window.w2gp.autoTuneFullTune()
+    const result = await window.w2gp.autoTuneFullTune()
     _autotuneHardware = result.hardware
     _autotuneRecommendation = result.recommendation
 
@@ -1644,8 +1658,8 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
 
 // ── Auto-Tune: Apply ──
 $('autotuneApplyBtn').addEventListener('click', async () => {
-  var btn = $('autotuneApplyBtn')
-  var status = $('autotuneStatus')
+  const btn = $('autotuneApplyBtn')
+  const status = $('autotuneStatus')
   if (!_autotuneRecommendation) return
 
   btn.disabled = true
@@ -1653,7 +1667,7 @@ $('autotuneApplyBtn').addEventListener('click', async () => {
   status.classList.add('hidden')
 
   try {
-    var result = await window.w2gp.autoTuneApply(_autotuneRecommendation)
+    const result = await window.w2gp.autoTuneApply(_autotuneRecommendation)
     if (result.success) {
       status.className = ''
       status.style.background = '#1E3A1E'
@@ -1670,5 +1684,53 @@ $('autotuneApplyBtn').addEventListener('click', async () => {
   } finally {
     btn.disabled = false
     btn.textContent = 'Apply to Wan2GP'
+  }
+})
+
+// ── Xet Storage (hf_xet) ──
+async function updateXetStatus() {
+  const btn = $('xetInstallBtn')
+  const status = $('xetStatus')
+  if (!btn || !status) return
+  try {
+    const r = await window.w2gp.checkPackage('hf_xet')
+    if (r && r.installed) {
+      status.textContent = 'installed'
+      status.style.color = 'var(--signal-green)'
+      btn.textContent = 'Uninstall hf_xet'
+    } else {
+      status.textContent = 'not installed'
+      status.style.color = 'var(--text-tertiary)'
+      btn.textContent = 'Install hf_xet'
+    }
+  } catch {
+    status.textContent = 'error checking'
+    status.style.color = 'var(--signal-red)'
+  }
+}
+
+$('xetInstallBtn')?.addEventListener('click', async function() {
+  this.disabled = true
+  const status = $('xetStatus')
+  if (status) status.textContent = 'working...'
+  try {
+    let r
+    if (this.textContent.startsWith('Uninstall')) {
+      r = await window.w2gp.uninstallPackage('hf_xet')
+    } else {
+      r = await window.w2gp.installPackage('hf_xet')
+    }
+    if (r && r.success) {
+      updateXetStatus()
+      showToast(r.success ? 'hf_xet ' + (this.textContent.startsWith('Uninstall') ? 'uninstalled' : 'installed') : 'Failed')
+    } else {
+      if (status) { status.textContent = 'failed'; status.style.color = 'var(--signal-red)' }
+      showToast('✗ ' + (r && r.error ? r.error : 'Failed'))
+    }
+  } catch (e) {
+    if (status) { status.textContent = 'error'; status.style.color = 'var(--signal-red)' }
+    showToast('✗ ' + e.message)
+  } finally {
+    this.disabled = false
   }
 })

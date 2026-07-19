@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld('w2gp', {
   checkPackageUpdates: (versions) => ipcRenderer.invoke('check-package-updates', versions),
   upgradePackage: (pkgName) => ipcRenderer.invoke('upgrade-package', pkgName),
   installPackage: (pkgName) => ipcRenderer.invoke('install-package', pkgName),
+  uninstallPackage: (pkgName) => ipcRenderer.invoke('uninstall-package', pkgName),
+  checkPackage: (pkgName) => ipcRenderer.invoke('check-package', pkgName),
   restoreRequirements: () => ipcRenderer.invoke('restore-requirements'),
 
   // Desktop experience: tray, auto-start, notifications, theme

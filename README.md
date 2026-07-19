@@ -32,6 +32,7 @@ The launcher automates those steps and manages the environment for you.
 - **Prerequisites, auto-installed.** Missing Git, Python 3.11, uv, or conda? One click installs them silently — no PATH editing.
 - **Hardware detection.** Reads your GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the matching PyTorch + CUDA/ROCm build and attention kernels before installing.
 - **Isolated environment.** A Python 3.11 env via uv with pinned deps, so `pygame` and others install from prebuilt wheels.
+- **Auto-Tune** — one-click hardware scan (GPU, CUDA, VRAM, attention kernels) with recommended `wgp_config.json` settings, all from the Manage tab.
 
 ### 🚀 Launch modes
 
@@ -50,7 +51,7 @@ The launcher automates those steps and manages the environment for you.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.1.9** — **Launch in External Terminal** mode: run the server in a real cmd window (like the desktop `Launch Wan2GP.bat` shortcut) with env activation, your port, and Manage-menu args, plus an in-app Stop that kills it by PID. Also fixes the white-flash/freeze when switching to the floating terminal, double log replay, and the "back to menu" overlap. [Full changelog →](CHANGELOG-v2.1.9.md)
+> **New in v2.1.9** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** for faster model downloads, **live progress bars** in the console, **real CPU metric** in the topbar, and **critical security hardening** (shell injection, path traversal, code injection, and URL validation fixes). Includes all v2.1.8 features plus External Terminal mode. [Full changelog →](CHANGELOG-v2.1.9.md)
 
 ## Prerequisites
 
@@ -95,7 +96,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
-- **v2.1.9** — **Feature + bugfix** — new **Launch in External Terminal** mode (real cmd window via generated `.bat`, PID-accurate Stop) and fixes for the floating-terminal white-flash/freeze, double log replay, and "back to menu" overlap. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
+- **v2.1.9** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements (structured error logging, data-dir timing, `var`→`const`/`let`, settings panel leak, `.bat` timeout, duplicate CSS). See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
 - **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
 - **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](CHANGELOG-v2.1.7.md).
 - **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](CHANGELOG-v2.1.6.md).

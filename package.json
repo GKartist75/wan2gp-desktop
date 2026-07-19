@@ -9,7 +9,7 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "publish:win": "electron-builder --win --publish always",
-    "release:win": "bash scripts/release-win.sh 2.1.5"
+    "release:win": "bash scripts/release-win.sh 2.1.9"
   },
   "author": "GKartist75",
   "license": "MIT",
