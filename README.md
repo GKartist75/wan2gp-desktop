@@ -51,7 +51,7 @@ The launcher automates those steps and manages the environment for you.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.1.9** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** for faster model downloads, **live progress bars** in the console, **real CPU metric** in the topbar, and **critical security hardening** (shell injection, path traversal, code injection, and URL validation fixes). Includes all v2.1.8 features plus External Terminal mode. [Full changelog →](CHANGELOG-v2.1.9.md)
+> **New in v2.2.0** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** for faster model downloads, **live progress bars** in the console, **real CPU metric** in the topbar, and **critical security hardening** (shell injection, path traversal, code injection, and URL validation fixes). Includes all v2.1.9 features plus External Terminal mode. [Full changelog →](CHANGELOG-v2.2.0.md)
 
 ## Prerequisites
 
@@ -96,7 +96,8 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
-- **v2.1.9** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements (structured error logging, data-dir timing, `var`→`const`/`let`, settings panel leak, `.bat` timeout, duplicate CSS). See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
+- **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).
+- **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
 - **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
 - **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](CHANGELOG-v2.1.7.md).
 - **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](CHANGELOG-v2.1.6.md).
