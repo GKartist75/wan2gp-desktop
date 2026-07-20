@@ -97,6 +97,11 @@
       </div>
       <div class="settings-tab-content" data-tab="launch">
         <div class="settings-section">
+          <h3>Share Link</h3>
+          <label class="toggle-row"><input type="checkbox" id="shareToggle"> <span>Enable public share link (<code>--share</code>)</span></label>
+          <p class="token-hint">When localhost is not accessible (e.g., due to proxy/VPN), Gradio requires <code>share=True</code> to create a publicly accessible tunnel URL via Gradio's servers. Enable this if you see the error "<em>When localhost is not accessible, a shareable link must be created</em>" when launching. <strong>Note:</strong> This makes your server accessible from the internet.</p>
+        </div>
+        <div class="settings-section">
           <h3>Extra Launch Args</h3>
           <div class="token-field">
             <input type="text" id="launchArgsInput" class="input" placeholder="--profile 4 --attention sage2 --perc-reserved-mem-max 0.3">
@@ -355,6 +360,10 @@
           <button class="action-item" id="desktopShortcutBtn">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>
             Create Desktop Shortcut
+          </button>
+          <button class="action-item" id="autoTuneDashBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+            ⚡ Auto-Tune
           </button>
         </div>
 

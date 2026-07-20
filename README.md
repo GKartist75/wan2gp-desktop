@@ -32,7 +32,42 @@ The launcher automates those steps and manages the environment for you.
 - **Prerequisites, auto-installed.** Missing Git, Python 3.11, uv, or conda? One click installs them silently — no PATH editing.
 - **Hardware detection.** Reads your GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the matching PyTorch + CUDA/ROCm build and attention kernels before installing.
 - **Isolated environment.** A Python 3.11 env via uv with pinned deps, so `pygame` and others install from prebuilt wheels.
-- **Auto-Tune** — one-click hardware scan (GPU, CUDA, VRAM, attention kernels) with recommended `wgp_config.json` settings, all from the Manage tab.
+
+### ⚡ Auto-Tune — profile system
+
+One-click hardware scan (GPU, CUDA, VRAM, attention kernels) that recommends
+and applies optimal `wgp_config.json` settings. Access via **Manage** → **Auto-Tune**
+tab or the ⚡ button on the main dashboard.
+
+**How profiles work** — Wan2GP's memory manager (`mmgp`) uses 5 profiles
+that trade off VRAM usage vs speed. The auto-tune picks one based on your
+VRAM and system RAM:
+
+| Profile | mmgp name | pinnedMemory | Budgets | Encoder Quant | Best for |
+|---------|-----------|-------------|---------|---------------|----------|
+| **P1** | HighRAM_HighVRAM | All modules | None | No | ≥24GB VRAM or 16GB+VRAM + 64GB+ RAM |
+| **P2** | HighRAM_LowVRAM | All modules | `{"*": 3000}` | No | 16GB+ VRAM with ≤32GB RAM |
+| **P3** | LowRAM_HighVRAM | Transformer only | None | Yes | 10–16GB VRAM with 64GB+ RAM (CPU offload) |
+| **P4** | LowRAM_LowVRAM | Transformer only | `{"*": 3000}` | Yes | 10–16GB VRAM with ≤32GB RAM (balanced) |
+| **P5** | VerylowRAM_LowVRAM | None | `{"*": 3000, "transformer": 400}` | Yes | <10GB VRAM (max compatibility) |
+
+**Profile matrix** (how VRAM × RAM tiers map to profiles):
+
+| VRAM ↓ \ RAM → | high (≥64GB) | mid (≥32GB) | low (<32GB) |
+|----------------|-------------|-------------|------------|
+| **very_high** (≥24GB) | P1 | P1 | P1 |
+| **high** (≥16GB) | P1 | P2 | P2 |
+| **mid** (≥10GB) | P3 | P4 | P4 |
+| **low** (<10GB) | P3 | P5 | P5 |
+
+**Settings written** — The auto-tune writes these keys to `wgp_config.json`:
+- `video_profile`, `image_profile`, `audio_profile` — profile number (1–5)
+- `transformer_quantization` — always `"int8"` (Scaled Int8, Wan2GP's recommended default)
+- `vae_config` — always `0` (Auto, lets Wan2GP decide when tiling is needed)
+- `vram_safety_coefficient` — 0.50–0.80 depending on profile
+
+All three profile dropdowns (video/image/audio) are **editable** before applying,
+so you can override the recommendation.
 
 ### 🚀 Launch modes
 
@@ -51,7 +86,7 @@ The launcher automates those steps and manages the environment for you.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.2.0** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** for faster model downloads, **live progress bars** in the console, **real CPU metric** in the topbar, and **critical security hardening** (shell injection, path traversal, code injection, and URL validation fixes). Includes all v2.1.9 features plus External Terminal mode. [Full changelog →](CHANGELOG-v2.2.0.md)
+> **New in v2.2.1** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging. [Full changelog →](CHANGELOG-v2.2.1.md)
 
 ## Prerequisites
 
@@ -96,6 +131,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](CHANGELOG-v2.2.1.md).
 - **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).
 - **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
 - **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).

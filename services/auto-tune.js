@@ -165,83 +165,84 @@ function detect(repoDir) {
 
 /**
  * Profile matrix keyed by (vram_tier, ram_tier).
- * Values: 1=HighRAM_HighVRAM, 2=HighRAM_LowVRAM, 3=LowRAM_HighVRAM,
- *         3.5=VeryLowRAM_HighVRAM, 4=LowRAM_LowVRAM, 4.5=LowRAM_LowVRAM+,
- *         5=VeryLowRAM_LowVRAM
+ * Maps to Wan2GP's mmgp profile_type (only profiles 1–5 are valid):
+ *   1 = HighRAM_HighVRAM   — pinned all, no budgets
+ *   2 = HighRAM_LowVRAM    — pinned all, budgets["*"]=3000
+ *   3 = LowRAM_HighVRAM    — pinned transformer, no budgets, quant encoders
+ *   4 = LowRAM_LowVRAM     — pinned transformer, budgets["*"]=3000, quant encoders
+ *   5 = VerylowRAM_LowVRAM — no pinned, budgets["transformer"]=400, quant encoders
+ *
+ * Thresholds:
+ *   VRAM tiers: very_high ≥ 24 GB | high ≥ 16 GB | mid ≥ 10 GB | low < 10 GB
+ *   RAM  tiers: high ≥ 64 GB | mid ≥ 32 GB | low < 32 GB
  */
 const PROFILE_MATRIX = {
-  high:   { high: 1, mid: 2, low: 2 },
-  mid:    { high: 3, mid: 4, low: 4 },
-  low:    { high: 3, mid: 4, low: 4 },
-  very_high: { high: 1, mid: 1, low: 1 }
+  very_high: { high: 1, mid: 1, low: 1 },  // ≥24GB VRAM: profile 1 regardless of RAM
+  high:      { high: 1, mid: 2, low: 2 },   // ≥16GB VRAM: 1 with high RAM, 2 otherwise
+  mid:       { high: 3, mid: 4, low: 4 },   // ≥10GB VRAM: CPU offload w/ high RAM, balanced otherwise
+  low:       { high: 3, mid: 5, low: 5 }    // <10GB VRAM: CPU offload w/ high RAM, max compat otherwise
 }
 
-// Extend matrix for very_low ram on mid vram → profile 3.5
-PROFILE_MATRIX.mid.very_low = 3.5
-PROFILE_MATRIX.low.very_low = 4.5
-
-// Audio gets special treatment: profile 3 when ≥12 GB VRAM and video isn't profile 1/3
+/**
+ * Audio profile override.
+ * Audio models are much smaller than video/image, so they can use less
+ * aggressive profiles (lower number = more VRAM, faster).
+ * - VRAM ≥ 12 GB → audio capped at profile 3 (generous headroom)
+ * - otherwise → same as video
+ */
 function audioProfile(vramGb, videoProf) {
-  if (vramGb >= 12 && videoProf !== 1 && videoProf !== 3) return 3
+  if (vramGb >= 12 && videoProf > 3) return 3
   return videoProf
 }
 
 /**
- * Quantization per profile.
+ * Quantization — always Scaled Int8 ("int8").
+ * This is Wan2GP's own recommended default (wgp.py line ~3225) and the
+ * mmgp offloader's quantizeTransformer=True uses int8 by default.
+ * Scaled Int8 offers the best balance of quality, speed, and VRAM usage
+ * across all hardware tiers.
  */
 function quantForProfile(profile) {
-  const map = {
-    1:   'fp8',
-    2:   'fp4',
-    3:   'nf4',
-    3.5: 'nf4',
-    4:   'fp8',
-    4.5: 'fp4',
-    5:   'nf4'
-  }
-  return map[profile] || 'fp8'
+  return 'int8'
 }
 
 /**
- * VAE config (int 0–3) per profile.
- * 0=default, 1=tiling, 2=spilt-tiling, 3=no-encode
+ * VAE config — always 0 (Auto).
+ * 0 = auto (Wan2GP decides when tiling is needed)
+ * 1 = tiling, 2 = split-tiling, 3 = no-encode
+ * Auto is the safest choice for quality — higher presets save VRAM but
+ * introduce banding artifacts.
  */
 function vaeConfigForProfile(profile) {
-  const map = {
-    1: 0, 2: 2, 3: 1, 3.5: 2, 4: 1, 4.5: 2, 5: 3
-  }
-  return map[profile] ?? 0
+  return 0
 }
 
 /**
  * VRAM safety coefficient per profile.
  * Higher = more headroom (slower but safer).
+ * Controls vram_safety_coefficient passed to mmgp offloader.
  */
 function vramCoefficientForProfile(profile) {
   const map = {
-    1: 0.80, 2: 0.75, 3: 0.70, 3.5: 0.65, 4: 0.60, 4.5: 0.55, 5: 0.50
+    1: 0.80, 2: 0.75, 3: 0.70, 4: 0.60, 5: 0.50
   }
   return map[profile] ?? 0.70
 }
 
 const PROFILE_LABELS = {
-  1:   'HighRAM · HighVRAM',
-  2:   'HighRAM · LowVRAM',
-  3:   'LowRAM · HighVRAM',
-  3.5: 'VeryLowRAM · HighVRAM',
-  4:   'LowRAM · LowVRAM',
-  4.5: 'LowRAM · LowVRAM+',
-  5:   'VeryLowRAM · LowVRAM'
+  1: 'HighRAM \u00b7 HighVRAM',
+  2: 'HighRAM \u00b7 LowVRAM',
+  3: 'LowRAM \u00b7 HighVRAM',
+  4: 'LowRAM \u00b7 LowVRAM',
+  5: 'Very LowRAM \u00b7 LowVRAM'
 }
 
 const PROFILE_REASONS = {
-  1:   'Ample RAM and VRAM — max quality settings',
-  2:   'High RAM, limited VRAM — optimized for quality within VRAM budget',
-  3:   'Limited RAM, high VRAM — GPU-centric processing',
-  3.5: 'Very limited RAM, high VRAM — aggressive CPU offload',
-  4:   'Limited RAM and VRAM — balanced settings',
-  4.5: 'Limited RAM, low VRAM — memory-efficient mode',
-  5:   'Very limited RAM and VRAM — maximum compatibility'
+  1: 'Ample RAM + VRAM — max quality: full models in VRAM, pinned memory for fast reload',
+  2: 'High RAM, limited VRAM — modules in VRAM on demand within budget, pinned for speed',
+  3: 'Limited RAM, high VRAM — transformer stays in VRAM, text encoders quantized for offload',
+  4: 'Limited RAM + VRAM — balanced: transformer partially pinned, quantized encoders, budgets',
+  5: 'Very limited RAM + VRAM — max compatibility: no pinned memory, tight budgets, all quantized'
 }
 
 /**

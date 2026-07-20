@@ -147,6 +147,13 @@ function initSettingsToggles() {
     await window.w2gp.setNotificationsEnabled(el.checked)
     showToast(el.checked ? 'Notifications enabled' : 'Notifications disabled')
   })
+  $('shareToggle')?.addEventListener('change', async () => {
+    const el = $('shareToggle')
+    const c = await window.w2gp.configLoad()
+    c.share = el.checked
+    await window.w2gp.configSave(c)
+    showToast(el.checked ? 'Share link enabled — Gradio will create a public tunnel on next launch' : 'Share link disabled')
+  })
 }
 
 function openSettings() {
@@ -176,6 +183,8 @@ function openSettings() {
     if (followTheme) followTheme.checked = cfg.themeFollowSystem === true
     const notifications = $('notificationsToggle')
     if (notifications) notifications.checked = cfg.notificationsEnabled !== false
+    const share = $('shareToggle')
+    if (share) share.checked = cfg.share === true
   })
   loadBrowserList()
   // Check hf_xet install status
@@ -1216,17 +1225,23 @@ $('updateBtn').addEventListener('click',async()=>{
 })
 document.querySelectorAll('.theme-toggle').forEach(btn => btn.addEventListener('click', toggleTheme))
 
+function switchSettingsTab(tabName) {
+  document.querySelectorAll('.settings-tab').forEach(function(t) { t.classList.remove('active') })
+  document.querySelectorAll('.settings-tab-content').forEach(function(c) { c.classList.remove('active') })
+  var tab = document.querySelector('.settings-tab[data-tab="' + tabName + '"]')
+  if (tab) tab.classList.add('active')
+  var tabContent = document.querySelector('.settings-tab-content[data-tab="' + tabName + '"]')
+  if (tabContent) tabContent.classList.add('active')
+}
+
 document.querySelectorAll('.settings-tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
-    document.querySelectorAll('.settings-tab').forEach(function(t) { t.classList.remove('active') })
-    document.querySelectorAll('.settings-tab-content').forEach(function(c) { c.classList.remove('active') })
-    tab.classList.add('active')
-    var tabContent = document.querySelector('.settings-tab-content[data-tab="' + tab.dataset.tab + '"]')
-    if (tabContent) tabContent.classList.add('active')
+    switchSettingsTab(tab.dataset.tab)
     tab.closest('.settings-tabs')?.querySelector('.settings-tabs-inner')?.scrollTo({ left: tab.offsetLeft - 80, behavior: 'smooth' })
   })
 })
 $('settingsBtn').addEventListener('click',()=>{ openSettings() })
+$('autoTuneDashBtn').addEventListener('click',()=>{ openSettings(); switchSettingsTab('autotune') })
 $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 
 // ── Quick pip install ──
@@ -1584,38 +1599,50 @@ function renderAutoTuneHardware(hw) {
     <div style="display:flex;gap:6px;flex-wrap:wrap">' + badges.join('') + '</div>'
 }
 
-/** Render recommendation into the card. */
+/** Build a <select> for profiles 1-5 with the given selected value. */
+function profileSelect(name, selectedVal) {
+  var opts = ''
+  var labels = {1:'HighRAM \u00b7 HighVRAM', 2:'HighRAM \u00b7 LowVRAM', 3:'LowRAM \u00b7 HighVRAM', 4:'LowRAM \u00b7 LowVRAM', 5:'Very LowRAM \u00b7 LowVRAM'}
+  for (var i = 1; i <= 5; i++) {
+    var sel = i === selectedVal ? ' selected' : ''
+    opts += '<option value="' + i + '"' + sel + '>P' + i + ' \u2014 ' + labels[i] + '</option>'
+  }
+  return '<select class="profile-select" data-profile-key="' + name + '">' + opts + '</select>'
+}
+
+/** Render recommendation into the card with editable dropdowns. */
 function renderAutoTuneRecommendation(rec) {
-  const el = $('autotuneRecommendInfo')
-  const btn = $('autotuneApplyBtn')
+  var el = $('autotuneRecommendInfo')
+  var btn = $('autotuneApplyBtn')
   if (!rec) {
     el.innerHTML = '<p class="token-hint" style="margin:0">Run detection first.</p>'
     btn.disabled = true
     return
   }
 
-  const profileLabels = {
-    1: 'HighRAM \u00b7 HighVRAM',
-    2: 'HighRAM \u00b7 LowVRAM',
-    3: 'LowRAM \u00b7 HighVRAM',
-    3.5: 'VeryLowRAM \u00b7 HighVRAM',
-    4: 'LowRAM \u00b7 LowVRAM',
-    4.5: 'LowRAM \u00b7 LowVRAM+',
-    5: 'VeryLowRAM \u00b7 LowVRAM'
-  }
-  var vaeLabels = ['Default', 'Tiling', 'Spilt-Tiling', 'No Encode']
+  var quantLabel = rec.transformer_quantization === 'int8' ? 'Scaled Int8 \u2705 recommended' : rec.transformer_quantization
+  var vaeLabel = rec.vae_config === 0 ? 'Auto \u2705 recommended' : (['Default','Tiling','Spilt-Tiling','No Encode'][rec.vae_config] || 'Default')
 
   el.innerHTML = '\
     <div class="spec-grid" style="margin-bottom:8px">\
-      <div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + rec.video_profile + ' \u00b7 ' + escHtml(profileLabels[rec.video_profile] || 'Custom') + '</span></div>\
-      <div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + rec.image_profile + ' \u00b7 ' + escHtml(profileLabels[rec.image_profile] || 'Custom') + '</span></div>\
-      <div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + rec.audio_profile + ' \u00b7 ' + escHtml(profileLabels[rec.audio_profile] || 'Custom') + '</span></div>\
-      <div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value"><code>' + escHtml(rec.transformer_quantization) + '</code></span></div>\
-      <div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value">' + rec.vae_config + ' \u00b7 ' + escHtml(vaeLabels[rec.vae_config] || 'Default') + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + profileSelect('video_profile', rec.video_profile) + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + profileSelect('image_profile', rec.image_profile) + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + profileSelect('audio_profile', rec.audio_profile) + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value" style="color:#6ee7b7"><code>' + quantLabel + '</code></span></div>\
+      <div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value" style="color:#6ee7b7">' + rec.vae_config + ' \u00b7 ' + vaeLabel + '</span></div>\
       <div class="spec-row"><span class="spec-label">VRAM Safety Coeff</span><span class="spec-value">' + rec.vram_safety_coefficient + '</span></div>\
     </div>\
-    <p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '</p>'
+    <p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '<br><span style="color:var(--text-tertiary);font-size:0.65rem">Modify the profile dropdowns before applying if needed. Higher profiles (3-5) use less VRAM but may be slower. Scaled Int8 and VAE Auto are Wan2GP\'s recommended defaults.</span></p>'
   btn.disabled = false
+
+  // Wire dropdown changes to update the recommendation object
+  el.querySelectorAll('.profile-select').forEach(function(sel) {
+    sel.addEventListener('change', function() {
+      var key = sel.dataset.profileKey
+      var val = parseFloat(sel.value)
+      _autotuneRecommendation[key] = val
+    })
+  })
 }
 
 function escHtml(s) {
