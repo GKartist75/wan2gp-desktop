@@ -198,6 +198,22 @@ body {
 .spec-row:nth-child(odd) { background: var(--canvas); }
 .spec-label { color: var(--text-secondary); }
 .spec-value { color: var(--text-primary); font-family: 'Geist Mono', 'SF Mono', monospace; font-weight: 500; }
+
+/* ── Profile Select (Auto-Tune) ── */
+.profile-select {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px 20px 3px 8px; font-size: 0.6875rem;
+  font-family: 'Geist Mono', 'SF Mono', monospace;
+  cursor: pointer; min-width: 210px;
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center;
+  background-size: 8px 5px;
+}
+.profile-select:hover { border-color: var(--accent); }
+.profile-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
+.profile-select option { background: var(--bg-secondary); color: var(--text-primary); }
 .spec-free { font-size: 0.55rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; margin-left: 2px; }
 
 /* ── Dashboard Layout ── */

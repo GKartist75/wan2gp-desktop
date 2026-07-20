@@ -266,7 +266,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false }
 }
 
 function saveConfig(cfg) {
@@ -633,6 +633,10 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   // must be created…" — see gradio-app/gradio#4046)
   const hasServerName = extraArgs.some(a => a === '--server-name')
   if (!hasServerName) { extraArgs.push('--server-name', '127.0.0.1') }
+  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
+  if (cfg.share && !extraArgs.some(a => a === '--share')) {
+    extraArgs.push('--share')
+  }
 
   const port = preferredPort
   _currentPort = port
@@ -720,6 +724,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
           ...process.env, PYTHONUNBUFFERED: '1',
           TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           NO_PROXY: 'localhost,127.0.0.1,::1',
+          ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -731,6 +736,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
           ...process.env, PYTHONUNBUFFERED: '1',
           TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           NO_PROXY: 'localhost,127.0.0.1,::1',
+          ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
         }
       })
@@ -745,12 +751,21 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         ...process.env, PYTHONUNBUFFERED: '1',
         TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
         NO_PROXY: 'localhost,127.0.0.1,::1',
+        ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
       }
     })
     _wangpProc = child
     child.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
-    child.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+    child.stderr.on('data', d => { 
+      const s = d.toString();
+      if (s) {
+        send('launch-log', s)
+        if (s.includes('localhost is not accessible') || s.includes('shareable link must be created')) {
+          send('launch-log', '[!] Gradio localhost check failed. If this persists, enable "Share Link" in Settings (Manage → Launch tab) or add --share to Extra Launch Args.\n')
+        }
+      }
+    })
   }
   if (child && mode !== 'terminal') {
     child.on('close', code => {
@@ -809,6 +824,10 @@ ipcMain.handle('launch-webview', async () => {
   const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
   if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
   if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', '127.0.0.1')
+  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
+  if (cfg.share && !extraArgs.some(a => a === '--share')) {
+    extraArgs.push('--share')
+  }
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
@@ -823,11 +842,20 @@ ipcMain.handle('launch-webview', async () => {
     env: { ...process.env, PYTHONUNBUFFERED: '1',
       TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
       NO_PROXY: 'localhost,127.0.0.1,::1',
+      ...(cfg.share ? { GRADIO_SHARE: 'true' } : {}),
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
   proc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
-  proc.stderr.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  proc.stderr.on('data', d => { 
+    const s = d.toString();
+    if (s) {
+      send('launch-log', s)
+      if (s.includes('localhost is not accessible') || s.includes('shareable link must be created')) {
+        send('launch-log', '[!] Gradio localhost check failed. Enable "Share Link" in Settings (Manage → Launch tab) or add --share to Extra Launch Args.\n')
+      }
+    }
+  })
   proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code); try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {} })
   try {
     await waitForPort('127.0.0.1', port, 180000)
@@ -1646,8 +1674,10 @@ ipcMain.handle('create-desktop-shortcut', () => {
     // Ensure --server-name is set (default 127.0.0.1 to avoid proxy/localhost Gradio issues)
     const hasServerName = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--server-name')
     const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
+    const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
+    const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
     const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(escapeBatCmdArg).join(' ') : ''
-    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${serverNameArg}${escapedExtra}" 2>&1\n`
+    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${serverNameArg}${shareArg}${escapedExtra}" 2>&1\n`
     batContent += 'echo.\n'
     batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
     // Poll via HTTP (wait for real Gradio response, not just TCP socket)

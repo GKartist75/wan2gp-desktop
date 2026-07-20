@@ -3,1061 +3,803 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Wan2GP Desktop Launcher — How it works</title>
+    <title>Wan2GP Desktop Launcher — Complete User Guide</title>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
         background: #1a1a1a;
         color: #e8e6e1;
-        font-family:
-          system-ui,
-          -apple-system,
-          "Segoe UI",
-          sans-serif;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         padding: 40px 20px;
         display: flex;
         flex-direction: column;
         align-items: center;
       }
-      .container {
-        max-width: 900px;
-        width: 100%;
-      }
-      h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 8px;
-      }
-      .sub {
-        text-align: center;
-        color: #999;
-        margin-bottom: 40px;
-        font-size: 1rem;
-      }
+      .container { max-width: 960px; width: 100%; }
 
-      .section {
-        margin-bottom: 48px;
-      }
+      h1 { font-size: 2rem; font-weight: 700; text-align: center; margin-bottom: 4px; }
+      .sub { text-align: center; color: #999; margin-bottom: 40px; font-size: 1rem; }
+
+      .section { margin-bottom: 48px; }
       .section h2 {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-bottom: 16px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        font-size: 1.3rem; font-weight: 600; margin-bottom: 16px;
+        display: flex; align-items: center; gap: 8px;
       }
       .section h2 .num {
-        background: #6c5ce7;
-        color: #fff;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.85rem;
-        flex-shrink: 0;
+        background: #6c5ce7; color: #fff; width: 28px; height: 28px;
+        border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        font-size: 0.85rem; flex-shrink: 0;
       }
 
-      /* Step cards */
-      .steps {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
+      /* ── Step cards ── */
+      .steps { display: flex; gap: 12px; flex-wrap: wrap; }
       .step {
-        flex: 1;
-        min-width: 140px;
-        background: #252525;
-        border: 1px solid #333;
-        border-radius: 12px;
-        padding: 16px;
-        text-align: center;
-        position: relative;
+        flex: 1; min-width: 140px; background: #252525; border: 1px solid #333;
+        border-radius: 12px; padding: 16px; text-align: center; position: relative;
       }
-      .step .icon {
-        font-size: 2rem;
-        margin-bottom: 8px;
-      }
-      .step .label {
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-      .step .desc {
-        font-size: 0.72rem;
-        color: #999;
-        line-height: 1.4;
-      }
-      .step .arrow {
-        position: absolute;
-        right: -14px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 1.2rem;
-        color: #555;
-      }
-      .steps .step:last-child .arrow {
-        display: none;
-      }
+      .step .icon { font-size: 2rem; margin-bottom: 8px; }
+      .step .label { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+      .step .desc { font-size: 0.72rem; color: #999; line-height: 1.4; }
+      .step .arrow { position: absolute; right: -14px; top: 50%; transform: translateY(-50%); font-size: 1.2rem; color: #555; }
+      .steps .step:last-child .arrow { display: none; }
 
-      /* Flow */
-      .flow {
-        background: #252525;
-        border: 1px solid #333;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 16px;
-      }
-      .flow-row {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin-bottom: 12px;
-      }
-      .flow-row:last-child {
-        margin-bottom: 0;
-      }
+      /* ── Flow rows ── */
+      .flow { background: #252525; border: 1px solid #333; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+      .flow-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+      .flow-row:last-child { margin-bottom: 0; }
       .flow-box {
-        background: #1e1e1e;
-        border: 1px solid #444;
-        border-radius: 8px;
-        padding: 12px 16px;
-        flex: 1;
-        min-width: 120px;
-        text-align: center;
+        background: #1e1e1e; border: 1px solid #444; border-radius: 8px;
+        padding: 12px 16px; flex: 1; min-width: 120px; text-align: center;
       }
-      .flow-box .icon {
-        font-size: 1.3rem;
-        display: block;
-        margin-bottom: 4px;
-      }
-      .flow-box .name {
-        font-size: 0.78rem;
-        font-weight: 600;
-      }
-      .flow-box .note {
-        font-size: 0.65rem;
-        color: #888;
-        margin-top: 2px;
-      }
-      .flow-arrow {
-        font-size: 1.2rem;
-        color: #555;
-        flex-shrink: 0;
-      }
-
-      /* Colored flows */
-      .flow-green {
-        --flow-color: #22c55e;
-      }
-      .flow-amber {
-        --flow-color: #f59e0b;
-      }
-      .flow-box.color {
-        border-color: var(--flow-color, #6c5ce7);
-      }
+      .flow-box .icon { font-size: 1.3rem; display: block; margin-bottom: 4px; }
+      .flow-box .name { font-size: 0.78rem; font-weight: 600; }
+      .flow-box .note { font-size: 0.65rem; color: #888; margin-top: 2px; }
+      .flow-arrow { font-size: 1.2rem; color: #555; flex-shrink: 0; }
+      .flow-box.color { border-color: var(--flow-color, #6c5ce7); }
       .flow-box .badge {
-        display: inline-block;
-        font-size: 0.55rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        padding: 1px 6px;
-        border-radius: 3px;
-        margin-top: 3px;
+        display: inline-block; font-size: 0.55rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        padding: 1px 6px; border-radius: 3px; margin-top: 3px;
       }
-      .badge-green {
-        background: #14532d;
-        color: #6ee7b7;
-      }
-      .badge-amber {
-        background: #78350f;
-        color: #fcd34d;
-      }
-      .badge-muted {
-        background: #1f2937;
-        color: #9ca3af;
-      }
+      .badge-green { background: #14532d; color: #6ee7b7; }
+      .badge-amber { background: #78350f; color: #fcd34d; }
+      .badge-blue  { background: #1e3a5f; color: #93c5fd; }
+      .badge-muted { background: #1f2937; color: #9ca3af; }
+      .badge-purple { background: #3b1f6e; color: #c4b5fd; }
 
-      /* Callout */
+      /* ── Callouts ── */
       .callout {
-        background: #2d1f3d;
-        border: 1px solid #6c5ce7;
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 12px;
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
+        background: #2d1f3d; border: 1px solid #6c5ce7; border-radius: 8px;
+        padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: flex-start; gap: 10px;
       }
-      .callout .emoji {
-        font-size: 1.2rem;
-        flex-shrink: 0;
-        margin-top: 1px;
-      }
-      .callout .text {
-        font-size: 0.78rem;
-        line-height: 1.5;
-        color: #ccc;
-      }
-      .callout .text strong {
-        color: #e8e6e1;
-      }
+      .callout .emoji { font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+      .callout .text { font-size: 0.78rem; line-height: 1.5; color: #ccc; }
+      .callout .text strong { color: #e8e6e1; }
 
-      /* Quick stat badges */
-      .stats {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 16px;
-      }
+      /* ── Stats row ── */
+      .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
       .stat {
-        background: #252525;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 10px 14px;
-        flex: 1;
-        min-width: 100px;
-        text-align: center;
+        background: #252525; border: 1px solid #333; border-radius: 8px;
+        padding: 10px 14px; flex: 1; min-width: 100px; text-align: center;
       }
-      .stat .num {
-        font-size: 1.2rem;
-        font-weight: 700;
-        color: #6c5ce7;
-      }
-      .stat .label {
-        font-size: 0.65rem;
-        color: #999;
-        margin-top: 2px;
-      }
+      .stat .num { font-size: 1.2rem; font-weight: 700; color: #6c5ce7; }
+      .stat .label { font-size: 0.65rem; color: #999; margin-top: 2px; }
 
-      /* Feature grid */
+      /* ── Feature grid ── */
       .feature-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 10px;
-        margin-bottom: 16px;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px; margin-bottom: 16px;
       }
       .feature-card {
-        background: #252525;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 12px;
-        font-size: 0.75rem;
-        line-height: 1.4;
+        background: #252525; border: 1px solid #333; border-radius: 8px;
+        padding: 12px; font-size: 0.75rem; line-height: 1.4;
       }
-      .feature-card .fc-icon {
-        font-size: 1.1rem;
-        display: block;
-        margin-bottom: 4px;
-      }
-      .feature-card .fc-title {
-        font-weight: 600;
-        margin-bottom: 2px;
-        font-size: 0.8rem;
-      }
-      .feature-card .fc-desc {
-        color: #999;
-      }
+      .feature-card .fc-icon { font-size: 1.1rem; display: block; margin-bottom: 4px; }
+      .feature-card .fc-title { font-weight: 600; margin-bottom: 2px; font-size: 0.8rem; }
+      .feature-card .fc-desc { color: #999; }
       .feature-card .fc-new {
-        display: inline-block;
-        font-size: 0.5rem;
-        font-weight: 700;
-        background: #6c5ce7;
-        color: #fff;
-        padding: 1px 5px;
-        border-radius: 3px;
-        margin-left: 4px;
-        vertical-align: middle;
-        text-transform: uppercase;
+        display: inline-block; font-size: 0.5rem; font-weight: 700;
+        background: #6c5ce7; color: #fff; padding: 1px 5px; border-radius: 3px;
+        margin-left: 4px; vertical-align: middle; text-transform: uppercase;
       }
 
-      /* Profile table */
-      .profile-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.72rem;
-        margin-bottom: 16px;
+      /* ── Tab cards (Manage panel) ── */
+      .tab-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px; margin-bottom: 16px;
       }
+      .tab-card {
+        background: #252525; border: 1px solid #333; border-radius: 10px;
+        padding: 14px; border-top: 3px solid #6c5ce7;
+      }
+      .tab-card h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; }
+      .tab-card p { font-size: 0.72rem; color: #999; line-height: 1.5; margin-bottom: 6px; }
+      .tab-card .tag {
+        display: inline-block; font-size: 0.5rem; font-weight: 700; text-transform: uppercase;
+        padding: 1px 5px; border-radius: 3px; margin-right: 3px;
+      }
+      .tag-new { background: #6c5ce7; color: #fff; }
+      .tag-green { background: #14532d; color: #6ee7b7; }
+      .tag-amber { background: #78350f; color: #fcd34d; }
+      .tag-blue  { background: #1e3a5f; color: #93c5fd; }
+
+      /* ── Profile table ── */
+      .profile-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; margin-bottom: 16px; }
       .profile-table th {
-        background: #1e1e1e;
-        text-align: left;
-        padding: 8px 10px;
-        border-bottom: 2px solid #444;
-        font-weight: 600;
-        color: #aaa;
+        background: #1e1e1e; text-align: left; padding: 8px 10px;
+        border-bottom: 2px solid #444; font-weight: 600; color: #aaa;
       }
-      .profile-table td {
-        padding: 6px 10px;
-        border-bottom: 1px solid #333;
-        color: #ccc;
-      }
-      .profile-table tr:hover td {
-        background: #2a2a2a;
-      }
+      .profile-table td { padding: 6px 10px; border-bottom: 1px solid #333; color: #ccc; }
+      .profile-table tr:hover td { background: #2a2a2a; }
 
-      /* Two-column layout */
-      .two-col {
-        display: flex;
-        gap: 16px;
-        flex-wrap: wrap;
-      }
-      .two-col .col {
-        flex: 1;
-        min-width: 200px;
-      }
+      /* ── Two-column layout ── */
+      .two-col { display: flex; gap: 16px; flex-wrap: wrap; }
+      .two-col .col { flex: 1; min-width: 200px; }
 
       .footer {
-        text-align: center;
-        margin-top: 40px;
-        padding-top: 20px;
-        border-top: 1px solid #333;
-        font-size: 0.72rem;
-        color: #666;
+        text-align: center; margin-top: 40px; padding-top: 20px;
+        border-top: 1px solid #333; font-size: 0.72rem; color: #666;
       }
 
       @media (max-width: 600px) {
-        .steps {
-          flex-direction: column;
-        }
-        .step .arrow {
-          display: none;
-        }
-        .flow-row {
-          flex-direction: column;
-        }
-        .flow-arrow {
-          transform: rotate(90deg);
-        }
+        .steps { flex-direction: column; }
+        .step .arrow { display: none; }
+        .flow-row { flex-direction: column; }
+        .flow-arrow { transform: rotate(90deg); }
+        .tab-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>⚡ Wan2GP Desktop Launcher</h1>
-      <p class="sub">Install, maintain, launch — three ways to run.</p>
+      <p class="sub">Complete user guide — install, manage, launch, and tune</p>
 
-      <!-- 1: KEY INSIGHT -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 1: WHAT IT IS                       -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
         <h2><span class="num">1</span> What it is</h2>
         <div class="callout">
           <div class="emoji">🔑</div>
           <div class="text">
-            <strong
-              >Wan2GP Desktop Launcher is a wrapper — it does NOT replace
-              Wan2GP.</strong
-            >
-            All generation, models, scheduling, LoRAs run inside Wan2GP's own
-            Gradio server. The launcher handles: one-click install with GPU
-            detection, environment management, hardware-tuned config, and
-            multiple launch modes. The browser (or the built-in Desktop viewer)
-            is where you work.
+            <strong>Wan2GP Desktop Launcher is a wrapper — it does NOT replace Wan2GP.</strong>
+            All generation, models, scheduling, and LoRAs run inside Wan2GP's own Gradio server.
+            The launcher handles: one-click install with GPU detection, environment management,
+            hardware-tuned config, multiple launch modes, and real-time monitoring.
           </div>
         </div>
-        <div class="callout" style="border-color: #6c5ce7; background: #1e1230">
-          <div class="emoji">🖥️</div>
-          <div class="text">
-            <strong>Launch in Desktop</strong> — Wan2GP runs inside the launcher
-            itself (Electron BrowserView, no blank pages). Full nav controls,
-            zoom, popout, and a dockable floating terminal. The app never leaves
-            your dashboard.
-          </div>
+
+        <div class="stats">
+          <div class="stat"><div class="num">4</div><div class="label">Launch modes</div></div>
+          <div class="stat"><div class="num">4</div><div class="label">Manage tabs</div></div>
+          <div class="stat"><div class="num">5</div><div class="label">Dock positions</div></div>
+          <div class="stat"><div class="num">6</div><div class="label">Browsers detected</div></div>
+          <div class="stat"><div class="num">4</div><div class="label">Live sparklines</div></div>
         </div>
       </div>
 
-      <!-- Stats row -->
-      <div class="stats">
-        <div class="stat">
-          <div class="num">3</div>
-          <div class="label">Launch modes</div>
-        </div>
-        <div class="stat">
-          <div class="num">5</div>
-          <div class="label">Dock positions</div>
-        </div>
-        <div class="stat">
-          <div class="num">6</div>
-          <div class="label">Browsers detected</div>
-        </div>
-        <div class="stat">
-          <div class="num">4</div>
-          <div class="label">Live sparklines</div>
-        </div>
-      </div>
-
-      <!-- 2: HARDWARE PROFILES -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 2: INSTALL FLOW                     -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
-        <h2><span class="num">2</span> Hardware profiles</h2>
-        <p style="font-size: 0.78rem; color: #999; margin-bottom: 12px">
-          GPU detection picks the exact packages for your card:
-        </p>
-        <table class="profile-table">
-          <thead>
-            <tr>
-              <th>GPU</th>
-              <th>Python</th>
-              <th>Torch</th>
-              <th>Triton</th>
-              <th>Attention</th>
-              <th>Kernels</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>RTX 50</td>
-              <td>3.11.14</td>
-              <td>2.10.0 CU13</td>
-              <td>latest</td>
-              <td>Sage2 + Flash</td>
-              <td>nunchaku, lightx2v, gguf</td>
-            </tr>
-            <tr>
-              <td>RTX 40</td>
-              <td>3.11.14</td>
-              <td>2.10.0 CU13</td>
-              <td>latest</td>
-              <td>Sage2 + Flash</td>
-              <td>nunchaku, gguf</td>
-            </tr>
-            <tr>
-              <td>RTX 30</td>
-              <td>3.11.14</td>
-              <td>2.10.0 CU13</td>
-              <td>latest</td>
-              <td>Sage2 + Flash</td>
-              <td>nunchaku, gguf</td>
-            </tr>
-            <tr>
-              <td>RTX 20</td>
-              <td>3.11.14</td>
-              <td>2.10.0 CU13</td>
-              <td>latest</td>
-              <td>Sage1 + Flash</td>
-              <td>nunchaku, gguf</td>
-            </tr>
-            <tr>
-              <td>GTX 10</td>
-              <td>3.10.9</td>
-              <td>2.7.1 CU12.8</td>
-              <td>—</td>
-              <td>—</td>
-              <td>—</td>
-            </tr>
-          </tbody>
-        </table>
-        <p style="font-size: 0.7rem; color: #888">
-          Mirrors Wan2GP's <code>setup_config.json</code> profiles. Installer
-          shows exactly what will be installed before you click Install.
-        </p>
-      </div>
-
-      <!-- 3: INSTALL FLOW -->
-      <div class="section">
-        <h2><span class="num">3</span> Install flow</h2>
+        <h2><span class="num">2</span> Install flow</h2>
         <div class="steps">
           <div class="step">
             <div class="icon">⬇️</div>
             <div class="label">Download</div>
-            <div class="desc">
-              Grab the <code>.exe</code> from GitHub Releases
-            </div>
+            <div class="desc">Grab the <code>.exe</code> from GitHub Releases</div>
             <div class="arrow">→</div>
           </div>
           <div class="step">
             <div class="icon">🖥️</div>
             <div class="label">Launch App</div>
-            <div class="desc">
-              Detects GPU, RAM, VRAM — shows expected packages for your
-              hardware. Checks Git, Python, uv, conda installed
-            </div>
+            <div class="desc">Detects GPU, RAM, VRAM — shows expected packages for your hardware. Checks Git, Python, uv, conda.</div>
             <div class="arrow">→</div>
           </div>
           <div class="step">
             <div class="icon">📦</div>
-            <div class="label">Auto-install prereqs</div>
-            <div class="desc">
-              If Git, Python, uv, or conda is missing, click Download & Install
-              — it installs silently
-            </div>
+            <div class="label">Prereqs</div>
+            <div class="desc">Missing Git, Python, uv, or conda? One-click installs silently.</div>
             <div class="arrow">→</div>
           </div>
           <div class="step">
             <div class="icon">📦</div>
             <div class="label">Install</div>
-            <div class="desc">
-              Clones Wan2GP → creates env → installs PyTorch + attention kernels
-              automatically
-            </div>
+            <div class="desc">Clones Wan2GP → creates env → installs PyTorch + attention kernels</div>
             <div class="arrow">→</div>
           </div>
           <div class="step">
             <div class="icon">✅</div>
             <div class="label">Dashboard</div>
-            <div class="desc">
-              Green dots on all packages. System info, env overview, changelog,
-              console.
-            </div>
+            <div class="desc">Green dots on all packages. System info, env overview, changelog, console.</div>
           </div>
         </div>
       </div>
 
-      <!-- 4: LAUNCH -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 3: HARDWARE PROFILES                -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
-        <h2><span class="num">4</span> Launch & use — three ways</h2>
-        <p style="font-size: 0.78rem; color: #999; margin-bottom: 12px">
-          The dashboard shows three launch buttons with distinct colors:
+        <h2><span class="num">3</span> Hardware profiles</h2>
+        <p style="font-size:0.78rem;color:#999;margin-bottom:12px">
+          GPU detection picks the exact packages for your card:
+        </p>
+        <table class="profile-table">
+          <thead>
+            <tr><th>GPU</th><th>Python</th><th>Torch</th><th>Triton</th><th>Attention</th><th>Kernels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>RTX 50</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, lightx2v, gguf</td></tr>
+            <tr><td>RTX 40</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, gguf</td></tr>
+            <tr><td>RTX 30</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage2 + Flash</td><td>nunchaku, gguf</td></tr>
+            <tr><td>RTX 20</td><td>3.11.14</td><td>2.10.0 CU13</td><td>latest</td><td>Sage1 + Flash</td><td>nunchaku, gguf</td></tr>
+            <tr><td>GTX 10</td><td>3.10.9</td><td>2.7.1 CU12.8</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:0.7rem;color:#888">
+          Mirrors Wan2GP's <code>setup_config.json</code> profiles. Installer shows exactly what will be installed.
+        </p>
+      </div>
+
+      <!-- ════════════════════════════════════ -->
+      <!-- 4: DASHBOARD LAYOUT                 -->
+      <!-- ════════════════════════════════════ -->
+      <div class="section">
+        <h2><span class="num">4</span> Dashboard at a glance</h2>
+
+        <div class="two-col">
+          <div class="col">
+            <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:10px">🖥️ Left column</h3>
+            <div class="feature-grid" style="grid-template-columns:1fr">
+              <div class="feature-card">
+                <span class="fc-icon">🖥️</span>
+                <div class="fc-title">System</div>
+                <div class="fc-desc">CPU, total/free RAM, GPU model + names, total/free VRAM. Updates live every 5s.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">📂</span>
+                <div class="fc-title">Paths</div>
+                <div class="fc-desc">Wan2GP install location + free disk space. Click to open in Explorer.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">🗂️</span>
+                <div class="fc-title">Model Folders</div>
+                <div class="fc-desc">Checkpoints & LoRAs paths with browse buttons to change them.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">📦</span>
+                <div class="fc-title">Active Environment</div>
+                <div class="fc-desc">17 packages with green/red version dots. Unlink, restore, check PyPI updates, pip install input at bottom.</div>
+              </div>
+            </div>
+          </div>
+          <div class="col">
+            <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:10px">🚀 Right column</h3>
+            <div class="feature-grid" style="grid-template-columns:1fr">
+              <div class="feature-card">
+                <span class="fc-icon">🟢</span>
+                <div class="fc-title">4 Launch Buttons</div>
+                <div class="fc-desc">Desktop (green), Browser (amber), Chrome no-GPU (muted), External Terminal (blue). Each described below.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">🔄</span>
+                <div class="fc-title">Action Grid</div>
+                <div class="fc-desc">Update Wan2GP, Check Desktop Updates, Create Desktop Shortcut, <strong>⚡ Auto-Tune</strong> — opens Manage on the Auto-Tune tab.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">📰</span>
+                <div class="fc-title">Wan2GP Updates</div>
+                <div class="fc-desc">Latest commits from GitHub with update indicator. Full changelog + HuggingFace models link.</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">ℹ️</span>
+                <div class="fc-title">Desktop App Info</div>
+                <div class="fc-desc">Desktop app version + commit + GitHub repo link.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="font-size:0.95rem;font-weight:600;margin:16px 0 10px">📍 Topbar</h3>
+        <div class="feature-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+          <div class="feature-card">
+            <span class="fc-icon">📈</span>
+            <div class="fc-title">Live sparklines</div>
+            <div class="fc-desc">CPU/GPU/RAM/VRAM mini line charts with real-time %.</div>
+          </div>
+          <div class="feature-card">
+            <span class="fc-icon">🔄</span>
+            <div class="fc-title">Refresh</div>
+            <div class="fc-desc">One click re-polls dashboard, hardware, and all metrics.</div>
+          </div>
+          <div class="feature-card">
+            <span class="fc-icon">🟢</span>
+            <div class="fc-title">Running LED + Stop</div>
+            <div class="fc-desc">Green dot when Wan2GP is running. Stop kills the server.</div>
+          </div>
+          <div class="feature-card">
+            <span class="fc-icon">🪟</span>
+            <div class="fc-title">Webview controls</div>
+            <div class="fc-desc">Back/forward/reload, zoom (25–200%), popout, terminal toggle. Shown in Desktop mode.</div>
+          </div>
+          <div class="feature-card">
+            <span class="fc-icon">📟</span>
+            <div class="fc-title">Console</div>
+            <div class="fc-desc">Live log from setup & launch. Search, export, follow mode, ANSI stripped. Toggle with Ctrl+`.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════ -->
+      <!-- 5: MANAGE PANEL — ALL 4 TABS       -->
+      <!-- ════════════════════════════════════ -->
+      <div class="section">
+        <h2><span class="num">5</span> Manage Panel — all 4 tabs</h2>
+        <p style="font-size:0.78rem;color:#999;margin-bottom:12px">
+          The Manage panel (gear icon in topbar) has four tabs. When Wan2GP is running in Desktop mode,
+          the embedded view is detached and replaced by an opaque backdrop so settings appear on top.
+        </p>
+
+        <div class="tab-grid">
+          <!-- General -->
+          <div class="tab-card" style="border-top-color:#6c5ce7">
+            <h3>⚙️ General</h3>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🔑</span>
+              <div class="fc-title">GitHub Token</div>
+              <div class="fc-desc">Avoids API rate limits for auto-updates &amp; changelog. Classic token with <code>repo</code> scope.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🤗</span>
+              <div class="fc-title">HuggingFace Token</div>
+              <div class="fc-desc">Needed for gated models. Passed as <code>HF_TOKEN</code> to Wan2GP on launch.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🌐</span>
+              <div class="fc-title">Default Browser</div>
+              <div class="fc-desc">Detects Chrome, Edge, Firefox, Brave, Opera, Vivaldi. Pick one for browser launch.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">📐</span>
+              <div class="fc-title">Floating Terminal Dock</div>
+              <div class="fc-desc">Default position: Bottom / Left / Top / Right / Minimised.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🖥️</span>
+              <div class="fc-title">Electron GPU</div>
+              <div class="fc-desc">Disable to free VRAM for Wan2GP generation. Restart required.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🪟</span>
+              <div class="fc-title">Desktop</div>
+              <div class="fc-desc">Auto-start with Windows, follow system theme, desktop notifications.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:0">
+              <span class="fc-icon">📦</span>
+              <div class="fc-title">Xet Storage (hf_xet)</div>
+              <div class="fc-desc">Speeds up HuggingFace downloads with delta compression.</div>
+            </div>
+          </div>
+
+          <!-- Launch -->
+          <div class="tab-card" style="border-top-color:#f59e0b">
+            <h3>🚀 Launch</h3>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🔗</span>
+              <div class="fc-title">Share Link</div>
+              <div class="fc-desc">Toggle to enable <code>--share</code> — creates a public Gradio tunnel URL. Use when you see <em>"localhost is not accessible"</em> error (proxy/VPN issue). All 4 launch modes respect this setting.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">📝</span>
+              <div class="fc-title">Extra Launch Args</div>
+              <div class="fc-desc">Custom flags passed to wgp.py: <code>--profile</code>, <code>--attention</code>, <code>--compile</code>, <code>--listen</code>, <code>--share</code>, <code>--gpu</code>, etc.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:0">
+              <span class="fc-icon">🔌</span>
+              <div class="fc-title">Server Port</div>
+              <div class="fc-desc">Port for the Gradio web interface (default 7860). Changes on next launch.</div>
+            </div>
+          </div>
+
+          <!-- About -->
+          <div class="tab-card" style="border-top-color:#22c55e">
+            <h3>ℹ️ About</h3>
+            <div class="feature-card" style="margin-bottom:0">
+              <span class="fc-icon">📋</span>
+              <div class="fc-title">Version Info</div>
+              <div class="fc-desc">Launcher version number and link to the Wan2GP GitHub repo.</div>
+            </div>
+          </div>
+
+          <!-- Auto-Tune -->
+          <div class="tab-card" style="border-top-color:#6c5ce7">
+            <h3>⚡ Auto-Tune</h3>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">🖥️</span>
+              <div class="fc-title">Hardware Card</div>
+              <div class="fc-desc">Click <strong>Detect</strong> to scan GPU, CUDA toolkit, VRAM, attention kernel support. Results shown live.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:6px">
+              <span class="fc-icon">📋</span>
+              <div class="fc-title">Recommendation Card</div>
+              <div class="fc-desc">Suggests optimal <code>wgp_config.json</code> settings: profiles (video/image/audio) with <strong>editable dropdowns</strong>, <strong>Scaled Int8</strong> quantization (best quality–VRAM balance), VAE Config set to <strong>Auto</strong> (lets Wan2GP decide when tiling is needed — higher presets save VRAM but may cause banding), and VRAM safety coefficient.</div>
+            </div>
+            <div class="feature-card" style="margin-bottom:0">
+              <span class="fc-icon">✅</span>
+              <div class="fc-title">Apply</div>
+              <div class="fc-desc">One click writes the settings to <code>wgp_config.json</code>. Also accessible from the dashboard ⚡ Auto-Tune button.</div>
+            </div>
+            <div style="margin-top:8px;font-size:0.65rem;color:#999;line-height:1.5">
+              <strong style="color:#ccc">Profile lookup table</strong> — Wan2GP uses 5 profiles (1–5) from its <code>mmgp</code> memory manager.
+              The auto-tune picks one based on your VRAM and system RAM:
+            </div>
+            <table style="width:100%;margin-top:6px;border-collapse:collapse;font-size:0.6rem">
+              <tr><th style="text-align:left;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">VRAM \ RAM</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">high (≥64GB)</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">mid (≥32GB)</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">low (&lt;32GB)</th></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">very_high (≥24GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">high (≥16GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P2</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P2</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">mid (≥10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P3</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">low (&lt;10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P3</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td></tr>
+            </table>
+            <div style="margin-top:6px;font-size:0.6rem;color:#888;line-height:1.5">
+              <strong>P1</strong> — full models in VRAM, pinned memory ⇢ <strong>P5</strong> — no pinned memory, tight budgets, all quantized.
+              Profiles, Scaled Int8 quant, and VAE Auto can all be changed in the dropdowns before applying.
+            </div>
+          </div>
+        </div>
+
+        <div class="callout" style="border-color:#555;background:#222">
+          <div class="emoji">💡</div>
+          <div class="text">
+            <strong>Tip:</strong> The <strong>⚡ Auto-Tune</strong> button on the main dashboard (action grid) opens the Manage panel directly on the Auto-Tune tab — no need to navigate there manually.
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════ -->
+      <!-- 6: LAUNCH MODES — ALL 4            -->
+      <!-- ════════════════════════════════════ -->
+      <div class="section">
+        <h2><span class="num">6</span> Launch modes — all 4</h2>
+        <p style="font-size:0.78rem;color:#999;margin-bottom:12px">
+          Four distinct launch buttons, each with a different color. They all run the same
+          <code>wgp.py</code> with the same arguments — the difference is where the UI appears.
         </p>
 
         <!-- Desktop mode -->
-        <div class="flow" class="flow-green">
+        <div class="flow">
           <div class="flow-row">
-            <div class="flow-box color" style="border-color: #22c55e">
+            <div class="flow-box color" style="--flow-color:#22c55e">
               <span class="icon">🖥️</span>
               <span class="name">Launch in Desktop</span>
               <span class="badge badge-green">Green button</span>
-              <span class="note"
-                >Wan2GP embedded via BrowserView<br />inside the launcher
-                window</span
-              >
+              <span class="note">Wan2GP embedded via BrowserView inside the launcher window</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🧭</span>
               <span class="name">Full Nav Controls</span>
-              <span class="note"
-                >Back/Forward/Reload buttons +<br />zoom slider (25%–200%)</span
-              >
+              <span class="note">Back/Forward/Reload + zoom slider (25%–200%)</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🪟</span>
               <span class="name">Popout / Stay</span>
-              <span class="note"
-                >Popout button tears Wan2GP into<br />its own window; close
-                returns to dashboard</span
-              >
+              <span class="note">Popout tears Wan2GP into its own window; close returns to dashboard</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🎬</span>
               <span class="name">Generate</span>
-              <span class="note"
-                >Full Wan2GP — models,<br />prompts, schedules, LoRAs</span
-              >
+              <span class="note">Full Wan2GP — models, prompts, schedules, LoRAs</span>
             </div>
           </div>
+          <div class="callout" style="border-color:#22c55e;background:#0d2818;margin:12px 0 0">
+            <div class="emoji">💡</div>
+            <div class="text"><strong>Best for:</strong> staying inside the launcher — no browser tabs, no context switching. Terminal is dockable.</div>
+          </div>
         </div>
+
         <!-- Browser mode -->
-        <div class="flow" class="flow-amber" style="margin-top: 0">
+        <div class="flow">
           <div class="flow-row">
-            <div class="flow-box color" style="border-color: #f59e0b">
+            <div class="flow-box color" style="--flow-color:#f59e0b">
               <span class="icon">🌐</span>
               <span class="name">Launch in Browser</span>
               <span class="badge badge-amber">Amber button</span>
-              <span class="note"
-                >Uses your chosen default browser<br />or OS default</span
-              >
+              <span class="note">Uses your chosen default browser or OS default</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">💻</span>
               <span class="name">Terminal Window</span>
-              <span class="note"
-                >Temp script runs wgp.py,<br />polls via netstat</span
-              >
+              <span class="note">Visible console shows server logs in real-time</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🌐</span>
               <span class="name">Browser Opens</span>
-              <span class="note"
-                >Auto when server responds<br />to port check</span
-              >
+              <span class="note">Auto-opens when the Gradio server responds</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🎬</span>
               <span class="name">Generate</span>
-              <span class="note"
-                >Full Wan2GP — models,<br />prompts, schedules, LoRAs</span
-              >
+              <span class="note">Full Wan2GP in your preferred browser</span>
             </div>
           </div>
+          <div class="callout" style="border-color:#f59e0b;background:#2d1f0a;margin:12px 0 0">
+            <div class="emoji">💡</div>
+            <div class="text"><strong>Best for:</strong> using your own browser with extensions, bookmarks, and multiple tabs.</div>
+          </div>
         </div>
-        <!-- No-GPU Chrome mode -->
-        <div class="flow" style="margin-top: 0">
+
+        <!-- Chrome no-GPU -->
+        <div class="flow">
           <div class="flow-row">
-            <div class="flow-box color" style="border-color: #6b7280">
+            <div class="flow-box color" style="--flow-color:#6b7280">
               <span class="icon">🚫</span>
-              <span class="name">Launch in Chrome (no GPU)</span>
+              <span class="name">Chrome (no GPU)</span>
               <span class="badge badge-muted">Muted button</span>
-              <span class="note"
-                >Chrome only — runs with GPU<br />disabled to free VRAM for
-                generation</span
-              >
+              <span class="note">Chrome only — launches with GPU disabled</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">💻</span>
               <span class="name">Terminal + Chrome</span>
-              <span class="note"
-                >Same server flow, but Chrome<br />starts with --disable-gpu
-                flags</span
-              >
+              <span class="note">Same server flow, Chrome starts with <code>--disable-gpu</code> flags</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🚀</span>
-              <span class="name">More VRAM for Wan2GP</span>
-              <span class="note"
-                >Browser uses SwiftShader (CPU)<br />leaving GPU fully
-                free</span
-              >
+              <span class="name">Free VRAM</span>
+              <span class="note">Browser uses SwiftShader (CPU rendering) — leaves GPU fully free for generation</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🎬</span>
               <span class="name">Generate</span>
-              <span class="note"
-                >Full Wan2GP — models,<br />prompts, schedules, LoRAs</span
-              >
+              <span class="note">Up to 1–5 GB more VRAM available for Wan2GP</span>
             </div>
+          </div>
+          <div class="callout" style="border-color:#6b7280;background:#1a1a1a;margin:12px 0 0">
+            <div class="emoji">💡</div>
+            <div class="text"><strong>Best for:</strong> low-VRAM GPUs (6–12 GB) where every MB matters.</div>
           </div>
         </div>
 
-        <div class="callout" style="border-color: #555; background: #222">
+        <!-- External Terminal mode -->
+        <div class="flow">
+          <div class="flow-row">
+            <div class="flow-box color" style="--flow-color:#3b82f6">
+              <span class="icon">🪟</span>
+              <span class="name">External Terminal</span>
+              <span class="badge badge-blue">Blue button</span>
+              <span class="note">Launches in Windows Terminal or cmd.exe window</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box">
+              <span class="icon">📜</span>
+              <span class="name">Generated .bat</span>
+              <span class="note">Temp .bat with env activation + your port &amp; launch args, same as desktop shortcut</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box">
+              <span class="icon">⏳</span>
+              <span class="name">Polls &amp; Opens Browser</span>
+              <span class="note">Waits for Gradio, then opens browser. Full console output visible.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box">
+              <span class="icon">🎬</span>
+              <span class="name">Generate</span>
+              <span class="note">Server runs independently — close the window to stop</span>
+            </div>
+          </div>
+          <div class="callout" style="border-color:#3b82f6;background:#0f1a2e;margin:12px 0 0">
+            <div class="emoji">💡</div>
+            <div class="text"><strong>Best for:</strong> running Wan2GP like a standalone server — close the launcher and the server keeps running.</div>
+          </div>
+        </div>
+
+        <div class="callout" style="border-color:#555;background:#222">
           <div class="emoji">⚡</div>
           <div class="text">
-            <strong>Already-running detection</strong> — if Wan2GP is already
-            serving (from Desktop mode or a prior browser launch), the other
-            launch buttons just connect. No duplicate process.
+            <strong>Already-running detection</strong> — if Wan2GP is already serving (from any mode), clicking another launch button just connects. No duplicate process. Stop button kills it regardless of which mode started it.
           </div>
         </div>
       </div>
 
-      <!-- 5: DASHBOARD -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 7: KEYBOARD SHORTCUTS & TIPS       -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
-        <h2><span class="num">5</span> Dashboard at a glance</h2>
-        <div class="feature-grid">
-          <div class="feature-card">
-            <span class="fc-icon">🖥️</span>
-            <div class="fc-title">System</div>
-            <div class="fc-desc">
-              CPU, total/free RAM, GPU model + names, total/free VRAM. Updates
-              live every 5s.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">📂</span>
-            <div class="fc-title">Paths</div>
-            <div class="fc-desc">
-              Wan2GP install location + free disk space. Click to open in
-              Explorer.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">🗂️</span>
-            <div class="fc-title">Model Folders</div>
-            <div class="fc-desc">
-              Checkpoints & LoRAs paths with browse buttons.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">📦</span>
-            <div class="fc-title">Active Env</div>
-            <div class="fc-desc">
-              17 packages with version dots. Missing ones get a + install
-              button. Quick pip input at bottom.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">🔄</span>
-            <div class="fc-title">Check Updates</div>
-            <div class="fc-desc">
-              Scans PyPI for newer versions of installed packages. Upgrade
-              individual ones.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">📋</span>
-            <div class="fc-title">Console</div>
-            <div class="fc-desc">
-              Live log from setup and launch. Follow mode, ANSI stripped. Search
-              & export available.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">📰</span>
-            <div class="fc-title">Wan2GP Updates</div>
-            <div class="fc-desc">
-              Latest commits from GitHub with update indicator + HuggingFace
-              models link.
-            </div>
-          </div>
-          <div class="feature-card">
-            <span class="fc-icon">🛠️</span>
-            <div class="fc-title">Manage Panel</div>
-            <div class="fc-desc">
-              Default browser picker, Electron GPU toggle, DevTools, terminal
-              dock pos, launch args, server port. Covers Wan2GP when open.
-            </div>
-          </div>
-        </div>
-
+        <h2><span class="num">7</span> Keyboard shortcuts &amp; tips</h2>
         <div class="two-col">
           <div class="col">
-            <h3
-              style="font-size: 0.95rem; font-weight: 600; margin-bottom: 10px"
-            >
-              📍 Topbar (new)
-            </h3>
-            <div class="feature-grid" style="grid-template-columns: 1fr">
-              <div class="feature-card">
-                <span class="fc-icon">📈</span>
-                <div class="fc-title">Live sparklines</div>
-                <div class="fc-desc">
-                  CPU/GPU/RAM/VRAM mini line charts with real-time percentages.
-                  Always visible.
-                </div>
-              </div>
-              <div class="feature-card">
-                <span class="fc-icon">🔄</span>
-                <div class="fc-title">Refresh button</div>
-                <div class="fc-desc">
-                  One click re-polls dashboard, hardware, and all metrics.
-                </div>
-              </div>
-              <div class="feature-card">
-                <span class="fc-icon">🟢</span>
-                <div class="fc-title">Running LED + Stop</div>
-                <div class="fc-desc">
-                  Green dot when Wan2GP is running. Stop button kills the
-                  server.
-                </div>
-              </div>
-              <div class="feature-card">
-                <span class="fc-icon">🎮</span>
-                <div class="fc-title">Webview controls</div>
-                <div class="fc-desc">
-                  Back/forward/reload, zoom slider (25–200%), popout button,
-                  terminal toggle. Shown in Desktop mode.
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col">
-            <h3
-              style="font-size: 0.95rem; font-weight: 600; margin-bottom: 10px"
-            >
-              ⌨️ Shortcuts & Settings
-            </h3>
-            <div class="feature-grid" style="grid-template-columns: 1fr">
+            <div class="feature-grid" style="grid-template-columns:1fr">
               <div class="feature-card">
                 <span class="fc-icon">⌨️</span>
-                <div class="fc-title">Keyboard shortcuts</div>
-                <div class="fc-desc">
-                  Ctrl+` toggles floating terminal. Esc / Ctrl+W closes webview.
-                  No menu digging.
-                </div>
+                <div class="fc-title">Ctrl+`</div>
+                <div class="fc-desc">Toggle floating terminal (dockable)</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">⌨️</span>
+                <div class="fc-title">Esc / Ctrl+W</div>
+                <div class="fc-desc">Close embedded webview / popout</div>
+              </div>
+              <div class="feature-card">
+                <span class="fc-icon">⌨️</span>
+                <div class="fc-title">F12</div>
+                <div class="fc-desc">Open DevTools picker — choose between Wan2GP content or Electron shell</div>
               </div>
               <div class="feature-card">
                 <span class="fc-icon">🔍</span>
-                <div class="fc-title">Terminal search/export</div>
-                <div class="fc-desc">
-                  Search logs by keyword. Export full console to file. Drag
-                  resize handle to grow/shrink.
-                </div>
+                <div class="fc-title">Console search</div>
+                <div class="fc-desc">Search logs by keyword. Export full console to file.</div>
               </div>
-              <div class="feature-card">
-                <span class="fc-icon">🌐</span>
-                <div class="fc-title">Browser picker</div>
-                <div class="fc-desc">
-                  Detects 6 browsers (Chrome, Edge, Firefox, Brave, Opera,
-                  Vivaldi). Pick default in Manage panel.
-                </div>
-              </div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="feature-grid" style="grid-template-columns:1fr">
               <div class="feature-card">
                 <span class="fc-icon">🖥️</span>
-                <div class="fc-title">Electron GPU toggle</div>
-                <div class="fc-desc">
-                  Disable launcher GPU accel to free VRAM for Wan2GP. Restart
-                  required.
-                </div>
+                <div class="fc-title">Manage panel overlay</div>
+                <div class="fc-desc">Hides embedded Wan2GP behind opaque backdrop (BrowserView composites above DOM — z-index can't work).</div>
               </div>
               <div class="feature-card">
-                <span class="fc-icon">🐛</span>
-                <div class="fc-title">DevTools</div>
-                <div class="fc-desc">
-                  Toggle Chromium DevTools from Manage panel (Electron menu is
-                  hidden).
-                </div>
-              </div>
-              <div class="feature-card">
-                <span class="fc-icon">🔎</span>
-                <div class="fc-title">F12 DevTools picker</div>
-                <div class="fc-desc">
-                  Popup chooses whether to inspect the embedded Wan2GP content
-                  or the Electron shell.
-                </div>
-              </div>
-              <div class="feature-card">
-                <span class="fc-icon">📦</span>
-                <div class="fc-title">System tray</div>
-                <div class="fc-desc">
-                  Minimize to tray; tray menu shows, hides, stops the server, or
-                  quits.
-                </div>
+                <span class="fc-icon">📏</span>
+                <div class="fc-title">Terminal resizing</div>
+                <div class="fc-desc">Drag the bottom handle: 80px – 60% of window height. Dock position persists.</div>
               </div>
               <div class="feature-card">
                 <span class="fc-icon">🔔</span>
-                <div class="fc-title">Desktop notifications</div>
-                <div class="fc-desc">
-                  Native alert when the Wan2GP server is ready or stops.
-                </div>
+                <div class="fc-title">Notifications</div>
+                <div class="fc-desc">Native Windows notification when server is ready or stops. Toggle in General settings.</div>
               </div>
               <div class="feature-card">
                 <span class="fc-icon">🪟</span>
-                <div class="fc-title">Window state + auto-start</div>
-                <div class="fc-desc">
-                  Remembers position/size/maximized state; optional launch with
-                  Windows.
-                </div>
+                <div class="fc-title">Window state</div>
+                <div class="fc-desc">Position, size, and maximized state remembered between launches.</div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 6: ARCHITECTURE -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 8: ARCHITECTURE                     -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
-        <h2><span class="num">6</span> How it works</h2>
+        <h2><span class="num">8</span> Architecture &amp; how it works</h2>
 
-        <div class="flow">
+        <div class="flow" style="margin-bottom:12px">
           <div class="flow-row">
             <div class="flow-box">
               <span class="icon">🖥️</span>
-              <span class="name">Desktop Launcher</span>
-              <span class="note"
-                >Electron — dashboard UI,<br />IPC, auto-updater</span
-              >
+              <span class="name">Electron Shell</span>
+              <span class="note">main.js + renderer app.js<br/>dashboard UI + IPC</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🧩</span>
               <span class="name">BrowserView</span>
-              <span class="note"
-                >Renders Wan2GP in-app<br />(not &lt;webview&gt; — blank on
-                E40)</span
-              >
+              <span class="note">Renders Wan2GP in-app<br/>(not &lt;webview&gt; — blank on E40)</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">✨</span>
               <span class="name">manifest.json stub</span>
-              <span class="note"
-                >Intercepts Gradio's PWA manifest<br />request → fixes 404 blank
-                page</span
-              >
+              <span class="note">Intercepts Gradio's PWA manifest<br/>request → fixes 404 blank page</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-box">
               <span class="icon">🎬</span>
               <span class="name">Wan2GP (Gradio)</span>
-              <span class="note"
-                >Full generation UI embedded<br />with nav & zoom</span
-              >
+              <span class="note">Full generation UI embedded<br/>with nav &amp; zoom</span>
             </div>
           </div>
         </div>
 
         <div class="two-col">
           <div class="col">
-            <div class="flow" style="margin-bottom: 0; height: 100%">
-              <h3
-                style="
-                  font-size: 0.85rem;
-                  font-weight: 600;
-                  margin-bottom: 12px;
-                  color: #ccc;
-                "
-              >
-                Browser / No-GPU launch
-              </h3>
+            <div class="flow" style="margin-bottom:0;height:100%">
+              <h3 style="font-size:0.85rem;font-weight:600;margin-bottom:12px;color:#ccc">🌐 Browser / No-GPU / Terminal launch</h3>
               <div class="flow-row">
                 <div class="flow-box">
                   <span class="icon">📜</span>
-                  <span class="name">Temp .bat script</span>
-                  <span class="note"
-                    >spawn() + detached + unref()<br />avoids Windows quoting
-                    bugs</span
-                  >
+                  <span class="name">Bootstrap script</span>
+                  <span class="note">Patches stderr for tqdm progress bars,<br/>then runs wgp.py</span>
                 </div>
                 <div class="flow-arrow">→</div>
                 <div class="flow-box">
                   <span class="icon">🐍</span>
                   <span class="name">wgp.py</span>
-                  <span class="note"
-                    >Wan2GP's Gradio server<br />on localhost:7860</span
-                  >
+                  <span class="note">Wan2GP's Gradio server<br/>on 127.0.0.1:7860</span>
                 </div>
                 <div class="flow-arrow">→</div>
                 <div class="flow-box">
                   <span class="icon">🌐</span>
                   <span class="name">Browser</span>
-                  <span class="note"
-                    >YOUR default (or Chrome with<br />--disable-gpu flags for
-                    no-GPU)</span
-                  >
+                  <span class="note">Your default browser or<br/>Chrome with --disable-gpu</span>
                 </div>
               </div>
             </div>
           </div>
           <div class="col">
-            <div class="flow" style="margin-bottom: 0; height: 100%">
-              <h3
-                style="
-                  font-size: 0.85rem;
-                  font-weight: 600;
-                  margin-bottom: 12px;
-                  color: #ccc;
-                "
-              >
-                Floating Terminal
-              </h3>
-              <div class="flow-row">
-                <div class="flow-box">
-                  <span class="icon">📐</span>
-                  <span class="name">5 dock positions</span>
-                  <span class="note"
-                    >Bottom / Left / Top / Right /<br />Floating
-                    (draggable)</span
-                  >
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-box">
-                  <span class="icon">📏</span>
-                  <span class="name">Resizable</span>
-                  <span class="note"
-                    >Drag the bottom edge<br />80px – 60% window height</span
-                  >
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-box">
-                  <span class="icon">🟢</span>
-                  <span class="name">Server status</span>
-                  <span class="note"
-                    >Green/red dot in header<br />+ follow mode + search +
-                    export</span
-                  >
-                </div>
+            <div class="flow" style="margin-bottom:0;height:100%">
+              <h3 style="font-size:0.85rem;font-weight:600;margin-bottom:12px;color:#ccc">🔧 Key decisions</h3>
+              <div style="font-size:0.72rem;color:#bbb;line-height:1.6;padding:8px">
+                • BrowserView kept alive forever (no destroy/recreate — prevents blank 2nd launch)<br/>
+                • Manage panel <strong>detaches</strong> BrowserView + opaque backdrop (z-index can't overlay BrowserView)<br/>
+                • <code>checkPort()</code> tests TCP before spawning — if already running, just connects<br/>
+                • All launch args (<code>--server-port</code>, <code>--server-name</code>, <code>--share</code>) injected consistently across all modes<br/>
+                • Progress-forcing bootstrap ensures tqdm bars render in piped output
               </div>
             </div>
           </div>
         </div>
-
-        <div class="callout">
-          <div class="emoji">💡</div>
-          <div class="text">
-            <strong>Key architectural decisions.</strong> BrowserView is kept
-            alive forever (no destroy/recreate — prevents blank 2nd launch). The
-            Manage panel <strong>detaches</strong> the BrowserView + shows an
-            opaque backdrop (BrowserView always composites above DOM, so z-index
-            can't work). <code>checkPort()</code> tests TCP before spawning — if
-            already running, just connects.
-          </div>
-        </div>
       </div>
 
-      <!-- 7: MAINTENANCE -->
+      <!-- ════════════════════════════════════ -->
+      <!-- 9: MAINTENANCE                      -->
+      <!-- ════════════════════════════════════ -->
       <div class="section">
-        <h2><span class="num">7</span> Maintenance</h2>
+        <h2><span class="num">9</span> Maintenance</h2>
         <div class="feature-grid">
           <div class="feature-card">
             <span class="fc-icon">➕</span>
             <div class="fc-title">Auto-install prereqs</div>
-            <div class="fc-desc">
-              Missing Git, Python, uv, or conda? Click Download & Install — the
-              launcher handles it silently.
-            </div>
+            <div class="fc-desc">Missing Git, Python, uv, or conda? Click Download &amp; Install — the launcher handles it silently.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">⬆️</span>
             <div class="fc-title">Update Wan2GP</div>
-            <div class="fc-desc">
-              Runs git pull in the repo, then re-installs requirements.
-            </div>
+            <div class="fc-desc">Runs git pull in the repo, then re-installs requirements.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">📈</span>
             <div class="fc-title">Upgrade Packages</div>
-            <div class="fc-desc">
-              Upgrade PyTorch, attention kernels, or any pip package
-              individually.
-            </div>
+            <div class="fc-desc">Upgrade PyTorch, attention kernels, or any pip package individually.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">➕</span>
             <div class="fc-title">Install Package</div>
-            <div class="fc-desc">
-              Type a pip name in the env card — installs into active env
-              instantly.
-            </div>
+            <div class="fc-desc">Type a pip name in the env card — installs into active env instantly.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">🔄</span>
             <div class="fc-title">Reinstall</div>
-            <div class="fc-desc">
-              Fresh clone + install. Backs up plugins/finetunes/config first.
-            </div>
+            <div class="fc-desc">Fresh clone + install. Backs up plugins/finetunes/config first.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">🗑️</span>
             <div class="fc-title">Unlink Env</div>
-            <div class="fc-desc">
-              Red text button in env card header. Removes environment directory.
-            </div>
+            <div class="fc-desc">Red text button in env card header. Removes environment directory.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">💻</span>
             <div class="fc-title">Desktop Shortcut</div>
-            <div class="fc-desc">
-              Creates a standalone .bat that activates the env, starts Wan2GP,
-              and opens your browser automatically.
-            </div>
+            <div class="fc-desc">Creates a standalone .bat that activates the env, starts Wan2GP, and opens your browser.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">⬆️</span>
             <div class="fc-title">Self-Update</div>
-            <div class="fc-desc">
-              Checks GitHub for new launcher releases. Download + install in one
-              click.
-            </div>
+            <div class="fc-desc">Checks GitHub for new launcher releases. Download + install in one click.</div>
           </div>
           <div class="feature-card">
             <span class="fc-icon">⚙️</span>
             <div class="fc-title">Launch Args</div>
-            <div class="fc-desc">
-              Extra flags passed to wgp.py (--profile, --attention, --listen,
-              etc.)
-            </div>
+            <div class="fc-desc">Extra flags passed to wgp.py (--profile, --attention, --listen, --share, etc.)</div>
           </div>
         </div>
 
-        <div class="callout" style="border-color: #555; background: #222">
+        <div class="callout" style="border-color:#555;background:#222">
           <div class="emoji">⚡</div>
           <div class="text">
-            <strong>GPU detection uses direct shell commands</strong>
-            (<code>nvidia-smi</code>, <code>powershell</code>,
-            <code>system_profiler</code>, <code>lspci</code>) — no fragile
-            Python <code>-c</code> wrapper that breaks on unrelated venvs.
-            Faster, more reliable, cross-platform.
+            <strong>GPU detection</strong> uses direct shell commands (<code>nvidia-smi</code>, <code>powershell</code>,
+            <code>system_profiler</code>, <code>lspci</code>) — no fragile Python wrapper that breaks on unrelated venvs.
+            Fast, reliable, cross-platform.
           </div>
         </div>
       </div>
@@ -1065,11 +807,7 @@
       <!-- FOOTER -->
       <div class="footer">
         Wan2GP Desktop Launcher —
-        <a
-          href="https://github.com/GKartist75/wan2gp-desktop"
-          style="color: #6c5ce7"
-          >github.com/GKartist75/wan2gp-desktop</a
-        >
+        <a href="https://github.com/GKartist75/wan2gp-desktop" style="color:#6c5ce7">github.com/GKartist75/wan2gp-desktop</a>
       </div>
     </div>
   </body>
