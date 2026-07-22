@@ -1,14 +1,20 @@
+"use strict";
+
 const { app, BrowserWindow, BrowserView, ipcMain, shell, Menu, MenuItem, dialog, Tray, nativeTheme, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { spawn, exec, execSync } = require('child_process')
+const net = require('net')
+const http = require('http')
+const https = require('https')
 
 // ── GPU info cache (TTL 30s, avoids redundant nvidia-smi calls across handlers) ──
+// Does NOT cache empty/error results — only caches when non-NVIDIA data is available.
 let _gpuCache = { result: null, ts: 0 }
 const GPU_CACHE_TTL = 30000
 function getGpuInfo() {
-  if (_gpuCache.result && Date.now() - _gpuCache.ts < GPU_CACHE_TTL) return _gpuCache.result
+  if (_gpuCache.result && _gpuCache.result.vendor && Date.now() - _gpuCache.ts < GPU_CACHE_TTL) return _gpuCache.result
   const result = { name: '', vramMB: 0, vendor: '' }
   try {
     const ns = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
@@ -29,12 +35,13 @@ function getGpuInfo() {
       }
     } catch {}
   }
-  _gpuCache = { result, ts: Date.now() }
+  // Only cache when we got actual data
+  if (result.vendor) {
+    _gpuCache = { result, ts: Date.now() }
+  }
   return result
 }
-const net = require('net')
-const http = require('http')
-const https = require('https')
+
 
 // ── Structured error logging (replaces silent catch blocks) ──
 function logError(context, err) {
@@ -59,19 +66,31 @@ function escapeBat(s) {
 }
 
 // Escape a value for use inside cmd /c "..." (inside double quotes).
-// In that context ^ is literal, and only %, " and ! (delayed expansion) are special.
+// In that context ^ is literal, and only % and " are special (no setlocal delayedexpansion).
 function escapeBatCmdArg(s) {
   if (typeof s !== 'string') return String(s)
   return s.replace(/%/g, '%%')
           .replace(/"/g, '""')
-          .replace(/!/g, '^^!')
 }
 
 // Ensure a resolved path is inside the repo directory (prevent path traversal).
+// Resolves symlinks/junctions on Windows to prevent traversal via directory links.
 function ensureInsideRepo(envPath) {
   const repo = getRepoDir()
   if (!repo) return false
-  const rel = path.relative(repo, path.resolve(envPath))
+  let resolved
+  try {
+    resolved = fs.realpathSync(path.resolve(envPath))
+  } catch {
+    resolved = path.resolve(envPath)
+  }
+  let repoReal
+  try {
+    repoReal = fs.realpathSync(repo)
+  } catch {
+    repoReal = path.resolve(repo)
+  }
+  const rel = path.relative(repoReal, resolved)
   return !rel.startsWith('..') && !path.isAbsolute(rel)
 }
 
@@ -97,6 +116,11 @@ function killProcessTree(proc) {
 
 // ── Stop the Wan2GP server (works for both tracked-child and external-terminal modes) ──
 function stopWangpServer() {
+  // Clear terminal-mode monitor interval first
+  if (_monitorInterval) {
+    clearInterval(_monitorInterval)
+    _monitorInterval = null
+  }
   if (_terminalTitle || _terminalPidFile) {
     // External-terminal mode: prefer killing the exact python PID we captured (bulletproof),
     // then also close the terminal window by title as a fallback / to dismiss the window.
@@ -121,14 +145,15 @@ function stopWangpServer() {
 }
 
 // Find the running Wan2GP python PID (used to make external-terminal Stop bulletproof).
-// Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a wmic CommandLine filter.
+// Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a cmd CommandLine filter.
+// Uses Get-CimInstance (modern WMI) instead of deprecated wmic.
 function findWan2gpPid() {
   try {
     const list = execSync('tasklist /fi "IMAGENAME eq python.exe" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
     const pids = [...list.matchAll(/"(\d+)"/g)].map(m => m[1])
     for (const pid of pids) {
       try {
-        const cl = execSync('wmic process where ProcessId=' + pid + ' get CommandLine', { windowsHide: true, timeout: 5000 }).toString()
+        const cl = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"ProcessId=' + pid + '\" | Select-Object -ExpandProperty CommandLine"', { windowsHide: true, timeout: 5000 }).toString()
         if (cl.includes('wgp.py')) return parseInt(pid, 10)
       } catch {}
     }
@@ -137,13 +162,35 @@ function findWan2gpPid() {
 }
 
 // Disable GPU acceleration only when the user opts out (config electronGpu:false).
+// Read config directly without app.getPath (may fail pre-ready) — try the override file first,
+// then fall back to a default userData path.
 // Default electronGpu:true keeps hardware compositing (regression fix, was v2.1.5).
 try {
-  const _cfg = JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
+  const home = app.getPath('home')
+  const overrideFile = path.join(home, '.wan2gp-desktop-data-dir')
+  let cfgPath = ''
+  if (fs.existsSync(overrideFile)) {
+    const d = fs.readFileSync(overrideFile, 'utf8').trim()
+    if (d) cfgPath = path.join(path.resolve(d), 'desktop-config.json')
+  }
+  if (!cfgPath) {
+    cfgPath = path.join(app.getPath('userData'), 'Wan2GP', 'desktop-config.json')
+  }
+  const _cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
   if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
 } catch (e) { logError('gpu-config', e) }
 
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
+
+// ── Simple sequential mutex for mutable state ──
+// Ensures async operations on shared globals (_wangpProc, _currentPort, etc.) don't interleave.
+let _stateQueue = Promise.resolve()
+function mutex(fn) {
+  const prev = _stateQueue
+  let release
+  _stateQueue = new Promise(resolve => { release = resolve })
+  return prev.then(fn).finally(release)
+}
 
 // Redirect Electron's internal runtime data is done inside app.whenReady()
 // (see below) — calling app.setPath before ready can fail on some platforms.
@@ -152,7 +199,15 @@ function getDataDir() {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) {
       const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
-      if (d) return d
+      if (d) {
+        // Validate: must be an absolute path, must not contain path-traversal components
+        const resolved = path.resolve(d)
+        if (!path.isAbsolute(resolved) || path.normalize(resolved) !== resolved || resolved.includes('..')) {
+          logError('getDataDir', 'Invalid DATA_DIR_OVERRIDE path: ' + d)
+        } else {
+          return resolved
+        }
+      }
     }
   } catch (e) { logError('getDataDir', e) }
   return path.join(app.getPath('userData'), 'Wan2GP')
@@ -220,6 +275,7 @@ let _terminalTitle = null   // set when launched in external-terminal mode (trac
 let _terminalPidFile = null // temp file holding the python PID for a bulletproof kill
 let _terminalBatFile = null // temp .bat launched in the external terminal (cmd window, like the desktop shortcut)
 let _currentPort = 7860 // tracked across launches/restarts
+let _monitorInterval = null // terminal-mode port monitor, cleared on explicit stop
 let tray = null
 app.isQuitting = false
 
@@ -297,13 +353,22 @@ function waitForPort(host, port, timeoutMs = 180000) {
 // ── Wan2GP Upstream Version Check ──
 const WAN2GP_UPSTREAM = 'deepbeepmeep/Wan2GP'
 
+// ── Cached git info (TTL 30s, avoids blocking IPC on every dashboard refresh) ──
+let _gitCache = { wangp: null, desktop: null, ts: 0 }
+const GIT_CACHE_TTL = 30000
+
+/** Invalidate git cache so the next call re-reads from disk (e.g. after update/pull). */
+function invalidateGitCache() { _gitCache = { wangp: null, desktop: null, ts: 0 } }
+
 function getLocalWangpHead() {
+  if (_gitCache.wangp && Date.now() - _gitCache.ts < GIT_CACHE_TTL) return _gitCache.wangp
   if (!fs.existsSync(path.join(getRepoDir(), '.git'))) return null
   try {
     const hash = execSync('git rev-parse HEAD', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
     const date = execSync('git log -1 --format=%cI', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
     const msg = execSync('git log -1 --format=%s', { cwd: getRepoDir(), encoding: 'utf8', timeout: 5000 }).trim()
-    return { hash, date, message: msg }
+    _gitCache = { wangp: { hash, date, message: msg }, desktop: _gitCache.desktop, ts: Date.now() }
+    return _gitCache.wangp
   } catch { return null }
 }
 
@@ -426,25 +491,20 @@ ipcMain.handle('check-installed', () => ({
 }))
 
 ipcMain.handle('detect-gpu', () => {
-  // Uses getGpuInfo() cache when available (reduces redundant nvidia-smi calls).
-  // Falls back to platform-specific detection for non-NVIDIA GPUs.
+  // Primary path: getGpuInfo() covers both NVIDIA (via nvidia-smi) and non-NVIDIA (via WMI) on Windows.
+  // On non-Windows it avoids redundant nvidia-smi since getGpuInfo already ran it.
   try {
     const cached = getGpuInfo()
     if (cached.name && cached.vendor) {
       return { vendor: cached.vendor, name: cached.name }
     }
+    // Platform-specific fallback when cache is empty (non-NVIDIA on macOS/Linux, or first call)
     let name = '', vendor = 'UNKNOWN'
     if (IS_WIN) {
       try {
-        const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim().split('\n')[0].trim()
-        if (nv) { name = nv; vendor = 'NVIDIA' }
-      } catch { logError('detect-gpu-nv', 'nvidia-smi failed') }
-      if (!name) {
-        try {
-          const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
-          if (wmi) { name = wmi; vendor = /radeon|amd/i.test(wmi) ? 'AMD' : 'INTEL' }
-        } catch { logError('detect-gpu-wmi', 'WMI query failed') }
-      }
+        const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
+        if (wmi) { name = wmi; vendor = /radeon|amd/i.test(wmi) ? 'AMD' : 'INTEL' }
+      } catch { logError('detect-gpu-wmi', 'WMI query failed') }
     } else if (PLATFORM === 'darwin') {
       try {
         const m = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model"', { encoding: 'utf8', timeout: 10000 }).trim()
@@ -504,7 +564,10 @@ ipcMain.handle('install', async (_, envType) => {
     send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
   }
   await runSetup(['install', '--env', env, '--auto'])
-  // Post-install: ensure huggingface_hub + hf_xet are installed
+  // Post-install steps: these run BEFORE returning to the renderer, so the
+  // UI's "Installation complete" only shows after everything finishes.
+  // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
+  send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
   send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
   try {
     const envData = getActiveEnv()
@@ -522,6 +585,8 @@ ipcMain.handle('install', async (_, envType) => {
     }
   } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
     send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
+  send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
+  invalidateGitCache()
   return true
 })
 
@@ -549,6 +614,7 @@ ipcMain.handle('reinstall', async () => {
   const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
   try { execSync(`${rmCmd} "${getRepoDir()}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
   try { execSync(`${rmCmd} "${getEnvsFile()}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
+  invalidateGitCache()
   send('setup-output', '[*] Ready for fresh install.\n')
   return true
 })
@@ -581,7 +647,6 @@ ipcMain.handle('get-status', async () => {
       "print('||'.join(r))",
     ].join('\n')
     fs.writeFileSync(helperPath, helperCode)
-    const { exec } = require('child_process')
     const out = await new Promise((resolve, reject) => {
       exec('"' + py + '" "' + helperPath + '"', {
         cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8'
@@ -788,13 +853,14 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     // Desktop notification
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
     // Monitor process — report when it stops (terminal closed / crash)
-    let monitorInterval = setInterval(() => {
+    // Tracked so explicit stop via stopWangpServer() clears it immediately.
+    _monitorInterval = setInterval(() => {
       const sock = new net.Socket()
       sock.setTimeout(2000)
       sock.on('connect', () => { sock.destroy() })
       sock.on('error', () => {
         sock.destroy()
-        clearInterval(monitorInterval)
+        if (_monitorInterval) { clearInterval(_monitorInterval); _monitorInterval = null }
         _terminalTitle = null
         _currentPort = 0
         if (_terminalPidFile) { try { fs.unlinkSync(_terminalPidFile) } catch {} _terminalPidFile = null }
@@ -1043,12 +1109,95 @@ ipcMain.handle('bv-navigate', (_, action) => {
     case 'forward': _bv.webContents.goForward(); break
     case 'reload': _bv.webContents.reload(); break
   }
+  // Update navigation state after a short delay to let Chromium process the navigation
+  setTimeout(() => sendNavState(), 100)
 })
+ipcMain.handle('bv-nav-state', () => {
+  if (!_bv) return { canGoBack: false, canGoForward: false }
+  return { canGoBack: _bv.webContents.canGoBack(), canGoForward: _bv.webContents.canGoForward() }
+})
+
+function sendNavState() {
+  if (!mainWin || !_bv) return
+  mainWin.webContents.send('bv-nav-state', {
+    canGoBack: _bv.webContents.canGoBack(),
+    canGoForward: _bv.webContents.canGoForward()
+  })
+}
 ipcMain.handle('bv-set-zoom', (_, factor) => {
   if (_bv) _bv.webContents.setZoomLevel(Math.log2(factor))
 })
 
-ipcMain.handle('update', async () => await runSetup(['update']))
+ipcMain.handle('update', async () => {
+  // Run setup.py update (pip packages, etc.)
+  await runSetup(['update'])
+  // Also pull the latest git code — setup.py update alone may only upgrade deps.
+  // First, check which branch we're on so we pull the right one.
+  let branch = ''
+  try {
+    branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+    }).trim()
+    send('launch-log', `[*] Current branch: ${branch}\n`)
+  } catch (e) {
+    send('launch-log', `[!] Could not detect git branch: ${e.message}\n`)
+  }
+  if (branch) {
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'echo' }
+    // Diagnostic: log remote URL so we can confirm where origin points
+    try {
+      const remoteUrl = execSync('git remote get-url origin', {
+        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+      }).trim()
+      send('launch-log', `[*] Remote origin: ${remoteUrl}\n`)
+    } catch (e) {
+      send('launch-log', `[!] Cannot get remote URL: ${e.message}\n`)
+      invalidateGitCache()
+      return true
+    }
+    // Diagnose: what does the remote actually advertise vs what origin/main tracks vs upstream API
+    try {
+      const lsRemote = execSync('git ls-remote origin main 2>&1', {
+        cwd: getRepoDir(), encoding: 'utf8', timeout: 15000, windowsHide: true,
+        env: gitEnv, stdio: 'pipe'
+      }).trim()
+      send('launch-log', `[*] Remote main via ls-remote: ${lsRemote}\n`)
+    } catch (e) {
+      send('launch-log', `[!] ls-remote failed: ${(e.stderr||e.message).toString().trim()}\n`)
+    }
+    // Show current origin/main tracking ref (local cache of what remote had last fetch)
+    try {
+      const originMain = execSync('git rev-parse origin/main 2>&1', {
+        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+      }).trim()
+      send('launch-log', `[*] Local origin/main: ${originMain.substring(0,12)}\n`)
+    } catch (e) {}
+    send('launch-log', `[*] Fetching origin --prune ${branch}...\n`)
+    try {
+      execSync(`git fetch origin --prune ${branch} 2>&1`, {
+        cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8',
+        env: gitEnv, stdio: 'pipe'
+      })
+      // Force the local branch to match origin's branch.
+      // git merge --ff-only was unreliable (says up-to-date even when behind),
+      // so we reset the branch ref directly ensuring HEAD always matches origin.
+      send('launch-log', `[*] Resetting ${branch} to origin/${branch}...\n`)
+      execSync(`git reset --hard origin/${branch} 2>&1`, {
+        cwd: getRepoDir(), timeout: 15000, windowsHide: true, encoding: 'utf8',
+        env: gitEnv, stdio: 'pipe'
+      })
+      const newHash = execSync('git rev-parse HEAD', {
+        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+      }).trim()
+      send('launch-log', `[*] HEAD is now ${newHash.substring(0,12)}\n`)
+    } catch (e) {
+      const errMsg = (e.stderr || e.message || String(e)).toString().trim()
+      send('launch-log', `[!] git update failed: ${errMsg}\n`)
+    }
+  }
+  invalidateGitCache() // don't return stale pre-update hashes
+  return true
+})
 
 ipcMain.handle('manage-list', () => {
   try {
@@ -1155,7 +1304,8 @@ ipcMain.handle('open-external', (_, url) => {
 })
 
 ipcMain.handle('open-task-manager', () => {
-  try { require('child_process').exec('taskmgr.exe') } catch { }
+  if (PLATFORM !== 'win32') return { error: 'Task Manager is Windows-only' }
+  try { exec('taskmgr.exe') } catch { }
 })
 
 // Toggle Chromium DevTools. Prefers the embedded Wan2GP BrowserView when present,
@@ -1416,6 +1566,7 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
 
   if (tool === 'git') {
     sendLog('[*] Downloading Git for Windows...')
+    // NOTE: Update Git version periodically — check https://git-scm.com/download/win
     const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
     const dest = path.join(tmpDir, 'Git-2.49.0-64-bit.exe')
     await downloadFile(url, dest)
@@ -1426,6 +1577,7 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
 
   } else if (tool === 'python') {
     sendLog('[*] Downloading Python 3.11...')
+    // NOTE: Update Python version when 3.11.x goes EOL. Check python.org for latest 3.11.x.
     const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
     const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
     await downloadFile(url, dest)
@@ -1623,7 +1775,9 @@ ipcMain.handle('detect-model-folders', () => {
 
 
 // ── Create Desktop Shortcut for Wan2GP (standalone launch without desktop app) ──
+// Windows-only: creates a .bat file on the desktop.
 ipcMain.handle('create-desktop-shortcut', () => {
+  if (!IS_WIN) return { error: 'Desktop shortcuts are Windows-only (creates .bat)' }
   try {
     const env = getActiveEnv()
     if (!env) return { error: 'No active environment' }
@@ -1711,7 +1865,6 @@ ipcMain.handle('get-disk-space', () => {
       const s = fs.statfsSync(root)
       return { free: s.bsize * s.bfree, total: s.bsize * s.blocks }
     }
-    const { execSync } = require('child_process')
     const out = execSync('wmic logicaldisk where caption="' + root.charAt(0) + ':" get freespace,size /format:csv', { timeout: 5000, encoding: 'utf8' })
     const parts = out.trim().split(/\\r?\\n/)
     if (parts.length >= 2) {
@@ -1747,13 +1900,16 @@ ipcMain.handle('get-wangp-upstream-info', async () => {
 
 // ── Desktop app git info ──
 ipcMain.handle('get-desktop-git-info', () => {
+  if (_gitCache.desktop && Date.now() - _gitCache.ts < GIT_CACHE_TTL) return _gitCache.desktop
   try {
     const cwd = path.resolve(__dirname)
     if (!fs.existsSync(path.join(cwd, '.git'))) return null
     const hash = execSync('git rev-parse --short HEAD', { cwd, encoding: 'utf8', timeout: 5000 }).trim()
     const date = execSync('git log -1 --format=%cI', { cwd, encoding: 'utf8', timeout: 5000 }).trim()
     const msg = execSync('git log -1 --format=%s', { cwd, encoding: 'utf8', timeout: 5000 }).trim()
-    return { hash, date, message: msg }
+    const result = { hash, date, message: msg }
+    _gitCache = { wangp: _gitCache.wangp, desktop: result, ts: Date.now() }
+    return result
   } catch { return null }
 })
 
@@ -1775,7 +1931,15 @@ ipcMain.handle('get-wangp-version', async () => {
 
 // ── Check PyPI for latest package versions ──
 const _pypiCache = {}
-const PACKAGES_TO_CHECK = ['torch','triton','sageattention','spas_sage_attn','flash_attn','diffusers','transformers','gradio','accelerate','onnxruntime','xformers','nunchaku','gguf','mmgp','moviepy','opencv-python','insightface','peft','timm','vector_quantize_pytorch','torchcodec','torchaudio','huggingface_hub','lightx2v']
+// Single source of truth for all package names that can be checked/installed/uninstalled.
+// The security whitelist for check-package is derived from this list.
+const ALL_PACKAGES = [
+  'torch', 'triton', 'sageattention', 'spas_sage_attn', 'flash_attn',
+  'diffusers', 'transformers', 'gradio', 'accelerate', 'onnxruntime',
+  'xformers', 'nunchaku', 'gguf', 'mmgp', 'moviepy', 'opencv-python',
+  'insightface', 'peft', 'timm', 'vector_quantize_pytorch', 'torchcodec',
+  'torchaudio', 'huggingface_hub', 'lightx2v', 'bitsandbytes', 'hf_xet'
+]
 
 ipcMain.handle('check-package-updates', async (_, installedVersions) => {
   const results = []
@@ -1806,7 +1970,6 @@ ipcMain.handle('upgrade-package', async (_, pkgName) => {
     const py = getPythonForEnv(env)
     if (!py) return { error: 'Cannot find Python' }
     send('launch-log', '[*] Upgrading ' + pkgName + '...\n')
-    const { spawn } = require('child_process')
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', pkgName], {
         cwd: getRepoDir(), timeout: 120000, windowsHide: true,
@@ -1834,7 +1997,6 @@ ipcMain.handle('install-package', async (_, pkgName) => {
     const py = getPythonForEnv(env)
     if (!py) return { error: 'Cannot find Python' }
     send('launch-log', '[*] Installing ' + pkgName + '...\n')
-    const { spawn } = require('child_process')
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', pkgName], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
@@ -1861,7 +2023,6 @@ ipcMain.handle('uninstall-package', async (_, pkgName) => {
     const py = getPythonForEnv(env)
     if (!py) return { error: 'Cannot find Python' }
     send('launch-log', `[*] Uninstalling ${pkgName}...\n`)
-    const { spawn } = require('child_process')
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'uninstall', '--yes', pkgName], {
         cwd: getRepoDir(), timeout: 60000, windowsHide: true,
@@ -1881,14 +2042,10 @@ ipcMain.handle('uninstall-package', async (_, pkgName) => {
 })
 
 // ── Check if a package is installed in the active env ──
-// Whitelist of packages that can be checked via check-package IPC.
-const _CHECK_PKG_WHITELIST = [
-  'hf_xet', 'triton', 'flash_attn', 'sageattention', 'xformers',
-  'torch', 'diffusers', 'transformers', 'gradio', 'accelerate',
-  'bitsandbytes', 'opencv-python', 'moviepy', 'insightface'
-]
+// Security whitelist derived from ALL_PACKAGES (single source of truth).
+// The check-package IPC can test if any known package is installed.
 ipcMain.handle('check-package', async (_, pkgName) => {
-  if (!_CHECK_PKG_WHITELIST.includes(pkgName)) {
+  if (!ALL_PACKAGES.includes(pkgName)) {
     console.warn('[SECURITY] check-package blocked for:', pkgName)
     return { installed: false, error: 'Package not in whitelist' }
   }
@@ -1911,7 +2068,21 @@ ipcMain.handle('check-package', async (_, pkgName) => {
       '  print("no")',
     ].join('\n')
     fs.writeFileSync(helperPath, script)
-    const r = execSync(`"${py}" "${helperPath}" "${pkgName.replace(/-/g, '_')}"`, { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: getRepoDir() }).trim()
+    // Use spawn with arg array — no shell interpretation of pkgName.
+    const modName = pkgName.replace(/-/g, '_')
+    let r = 'no'
+    try {
+      r = await new Promise((resolve, reject) => {
+        const child = spawn(py, [helperPath, modName], {
+          cwd: getRepoDir(), timeout: 10000, windowsHide: true, encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        let out = ''
+        child.stdout.on('data', d => { out += d.toString() })
+        child.on('close', () => resolve(out.trim()))
+        child.on('error', reject)
+      })
+    } catch {}
     return { installed: r === 'ok' }
   } catch { return { installed: false } }
 })
@@ -1926,7 +2097,6 @@ ipcMain.handle('restore-requirements', async () => {
     const reqPath = path.join(getRepoDir(), 'requirements.txt')
     if (!fs.existsSync(reqPath)) return { error: 'requirements.txt not found' }
     send('launch-log', '[*] Restoring packages from requirements.txt...\n')
-    const { spawn } = require('child_process')
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '-r', reqPath], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
@@ -2108,13 +2278,32 @@ ipcMain.handle('get-hardware-profile', () => {
 })
 
 // ── Live system metrics (free RAM / free VRAM) ──
-// ponytail: CPU + RAM come from the node `os` module (sub-ms, no subprocess). The old
-// code spawned PowerShell twice per tick (Get-CimInstance ~440ms + Get-Counter ~1450ms) —
-// ~1.9s of main-thread blocking every 2s froze the whole UI ("running is very slow").
-// VRAM stays on nvidia-smi (cheap, ~75ms, no PowerShell).
+// CPU + RAM come from the node `os` module (sub-ms, no subprocess).
+// VRAM via nvidia-smi is async (spawn) to avoid blocking the main process every 2s.
 // CPU values are deltas across successive calls (live utilization, not boot cumulative).
 let _prevCpuTimes = null
-ipcMain.handle('get-system-metrics', () => {
+let _lastNvidiaResult = null // fallback when nvidia-smi fails (e.g. GPU process restart)
+
+/** Run nvidia-smi asynchronously and parse structured GPU metrics. */
+function queryGpuMetricsAsync() {
+  return new Promise((resolve) => {
+    const child = spawn('nvidia-smi', [
+      '--query-gpu=memory.free,memory.used,memory.total,utilization.gpu',
+      '--format=csv,noheader,nounits'
+    ], { timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', d => { stdout += d.toString() })
+    child.stderr.on('data', d => { stderr += d.toString() })
+    child.on('close', (code) => {
+      if (code !== 0 || !stdout.trim()) { resolve(null); return }
+      resolve(stdout.trim())
+    })
+    child.on('error', () => resolve(null))
+  })
+}
+
+ipcMain.handle('get-system-metrics', async () => {
   const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null }
   try {
     const total = os.totalmem(), free = os.freemem()
@@ -2138,23 +2327,34 @@ ipcMain.handle('get-system-metrics', () => {
     }
     _prevCpuTimes = { idle, busy }
   } catch { }
+  // Async nvidia-smi query — non-blocking on the event loop
   try {
-    const nvOut = execSync('nvidia-smi --query-gpu=memory.free,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
-    const lines = nvOut.split('\n').map(l => l.trim()).filter(l => l)
-    if (lines.length) {
-      let free = 0, used = 0, total = 0, gpu = 0
-      for (const ln of lines) {
-        const p = ln.split(',').map(x => parseInt(x.trim()))
-        if (p[0] != null && !isNaN(p[0])) free += p[0]
-        if (p[1] != null && !isNaN(p[1])) used += p[1]
-        if (p[2] != null && !isNaN(p[2])) total += p[2]
-        if (p[3] != null && !isNaN(p[3])) gpu += p[3]
+    const nvOut = await queryGpuMetricsAsync()
+    if (nvOut) {
+      const lines = nvOut.split('\n').map(l => l.trim()).filter(l => l)
+      if (lines.length) {
+        let free = 0, used = 0, total = 0, gpu = 0
+        for (const ln of lines) {
+          const p = ln.split(',').map(x => parseInt(x.trim()))
+          if (p[0] != null && !isNaN(p[0])) free += p[0]
+          if (p[1] != null && !isNaN(p[1])) used += p[1]
+          if (p[2] != null && !isNaN(p[2])) total += p[2]
+          if (p[3] != null && !isNaN(p[3])) gpu += p[3]
+        }
+        result.vramFree = total >= 1024 ? Math.round(free / 1024) + ' GB' : free + ' MB'
+        result.vramUsed = total >= 1024 ? Math.round(used / 1024) + ' GB' : used + ' MB'
+        result.vramTotal = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
+        result.vram = total ? Math.round(used / total * 100) : null
+        result.gpu = lines.length > 1 ? Math.round(gpu / lines.length) : gpu
+        _lastNvidiaResult = result
       }
-      result.vramFree = total >= 1024 ? Math.round(free / 1024) + ' GB' : free + ' MB'
-      result.vramUsed = total >= 1024 ? Math.round(used / 1024) + ' GB' : used + ' MB'
-      result.vramTotal = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
-      result.vram = total ? Math.round(used / total * 100) : null
-      result.gpu = lines.length > 1 ? Math.round(gpu / lines.length) : gpu
+    } else if (_lastNvidiaResult) {
+      // nvidia-smi failed this tick — return last known values instead of blanks
+      result.vramFree = _lastNvidiaResult.vramFree
+      result.vramUsed = _lastNvidiaResult.vramUsed
+      result.vramTotal = _lastNvidiaResult.vramTotal
+      result.vram = _lastNvidiaResult.vram
+      result.gpu = _lastNvidiaResult.gpu
     }
   } catch { }
   return result
@@ -2262,6 +2462,8 @@ app.on('web-contents-created', (_event, contents) => {
   // Route F12 to BrowserView DevTools when in desktop mode, so the user can inspect
   // the embedded Wan2GP page instead of the Electron shell. Falls back to the focused
   // webContents' own DevTools when no BrowserView is active.
+  // Build the picker menu once (cached to avoid GC churn on every keypress).
+  let _devtoolsPicker = null
   contents.on('before-input-event', (event, input) => {
     if ((input.key === 'F12' || (input.control && input.shift && input.key === 'I')) && input.type === 'keyDown') {
       event.preventDefault()
@@ -2269,11 +2471,13 @@ app.on('web-contents-created', (_event, contents) => {
         try {
           if (_bv && mainWin && mainWin.getBrowserViews().includes(_bv)) {
             // Both DevTools available — let the user pick
-            const picker = Menu.buildFromTemplate([
-              { label: 'Wan2GP (embedded content)',  click: () => toggleDevTools(_bv.webContents) },
-              { label: 'Electron Shell (launcher UI)', click: () => toggleDevTools(mainWin.webContents) },
-            ])
-            picker.popup({ window: mainWin })
+            if (!_devtoolsPicker) {
+              _devtoolsPicker = Menu.buildFromTemplate([
+                { label: 'Wan2GP (embedded content)',  click: () => toggleDevTools(_bv.webContents) },
+                { label: 'Electron Shell (launcher UI)', click: () => toggleDevTools(mainWin.webContents) },
+              ])
+            }
+            _devtoolsPicker.popup({ window: mainWin })
           } else {
             toggleDevTools(contents)
           }

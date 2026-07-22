@@ -1,3 +1,5 @@
+"use strict";
+
 // ── Global Log Buffer ──
 const logBuffer = []
 const MAX_LOG = 5000
@@ -303,9 +305,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   })
   window.w2gp.onSetupProfile(p => { $('installProfile').textContent=p; $('installProfileRow').style.display='flex' })
-  window.w2gp.onWangpExit(c => {
-    appendLog(`[!] Wan2GP process exited (code ${c})`)
-  })
 
   const cfg = await window.w2gp.configLoad()
   if (cfg.theme === 'dark') applyTheme('dark')
@@ -925,6 +924,12 @@ async function loadWangpChangelog() {
   const upstream = await window.w2gp.getWangpUpstreamInfo()
   if (!upstream || !upstream.commits) {
     listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
+    // Clear any stale green dot from a previous check — don't leave it dangling
+    const updateBtn = $('updateBtn')
+    if (updateBtn) {
+      updateBtn.classList.remove('has-update')
+      updateBtn.querySelector('.update-dot')?.remove()
+    }
     return
   }
 
@@ -1125,9 +1130,16 @@ async function closeWebview() {
 $('backToDashboardBtn').addEventListener('click', closeWebview)
 
 // ── BrowserView navigation / zoom (relayed via main process) ──
+function updateNavButtons(state) {
+  if ($('wvBackBtn')) $('wvBackBtn').disabled = !state.canGoBack
+  if ($('wvFwdBtn')) $('wvFwdBtn').disabled = !state.canGoForward
+}
+
 $('wvBackBtn').addEventListener('click', () => window.w2gp.bvNavigate('back'))
 $('wvFwdBtn').addEventListener('click', () => window.w2gp.bvNavigate('forward'))
 $('wvReloadBtn').addEventListener('click', () => window.w2gp.bvNavigate('reload'))
+// Listen for live nav state updates (pushed from main process after each navigation)
+window.w2gp.onBvNavState(updateNavButtons)
 $('zoomSlider').addEventListener('input', () => {
   const pct = parseInt($('zoomSlider').value)
   $('zoomLabel').textContent = pct + '%'

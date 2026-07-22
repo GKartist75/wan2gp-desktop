@@ -1,3 +1,5 @@
+"use strict";
+
 // Floating-terminal overlay (its own BrowserView, layered above Wan2GP).
 // Uses the SAME line-accumulation logic as app.js appendLog() so both views
 // produce identical output — handles \r (progress overwrites), \n line splits,

@@ -1,3 +1,5 @@
+"use strict";
+
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('w2gp', {
@@ -26,6 +28,12 @@ contextBridge.exposeInMainWorld('w2gp', {
   detachBrowserView: () => ipcRenderer.invoke('detach-browser-view'),
   reattachBrowserView: () => ipcRenderer.invoke('reattach-browser-view'),
   bvNavigate: (action) => ipcRenderer.invoke('bv-navigate', action),
+  bvNavState: () => ipcRenderer.invoke('bv-nav-state'),
+  onBvNavState: (cb) => {
+    const h = (_e, state) => cb(state)
+    ipcRenderer.on('bv-nav-state', h)
+    return () => ipcRenderer.removeListener('bv-nav-state', h)
+  },
   bvSetZoom: (factor) => ipcRenderer.invoke('bv-set-zoom', factor),
   bvSetDock: (dock) => ipcRenderer.invoke('bv-set-dock', dock),
 

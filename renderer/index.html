@@ -330,16 +330,16 @@
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             Launch Wan2GP in Browser
         </button>
-        <button class="launch-btn launch-muted" id="browserNoGpuBtn" style="margin-top:8px">
+        <button class="launch-btn launch-muted" id="browserNoGpuBtn" style="margin-top:4px">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             Launch in Chrome (no GPU script)
         </button>
-        <button class="launch-btn launch-term" id="termBtn" style="margin-top:8px">
+        <button class="launch-btn launch-term" id="termBtn" style="margin-top:4px">
             <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             Launch in External Terminal
         </button>
         <div class="launch-hint" id="noGpuHint" style="display:none">Chrome not installed — this launches Chrome with minimal GPU use to free VRAM.</div>
-        <button class="launch-btn launch-green" id="appBtn" style="margin-top:8px">
+        <button class="launch-btn launch-green" id="appBtn" style="margin-top:4px">
             <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             Launch Wan2GP in Desktop
         </button>
@@ -400,22 +400,22 @@
               <a href="#" id="ytLink" class="changelog-link">▶ YouTube</a>
             </div>
           </div>
-
-          <!-- Terminal card - fills remaining space -->
-          <div class="card dash-term-card" id="dashTermCard" style="flex:1;display:flex;flex-direction:column;min-height:0">
-            <div class="card-header">
-              <span class="card-title">Console</span>
-              <div class="dash-term-actions">
-                <button class="term-btn-small active" id="dashTermFollowBtn">
-                  <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-                  <span class="follow-text">Follow</span>
-                </button>
-              </div>
-            </div>
-            <div class="term-body dash-term-body" id="termBody" style="flex:1"></div>
-          </div>
-
         </div>
+
+        <!-- Terminal card - fills remaining space (sibling of Desktop App card) -->
+        <div class="card dash-term-card" id="dashTermCard" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-header">
+            <span class="card-title">Console</span>
+            <div class="dash-term-actions">
+              <button class="term-btn-small active" id="dashTermFollowBtn">
+                <svg viewBox="0 0 24 24" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                <span class="follow-text">Follow</span>
+              </button>
+            </div>
+          </div>
+          <div class="term-body dash-term-body" id="termBody" style="flex:1"></div>
+        </div>
+
       </div>
 
     <!-- Wan2GP embed for in-app launch. Rendered via Electron BrowserView (a compositor

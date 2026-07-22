@@ -4,7 +4,7 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
-[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square)](https://github.com/GKartist75/wan2gp-desktop/releases)
+[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.2.2)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
@@ -86,7 +86,7 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.2.1** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging. [Full changelog →](CHANGELOG-v2.2.1.md)
+> **New in v2.2.2** — green dot fix, security hardening (spawn over execSync), async system metrics, unified package lists, UI layout compaction. [Full changelog →](CHANGELOG-v2.2.2.md)
 
 ## Prerequisites
 
@@ -131,6 +131,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.2.2** — **Bugfix + security + quality** — green dot fix (git state tracking, `git reset --hard` over unreliable merge), command-injection fixes, async system metrics, unified package lists, UI layout compaction, plus platform guards and code quality improvements. See [CHANGELOG-v2.2.2.md](CHANGELOG-v2.2.2.md).
 - **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](CHANGELOG-v2.2.1.md).
 - **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).
 - **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
