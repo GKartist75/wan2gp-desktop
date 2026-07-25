@@ -8,6 +8,15 @@ so you don't have to configure them manually.
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
+## Download
+
+Grab `Wan2GP-Desktop-Launcher-*-win-x64.exe` from
+[Releases](https://github.com/GKartist75/wan2gp-desktop/releases).
+
+> Unsigned installer — the "unknown publisher" warning is normal for OSS without a code-sign cert.
+
+👉 **[Visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — install steps, hardware profiles, dashboard layout, and every feature on one page.
+
 ## Screenshots
 
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)
@@ -98,15 +107,6 @@ Miniconda for you automatically. To actually run Wan2GP you'll need an NVIDIA GP
 
 For manual installation or troubleshooting of any prerequisite, see
 [PREREQUISITES.md](PREREQUISITES.md).
-
-## Download
-
-Grab `Wan2GP-Desktop-Launcher-*-win-x64.exe` from
-[Releases](https://github.com/GKartist75/wan2gp-desktop/releases).
-
-> Unsigned installer — the "unknown publisher" warning is normal for OSS without a code-sign cert.
-
-👉 **[Visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — install steps, hardware profiles, dashboard layout, and every feature on one page.
 
 ## Quick Start
 
