@@ -10,12 +10,21 @@ so you don't have to configure them manually.
 
 ## Download
 
-Grab `Wan2GP-Desktop-Launcher-*-win-x64.exe` from
-[Releases](https://github.com/GKartist75/wan2gp-desktop/releases).
+<p align="center">
+  <a href="https://github.com/GKartist75/wan2gp-desktop/releases/latest" style="display:inline-block;padding:14px 36px;background:#2ea043;color:#fff;border-radius:8px;font-size:1.1rem;font-weight:600;text-decoration:none">
+    ⬇ Download Wan2GP Desktop Launcher
+  </a>
+</p>
 
-> Unsigned installer — the "unknown publisher" warning is normal for OSS without a code-sign cert.
+<p align="center">
+  <code>Wan2GP-Desktop-Launcher-*-win-x64.exe</code><br>
+  <small>≈ 90 MB — Windows 10/11 only</small>
+</p>
 
-👉 **[Visual guide → infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — install steps, hardware profiles, dashboard layout, and every feature on one page.
+> ⚠️ **Unsigned installer** — the "unknown publisher" warning is normal for open-source software without a code-signing certificate.
+
+Alternatively, grab the latest `.exe` from the
+[Releases page](https://github.com/GKartist75/wan2gp-desktop/releases).
 
 ## Screenshots
 
@@ -98,6 +107,10 @@ so you can override the recommendation.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
 > **New in v2.2.3** — verbose env unlink progress, isolated Python 3.11 for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quantization dropdowns and matrix table, compact hardware display, prerequisite help card, xcopy restore fix. [Full changelog →](changelogs/CHANGELOG-v2.2.3.md)
+
+## 🗺️ Visual Guide
+
+👉 **[Open the infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — a single-page visual walkthrough covering install steps, hardware profiles, the dashboard layout, Auto-Tune, launch modes, and every feature.
 
 ## Prerequisites
 
