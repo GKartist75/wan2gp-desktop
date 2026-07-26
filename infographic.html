@@ -431,19 +431,19 @@
               <div class="fc-desc">One click writes the settings to <code>wgp_config.json</code>. Also accessible from the dashboard ⚡ Auto-Tune button.</div>
             </div>
             <div style="margin-top:8px;font-size:0.65rem;color:#999;line-height:1.5">
-              <strong style="color:#ccc">Profile lookup table</strong> — Wan2GP uses 5 profiles (1–5) from its <code>mmgp</code> memory manager.
+              <strong style="color:#ccc">Profile lookup table</strong> — Wan2GP uses 7 profiles (1,2,3,3+,4,4+,5) from its <code>mmgp</code> memory manager.
               The auto-tune picks one based on your VRAM and system RAM:
             </div>
             <table style="width:100%;margin-top:6px;border-collapse:collapse;font-size:0.6rem">
               <tr><th style="text-align:left;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">VRAM \ RAM</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">high (≥64GB)</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">mid (≥32GB)</th><th style="text-align:center;padding:4px 6px;border-bottom:1px solid #444;color:#aaa">low (&lt;32GB)</th></tr>
-              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">very_high (≥24GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td></tr>
-              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">high (≥16GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P2</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P2</td></tr>
-              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">mid (≥10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P3</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td></tr>
-              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">low (&lt;10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P3</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">very_high (≥24GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P1</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P3</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#67e8f9">P3+</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">high (≥16GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#6ee7b7">P2</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#67e8f9">P4+</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">mid (≥10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#fcd34d">P4</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td></tr>
+              <tr><td style="padding:3px 6px;border-bottom:1px solid #333">low (&lt;10GB)</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td><td style="text-align:center;padding:3px 6px;border-bottom:1px solid #333;color:#f87171">P5</td></tr>
             </table>
             <div style="margin-top:6px;font-size:0.6rem;color:#888;line-height:1.5">
               <strong>P1</strong> — full models in VRAM, pinned memory ⇢ <strong>P5</strong> — no pinned memory, tight budgets, all quantized.
-              Profiles, Scaled Int8 quant, and VAE Auto can all be changed in the dropdowns before applying.
+              All settings can be changed in the dropdowns before applying.
             </div>
           </div>
         </div>

@@ -8,8 +8,8 @@
   <style>
     html, body { margin: 0; height: 100%; background: var(--surface); }
     .ft-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; }
-    .floating-term { position: static; display: flex; flex-direction: column; height: 100%; background: var(--surface); }
-    .floating-term.dock-floating { border-radius: 0; width: 100%; height: 100%; }
+    .floating-term { position: static; display: flex; flex-direction: column; height: 100%; background: var(--surface); overflow: hidden; }
+    .floating-term.dock-floating { border-radius: 0; width: 100%; height: 100%; overflow: hidden; }
   </style>
 </head>
 <body>

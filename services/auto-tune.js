@@ -165,84 +165,102 @@ function detect(repoDir) {
 
 /**
  * Profile matrix keyed by (vram_tier, ram_tier).
- * Maps to Wan2GP's mmgp profile_type (only profiles 1–5 are valid):
- *   1 = HighRAM_HighVRAM   — pinned all, no budgets
- *   2 = HighRAM_LowVRAM    — pinned all, budgets["*"]=3000
- *   3 = LowRAM_HighVRAM    — pinned transformer, no budgets, quant encoders
- *   4 = LowRAM_LowVRAM     — pinned transformer, budgets["*"]=3000, quant encoders
- *   5 = VerylowRAM_LowVRAM — no pinned, budgets["transformer"]=400, quant encoders
+ * Maps to Wan2GP's mmgp profile_type with 7 numeric profiles:
+ *   1   = HighRAM_HighVRAM       — ≥64GB RAM + ≥24GB VRAM
+ *   2   = HighRAM_LowVRAM        — ≥64GB RAM + ≥12GB VRAM
+ *   3   = LowRAM_HighVRAM        — ≥32GB RAM + ≥24GB VRAM
+ *   3.5 = VeryLowRAM_HighVRAM    — ≥32GB RAM + ≥24GB VRAM (no reserved mem, saves RAM)
+ *   4   = LowRAM_LowVRAM         — ≥32GB RAM + ≥12GB VRAM (Recommended)
+ *   4.5 = LowRAM_LowVRAM+        — ≥32GB RAM + ≥12GB VRAM (slightly slower, less VRAM)
+ *   5   = VerylowRAM_LowVRAM     — ≥24GB RAM + ≥10GB VRAM (Fail safe)
  *
  * Thresholds:
  *   VRAM tiers: very_high ≥ 24 GB | high ≥ 16 GB | mid ≥ 10 GB | low < 10 GB
  *   RAM  tiers: high ≥ 64 GB | mid ≥ 32 GB | low < 32 GB
  */
 const PROFILE_MATRIX = {
-  very_high: { high: 1, mid: 1, low: 1 },  // ≥24GB VRAM: profile 1 regardless of RAM
-  high:      { high: 1, mid: 2, low: 2 },   // ≥16GB VRAM: 1 with high RAM, 2 otherwise
-  mid:       { high: 3, mid: 4, low: 4 },   // ≥10GB VRAM: CPU offload w/ high RAM, balanced otherwise
-  low:       { high: 3, mid: 5, low: 5 }    // <10GB VRAM: CPU offload w/ high RAM, max compat otherwise
+  //        RAM→high         mid          low
+  very_high: { high: 1, mid: 3, low: 3.5 },  // ≥24GB VRAM
+  high:      { high: 2, mid: 4, low: 4.5 },  // ≥16GB VRAM
+  mid:       { high: 4, mid: 5, low: 5 },    // ≥10GB VRAM
+  low:       { high: 5, mid: 5, low: 5 }     // <10GB VRAM
 }
 
-/**
- * Audio profile override.
- * Audio models are much smaller than video/image, so they can use less
- * aggressive profiles (lower number = more VRAM, faster).
- * - VRAM ≥ 12 GB → audio capped at profile 3 (generous headroom)
- * - otherwise → same as video
- */
 function audioProfile(vramGb, videoProf) {
-  if (vramGb >= 12 && videoProf > 3) return 3
   return videoProf
 }
 
 /**
- * Quantization — always Scaled Int8 ("int8").
- * This is Wan2GP's own recommended default (wgp.py line ~3225) and the
- * mmgp offloader's quantizeTransformer=True uses int8 by default.
- * Scaled Int8 offers the best balance of quality, speed, and VRAM usage
- * across all hardware tiers.
+ * Quantization — recommends Scaled Int8 ("int8") for best balance.
+ * This is Wan2GP's own recommended default and the mmgp offloader's
+ * quantizeTransformer=True uses int8 by default.
  */
 function quantForProfile(profile) {
   return 'int8'
 }
 
+/** All supported transformer quantization options. */
+const QUANT_OPTIONS = [
+  { value: 'int8',    label: 'Scaled Int8 \u2705 recommended' },
+  { value: 'fp8',     label: 'FP8' },
+  { value: 'nvfp4',   label: 'NVFP4' },
+  { value: 'no_quant', label: 'None (no quantization)' }
+]
+
 /**
- * VAE config — always 0 (Auto).
- * 0 = auto (Wan2GP decides when tiling is needed)
- * 1 = tiling, 2 = split-tiling, 3 = no-encode
+ * VAE config — recommends 0 (Auto).
  * Auto is the safest choice for quality — higher presets save VRAM but
- * introduce banding artifacts.
+ * can introduce banding artifacts.
  */
 function vaeConfigForProfile(profile) {
   return 0
 }
 
+/** All supported VAE config options. */
+const VAE_OPTIONS = [
+  { value: 0, label: 'Auto \u2705 recommended' },
+  { value: 1, label: 'Tiling' },
+  { value: 2, label: 'Split-Tiling' },
+  { value: 3, label: 'No Encode' }
+]
+
 /**
  * VRAM safety coefficient per profile.
  * Higher = more headroom (slower but safer).
- * Controls vram_safety_coefficient passed to mmgp offloader.
  */
 function vramCoefficientForProfile(profile) {
   const map = {
-    1: 0.80, 2: 0.75, 3: 0.70, 4: 0.60, 5: 0.50
+    1: 0.80,
+    2: 0.75,
+    3: 0.70,
+    3.5: 0.65,
+    4: 0.60,
+    4.5: 0.55,
+    5: 0.50
   }
   return map[profile] ?? 0.70
 }
 
+/** Wan2GP's official profile labels from wgp.py memory_profile_choices. */
 const PROFILE_LABELS = {
-  1: 'HighRAM \u00b7 HighVRAM',
-  2: 'HighRAM \u00b7 LowVRAM',
-  3: 'LowRAM \u00b7 HighVRAM',
-  4: 'LowRAM \u00b7 LowVRAM',
-  5: 'Very LowRAM \u00b7 LowVRAM'
+  1:   'HighRAM \u00b7 HighVRAM',
+  2:   'HighRAM \u00b7 LowVRAM',
+  3:   'LowRAM \u00b7 HighVRAM',
+  3.5: 'VeryLowRAM \u00b7 HighVRAM',
+  4:   'LowRAM \u00b7 LowVRAM',
+  4.5: 'LowRAM \u00b7 LowVRAM+',
+  5:   'VerylowRAM \u00b7 LowVRAM'
 }
 
+/** Wan2GP's official profile descriptions from wgp.py. */
 const PROFILE_REASONS = {
-  1: 'Ample RAM + VRAM — max quality: full models in VRAM, pinned memory for fast reload',
-  2: 'High RAM, limited VRAM — modules in VRAM on demand within budget, pinned for speed',
-  3: 'Limited RAM, high VRAM — transformer stays in VRAM, text encoders quantized for offload',
-  4: 'Limited RAM + VRAM — balanced: transformer partially pinned, quantized encoders, budgets',
-  5: 'Very limited RAM + VRAM — max compatibility: no pinned memory, tight budgets, all quantized'
+  1:   'HighRAM_HighVRAM — at least 64 GB RAM + 24 GB VRAM: max performance for short videos on RTX 3090/4090',
+  2:   'HighRAM_LowVRAM — at least 64 GB RAM + 12 GB VRAM: most versatile profile, suited for RTX 3070/3080/4070/4080 or large batches/long videos on 3090/4090',
+  3:   'LowRAM_HighVRAM — at least 32 GB RAM + 24 GB VRAM: adapted for 3090/4090 with limited RAM for good speed on short video',
+  3.5: 'VeryLowRAM_HighVRAM — at least 32 GB RAM + 24 GB VRAM: variant of P3 that won\'t use Reserved Memory, reducing RAM usage',
+  4:   'LowRAM_LowVRAM (Recommended) — at least 32 GB RAM + 12 GB VRAM: balanced, good for longer videos with limited VRAM',
+  4.5: 'LowRAM_LowVRAM+ — at least 32 GB RAM + 12 GB VRAM: variant of P4, slightly slower but needs less VRAM',
+  5:   'VerylowRAM_LowVRAM (Fail safe) — at least 24 GB RAM + 10 GB VRAM: minimum compatibility, won\'t be fast but may work'
 }
 
 /**

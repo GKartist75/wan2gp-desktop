@@ -4,7 +4,7 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
-[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.2.2)](https://github.com/GKartist75/wan2gp-desktop/releases)
+[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.2.3)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
@@ -48,7 +48,7 @@ One-click hardware scan (GPU, CUDA, VRAM, attention kernels) that recommends
 and applies optimal `wgp_config.json` settings. Access via **Manage** → **Auto-Tune**
 tab or the ⚡ button on the main dashboard.
 
-**How profiles work** — Wan2GP's memory manager (`mmgp`) uses 5 profiles
+**How profiles work** — Wan2GP's memory manager (`mmgp`) uses 7 profiles
 that trade off VRAM usage vs speed. The auto-tune picks one based on your
 VRAM and system RAM:
 
@@ -57,22 +57,24 @@ VRAM and system RAM:
 | **P1** | HighRAM_HighVRAM | All modules | None | No | ≥24GB VRAM or 16GB+VRAM + 64GB+ RAM |
 | **P2** | HighRAM_LowVRAM | All modules | `{"*": 3000}` | No | 16GB+ VRAM with ≤32GB RAM |
 | **P3** | LowRAM_HighVRAM | Transformer only | None | Yes | 10–16GB VRAM with 64GB+ RAM (CPU offload) |
-| **P4** | LowRAM_LowVRAM | Transformer only | `{"*": 3000}` | Yes | 10–16GB VRAM with ≤32GB RAM (balanced) |
+| **P3+** | VeryLowRAM_HighVRAM | Transformer only | No reserved mem | Yes | ≥24GB VRAM with <32GB RAM (RAM saver) |
+| **P4** | LowRAM_LowVRAM | Transformer only | `{"*": 3000}` | Yes | ≥16GB VRAM with ≥32GB RAM (balanced) |
+| **P4+** | LowRAM_LowVRAM+ | Transformer only | Tighter budgets | Yes | ≥16GB VRAM with <32GB RAM (VRAM saver) |
 | **P5** | VerylowRAM_LowVRAM | None | `{"*": 3000, "transformer": 400}` | Yes | <10GB VRAM (max compatibility) |
 
 **Profile matrix** (how VRAM × RAM tiers map to profiles):
 
 | VRAM ↓ \ RAM → | high (≥64GB) | mid (≥32GB) | low (<32GB) |
 |----------------|-------------|-------------|------------|
-| **very_high** (≥24GB) | P1 | P1 | P1 |
-| **high** (≥16GB) | P1 | P2 | P2 |
-| **mid** (≥10GB) | P3 | P4 | P4 |
-| **low** (<10GB) | P3 | P5 | P5 |
+| **very_high** (≥24GB) | P1 | P3 | P3+ |
+| **high** (≥16GB) | P2 | P4 | P4+ |
+| **mid** (≥10GB) | P4 | P5 | P5 |
+| **low** (<10GB) | P5 | P5 | P5 |
 
 **Settings written** — The auto-tune writes these keys to `wgp_config.json`:
-- `video_profile`, `image_profile`, `audio_profile` — profile number (1–5)
-- `transformer_quantization` — always `"int8"` (Scaled Int8, Wan2GP's recommended default)
-- `vae_config` — always `0` (Auto, lets Wan2GP decide when tiling is needed)
+- `video_profile`, `image_profile`, `audio_profile` — profile (1, 2, 3, 3.5, 4, 4.5, 5)
+- `transformer_quantization` — Scaled Int8 (recommended), FP8, NVFP4, or None
+- `vae_config` — Auto (recommended), Tiling, Split-Tiling, or No Encode
 - `vram_safety_coefficient` — 0.50–0.80 depending on profile
 
 All three profile dropdowns (video/image/audio) are **editable** before applying,
@@ -95,7 +97,7 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.2.2** — green dot fix, security hardening (spawn over execSync), async system metrics, unified package lists, UI layout compaction. [Full changelog →](CHANGELOG-v2.2.2.md)
+> **New in v2.2.3** — verbose env unlink progress, isolated Python 3.11 for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quantization dropdowns and matrix table, compact hardware display, prerequisite help card, xcopy restore fix. [Full changelog →](CHANGELOG-v2.2.3.md)
 
 ## Prerequisites
 
@@ -131,6 +133,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.2.3** — **UX, reliability, and install flow** — verbose env unlink progress, isolated Python for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quant dropdowns and matrix table, compact hardware display, prerequisite help card, console scrollbar, xcopy restore fix, profile dropdown readability fix. See [CHANGELOG-v2.2.3.md](CHANGELOG-v2.2.3.md).
 - **v2.2.2** — **Bugfix + security + quality** — green dot fix (git state tracking, `git reset --hard` over unreliable merge), command-injection fixes, async system metrics, unified package lists, UI layout compaction, plus platform guards and code quality improvements. See [CHANGELOG-v2.2.2.md](CHANGELOG-v2.2.2.md).
 - **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](CHANGELOG-v2.2.1.md).
 - **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).

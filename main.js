@@ -405,17 +405,21 @@ function fetchUrl(url, opts = {}) {
 }
 
 // ── Run setup.py with structured events ──
-function runSetup(args) {
+function runSetup(args, extraPath) {
   return new Promise((resolve, reject) => {
     let py = installPython()
     if (!py) {
       send('setup-output', '[!] Python 3.11 not found (uv python find 3.11 failed). Falling back to system Python — this may break builds (e.g. pygame on 3.14).\n')
       py = sysPython()
     }
+    var env = { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
+        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+    if (extraPath) {
+      env.PATH = extraPath + path.delimiter + (env.PATH || '')
+    }
     const proc = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'setup.py', ...args], {
       cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
-        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+      env: env
     })
     setupProc = proc
     let lineBuf = ''
@@ -545,7 +549,10 @@ ipcMain.handle('install', async (_, envType) => {
         for (const sub of ['plugins', 'finetunes']) {
           const src = path.join(backupDir, sub)
           if (fs.existsSync(src)) {
-            execSync(IS_WIN ? `xcopy /E /I "${src}" "${path.join(repo, sub)}"` : `cp -r "${src}" "${repo}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
+            // Ensure destination exists (fresh clone may not have these dirs)
+            var dst = path.join(repo, sub)
+            fs.mkdirSync(dst, { recursive: true })
+            execSync(IS_WIN ? `xcopy /E /I "${src}" "${dst}"` : `cp -r "${src}" "${repo}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
           }
         }
         // Restore config if it exists and no config exists yet
@@ -563,7 +570,42 @@ ipcMain.handle('install', async (_, envType) => {
   } else {
     send('setup-phase', { id: 'clone', label: 'Clone Wan2GP repository', done: true })
   }
-  await runSetup(['install', '--env', env, '--auto'])
+  // Pre-check: venv mode on Windows needs `py -3.11`.
+  // Avoid global Python install — use uv's isolated Python 3.11 with a batch shim instead.
+  var _pyShimDir = null
+  if (IS_WIN && env === 'venv') {
+    try {
+      execSync('py -3.11 -c ""', { stdio: 'pipe', windowsHide: true, timeout: 10000 })
+    } catch {
+      send('setup-output', '[*] Python 3.11 not found via py launcher. Using uv-managed Python (isolated, no global install)...\n')
+      var uvPy = null
+      try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }); uvPy = execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 10000 }).trim() } catch {}
+      if (uvPy) {
+        send('setup-output', '[*] Creating py launcher shim -> ' + uvPy + '\n')
+        _pyShimDir = path.join(getDataDir(), '.py-shim')
+        fs.mkdirSync(_pyShimDir, { recursive: true })
+        var shim = '@echo off\r\n'
+        shim += 'setlocal enabledelayedexpansion\r\n'
+        shim += 'set "args=%*"\r\n'
+        shim += 'set "args=!args:-3.11 =!"\r\n'
+        shim += 'if "!args!"=="%*" set "args=!args:-3.11=!"\r\n'
+        shim += '"' + uvPy + '" !args!\r\n'
+        shim += 'exit /b %errorlevel%\r\n'
+        fs.writeFileSync(path.join(_pyShimDir, 'py.cmd'), shim, 'utf8')
+        fs.writeFileSync(path.join(_pyShimDir, 'py.bat'), shim, 'utf8')
+        send('setup-output', '[*] py shim ready (isolated Python 3.11, no global install)\n')
+      }
+      if (!_pyShimDir) {
+        send('setup-output', '[!] Could not get Python 3.11 via uv (isolated) either.\n')
+        send('setup-output', '[!] Install Python 3.11 from https://www.python.org/downloads/\n')
+        send('setup-output', '[!] or use the "uv" environment type instead (simplest, no Python needed).\n')
+        throw new Error('Python 3.11 not found. Install Python 3.11 or use uv environment type.')
+      }
+    }
+  }
+  await runSetup(['install', '--env', env, '--auto'], _pyShimDir)
+  // Clean up py shim
+  if (_pyShimDir) { try { fs.rmSync(_pyShimDir, { recursive: true }) } catch {} }
   // Post-install steps: these run BEFORE returning to the renderer, so the
   // UI's "Installation complete" only shows after everything finishes.
   // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
@@ -592,23 +634,39 @@ ipcMain.handle('install', async (_, envType) => {
 
 ipcMain.handle('reinstall', async () => {
   send('setup-output', '[*] Preparing reinstall...\n')
-  // Backup plugins, finetunes, and config before wiping
-  const backupDir = path.join(getDataDir(), '.reinstall-backup')
+  // Ask user if they want to backup plugins, finetunes, and config
+  var doBackup = false
   try {
-    if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true })
-    fs.mkdirSync(backupDir, { recursive: true })
-    const repo = getRepoDir()
-    for (const sub of ['plugins', 'finetunes']) {
-      const src = path.join(repo, sub)
-      if (fs.existsSync(src)) {
-        execSync(IS_WIN ? `xcopy /E /I "${src}" "${path.join(backupDir, sub)}"` : `cp -r "${src}" "${backupDir}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
+    const result = await dialog.showMessageBox({
+      type: 'question', buttons: ['Backup & Restore (recommended)', 'Skip backup'],
+      defaultId: 0, cancelId: 1,
+      title: 'Reinstall Wan2GP',
+      message: 'Do you want to backup plugins, finetunes, and config before reinstalling?',
+      detail: 'A backup lets you restore your custom plugins and configuration after the fresh install. If you skip, they will be lost.'
+    })
+    doBackup = result.response === 0
+  } catch { doBackup = true /* fallback: backup */ }
+  const backupDir = path.join(getDataDir(), '.reinstall-backup')
+  if (doBackup) {
+    try {
+      if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true })
+      fs.mkdirSync(backupDir, { recursive: true })
+      const repo = getRepoDir()
+      for (const sub of ['plugins', 'finetunes']) {
+        const src = path.join(repo, sub)
+        if (fs.existsSync(src)) {
+          execSync(IS_WIN ? `xcopy /E /I "${src}" "${path.join(backupDir, sub)}"` : `cp -r "${src}" "${backupDir}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
+        }
       }
-    }
-    // Backup config
-    const configPath = path.join(repo, 'wgp_config.json')
-    if (fs.existsSync(configPath)) fs.copyFileSync(configPath, path.join(backupDir, 'wgp_config.json'))
-    send('setup-output', '[*] Backed up plugins, finetunes, and config.\n')
-  } catch (e) { send('setup-output', `[!] Backup warning: ${e.message}\n`) }
+      const configPath = path.join(repo, 'wgp_config.json')
+      if (fs.existsSync(configPath)) fs.copyFileSync(configPath, path.join(backupDir, 'wgp_config.json'))
+      send('setup-output', '[*] Backed up plugins, finetunes, and config.\n')
+    } catch (e) { send('setup-output', `[!] Backup warning: ${e.message}\n`) }
+  } else {
+    send('setup-output', '[*] Skipped backup (no plugins/config will be restored).\n')
+    // Clean any stale backup
+    try { if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true }) } catch {}
+  }
   // Remove repo and envs
   send('setup-output', '[*] Removing existing installation...\n')
   const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
@@ -1274,10 +1332,49 @@ ipcMain.handle('uninstall-env', async (_, name) => {
           send('setup-output', `[${name}] size: ${humanSize}\n`)
         }
       } catch {}
-      send('setup-output', `[${name}] deleting files...`)
-      await asyncExec(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
-      send('setup-output', ` done\n`)
-      if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
+      // Show top-level contents so the user sees what's being removed
+      try {
+        if (IS_WIN) {
+          const listing = await asyncExec(`powershell -NoProfile -Command "Get-ChildItem -Path '${envPath}' | Select-Object Mode, Length, Name | Format-Table -HideTableHeader -AutoSize"`, { encoding: 'utf8', timeout: 10000, windowsHide: true })
+          if (listing.trim()) {
+            const lines = listing.trim().split('\n').filter(l => l.trim())
+            if (lines.length > 0) {
+              send('setup-output', `[${name}] contents:\n`)
+              for (const line of lines) send('setup-output', `  ${line}\n`)
+            }
+          }
+        } else {
+          const listing = await asyncExec(`ls -lhA '${envPath}' 2>/dev/null || echo '(empty)'`, { encoding: 'utf8', timeout: 10000 })
+          if (listing.trim()) send('setup-output', `[${name}] contents:\n${listing}\n`)
+        }
+      } catch {}
+      // Delete each top-level item with visible progress
+      try {
+        var items = fs.readdirSync(envPath)
+        for (var i = 0; i < items.length; i++) {
+          var itemPath = path.join(envPath, items[i])
+          var label = items[i]
+          if (fs.statSync(itemPath).isDirectory()) label += '/'  // mark dirs
+          send('setup-output', `[${name}] removing ${label}\n`)
+          if (IS_WIN) {
+            if (fs.statSync(itemPath).isDirectory()) {
+              await asyncExec(`rmdir /s /q "${itemPath}"`, { stdio: 'pipe' })
+            } else {
+              fs.unlinkSync(itemPath)
+            }
+          } else {
+            await asyncExec(`rm -rf "${itemPath}"`, { stdio: 'pipe' })
+          }
+        }
+        // Remove the now-empty env dir itself
+        fs.rmdirSync(envPath)
+        send('setup-output', `[${name}] folder removed\n`)
+      } catch (delErr) {
+        send('setup-output', ` error: ${delErr.message}\n`)
+        // Fallback: try bulk delete
+        await asyncExec(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+        if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
+      }
     } else {
       send('setup-output', `[${name}] folder not found on disk, removing from registry\n`)
     }

@@ -892,7 +892,7 @@ async function loadPaths(skipModelPaths) {
   const p = await window.w2gp.getInstallPaths()
   if (!p) return
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
-  set('pathAppData', p.appData)
+  set('pathAppData', p.repo)
   set('installAppDataPath', p.appData + '\\Wan2GP')
   window.w2gp.getDiskSpace().then(function(d) {
     if (!d) return;
@@ -907,7 +907,7 @@ async function loadPaths(skipModelPaths) {
 }
 
 $('openAppDataBtn')?.addEventListener('click', function() {
-  window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.appData); });
+  window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
 });
 
 async function loadWangpChangelog() {
@@ -1244,6 +1244,25 @@ function switchSettingsTab(tabName) {
   if (tab) tab.classList.add('active')
   var tabContent = document.querySelector('.settings-tab-content[data-tab="' + tabName + '"]')
   if (tabContent) tabContent.classList.add('active')
+
+  // Auto-Tune: check if Wan2GP is installed — disable if not
+  if (tabName === 'autotune') {
+    checkAutoTuneInstalled()
+  }
+}
+
+async function checkAutoTuneInstalled() {
+  const installed = await window.w2gp.checkInstalled()
+  const notInstalledEl = $('autotuneNotInstalled')
+  const contentEl = $('autotuneContent')
+  if (!notInstalledEl || !contentEl) return
+  if (!installed.repo) {
+    notInstalledEl.classList.remove('hidden')
+    contentEl.classList.add('hidden')
+  } else {
+    notInstalledEl.classList.add('hidden')
+    contentEl.classList.remove('hidden')
+  }
 }
 
 document.querySelectorAll('.settings-tab').forEach(function(tab) {
@@ -1601,25 +1620,66 @@ function renderAutoTuneHardware(hw) {
   if (hw.supports_triton) badges.push('<span class="env-type-tag" style="background:#4A3D2E;color:#F8C58A">Triton</span>')
 
   el.innerHTML = '\
-    <div class="spec-grid" style="margin-bottom:8px">\
-      <div class="spec-row"><span class="spec-label">GPU</span><span class="spec-value">' + escHtml(hw.gpu_name) + '</span></div>\
-      <div class="spec-row"><span class="spec-label">VRAM</span><span class="spec-value">' + hw.gpu_vram_gb + ' GB</span></div>\
-      <div class="spec-row"><span class="spec-label">RAM</span><span class="spec-value">' + hw.ram_gb + ' GB</span></div>\
-      <div class="spec-row"><span class="spec-label">CUDA</span><span class="spec-value">' + (hw.cuda_version || '—') + '</span></div>\
-      <div class="spec-row"><span class="spec-label">Capability</span><span class="spec-value">' + (hw.gpu_capability || '—') + '</span></div>\
+    <div class="hw-compact">\
+      <span class="hw-chip"><span class="hw-chip-label">GPU</span>' + escHtml(hw.gpu_name) + '</span>\
+      <span class="hw-chip"><span class="hw-chip-label">VRAM</span>' + hw.gpu_vram_gb + ' GB</span>\
+      <span class="hw-chip"><span class="hw-chip-label">RAM</span>' + hw.ram_gb + ' GB</span>\
+      <span class="hw-chip"><span class="hw-chip-label">CUDA</span>' + (hw.cuda_version || '—') + '</span>\
+      <span class="hw-chip"><span class="hw-chip-label">Cap</span>' + (hw.gpu_capability || '—') + '</span>\
     </div>\
-    <div style="display:flex;gap:6px;flex-wrap:wrap">' + badges.join('') + '</div>'
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">' + badges.join('') + '</div>'
 }
 
-/** Build a <select> for profiles 1-5 with the given selected value. */
+/** Build a <select> for profile dropdowns with the given selected value. */
 function profileSelect(name, selectedVal) {
   var opts = ''
-  var labels = {1:'HighRAM \u00b7 HighVRAM', 2:'HighRAM \u00b7 LowVRAM', 3:'LowRAM \u00b7 HighVRAM', 4:'LowRAM \u00b7 LowVRAM', 5:'Very LowRAM \u00b7 LowVRAM'}
-  for (var i = 1; i <= 5; i++) {
-    var sel = i === selectedVal ? ' selected' : ''
-    opts += '<option value="' + i + '"' + sel + '>P' + i + ' \u2014 ' + labels[i] + '</option>'
+  var items = [
+    { v: 1,   l: 'HighRAM \u00b7 HighVRAM' },
+    { v: 2,   l: 'HighRAM \u00b7 LowVRAM' },
+    { v: 3,   l: 'LowRAM \u00b7 HighVRAM' },
+    { v: 3.5, l: 'VeryLowRAM \u00b7 HighVRAM' },
+    { v: 4,   l: 'LowRAM \u00b7 LowVRAM' },
+    { v: 4.5, l: 'LowRAM \u00b7 LowVRAM+' },
+    { v: 5,   l: 'VerylowRAM \u00b7 LowVRAM' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v == selectedVal ? ' selected' : ''
+    var label = items[i].v === 3.5 ? 'P3+' : items[i].v === 4.5 ? 'P4+' : 'P' + items[i].v
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + label + ' \u2014 ' + items[i].l + '</option>'
   }
   return '<select class="profile-select" data-profile-key="' + name + '">' + opts + '</select>'
+}
+
+/** Build a <select> for quantization options. */
+function quantSelect(selectedVal) {
+  var opts = ''
+  var items = [
+    { v: 'int8',     l: 'Scaled Int8 \u2705 recommended' },
+    { v: 'fp8',      l: 'FP8' },
+    { v: 'nvfp4',    l: 'NVFP4' },
+    { v: 'no_quant', l: 'None (no quantization)' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v === selectedVal ? ' selected' : ''
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
+  }
+  return '<select class="quant-select" data-quant-key="transformer_quantization">' + opts + '</select>'
+}
+
+/** Build a <select> for VAE config options. */
+function vaeSelect(selectedVal) {
+  var opts = ''
+  var items = [
+    { v: 0, l: 'Auto \u2705 recommended' },
+    { v: 1, l: 'Tiling' },
+    { v: 2, l: 'Split-Tiling' },
+    { v: 3, l: 'No Encode' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v == selectedVal ? ' selected' : ''
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
+  }
+  return '<select class="vae-select" data-vae-key="vae_config">' + opts + '</select>'
 }
 
 /** Render recommendation into the card with editable dropdowns. */
@@ -1632,27 +1692,46 @@ function renderAutoTuneRecommendation(rec) {
     return
   }
 
-  var quantLabel = rec.transformer_quantization === 'int8' ? 'Scaled Int8 \u2705 recommended' : rec.transformer_quantization
-  var vaeLabel = rec.vae_config === 0 ? 'Auto \u2705 recommended' : (['Default','Tiling','Spilt-Tiling','No Encode'][rec.vae_config] || 'Default')
+  var currentProf = rec.video_profile
+  var isP3plus = currentProf === 3.5
+  var isP4plus = currentProf === 4.5
+  var profDisp = isP3plus ? 'P3+' : isP4plus ? 'P4+' : 'P' + currentProf
 
   el.innerHTML = '\
     <div class="spec-grid" style="margin-bottom:8px">\
       <div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + profileSelect('video_profile', rec.video_profile) + '</span></div>\
       <div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + profileSelect('image_profile', rec.image_profile) + '</span></div>\
       <div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + profileSelect('audio_profile', rec.audio_profile) + '</span></div>\
-      <div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value" style="color:#6ee7b7"><code>' + quantLabel + '</code></span></div>\
-      <div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value" style="color:#6ee7b7">' + rec.vae_config + ' \u00b7 ' + vaeLabel + '</span></div>\
+      <div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value">' + quantSelect(rec.transformer_quantization) + '</span></div>\
+      <div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value">' + vaeSelect(rec.vae_config) + '</span></div>\
       <div class="spec-row"><span class="spec-label">VRAM Safety Coeff</span><span class="spec-value">' + rec.vram_safety_coefficient + '</span></div>\
     </div>\
-    <p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '<br><span style="color:var(--text-tertiary);font-size:0.65rem">Modify the profile dropdowns before applying if needed. Higher profiles (3-5) use less VRAM but may be slower. Scaled Int8 and VAE Auto are Wan2GP\'s recommended defaults.</span></p>'
+    <p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '</p>\
+    <table class="profile-matrix" style="margin-top:6px">\
+      <tr><th>VRAM \\ RAM</th><th style="text-align:center">high<br><span class="tier-range">≥64GB</span></th><th style="text-align:center">mid<br><span class="tier-range">≥32GB</span></th><th style="text-align:center">low<br><span class="tier-range"><32GB</span></th></tr>\
+      <tr><td>very_high<br><span class="tier-range">≥24GB</span></td><td style="text-align:center;color:#6ee7b7">P1</td><td style="text-align:center">P3</td><td style="text-align:center;color:#67e8f9">P3+</td></tr>\
+      <tr><td>high<br><span class="tier-range">≥16GB</span></td><td style="text-align:center">P2</td><td style="text-align:center">P4</td><td style="text-align:center;color:#67e8f9">P4+</td></tr>\
+      <tr><td>mid<br><span class="tier-range">≥10GB</span></td><td style="text-align:center">P4</td><td style="text-align:center;color:#f87171">P5</td><td style="text-align:center;color:#f87171">P5</td></tr>\
+      <tr><td>low<br><span class="tier-range"><10GB</span></td><td style="text-align:center;color:#f87171">P5</td><td style="text-align:center;color:#f87171">P5</td><td style="text-align:center;color:#f87171">P5</td></tr>\
+    </table>\
+    <p class="token-hint" style="margin:4px 0 0;color:var(--text-tertiary);font-size:0.65rem">Detected profile <strong>' + profDisp + '</strong> highlighted. Modify any dropdown before applying. Higher profiles use less VRAM but may be slower.</p>'
   btn.disabled = false
 
   // Wire dropdown changes to update the recommendation object
   el.querySelectorAll('.profile-select').forEach(function(sel) {
     sel.addEventListener('change', function() {
       var key = sel.dataset.profileKey
-      var val = parseFloat(sel.value)
-      _autotuneRecommendation[key] = val
+      _autotuneRecommendation[key] = parseFloat(sel.value)
+    })
+  })
+  el.querySelectorAll('.quant-select').forEach(function(sel) {
+    sel.addEventListener('change', function() {
+      _autotuneRecommendation.transformer_quantization = sel.value
+    })
+  })
+  el.querySelectorAll('.vae-select').forEach(function(sel) {
+    sel.addEventListener('change', function() {
+      _autotuneRecommendation.vae_config = parseFloat(sel.value)
     })
   })
 }

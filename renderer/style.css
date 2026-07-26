@@ -19,6 +19,9 @@ body {
   --text-tertiary: #B8B8B6;
   --accent: #1A1A1A;
   --accent-hover: #333333;
+  --accent-dim: #D4D4D2;
+  --bg-secondary: #F7F6F3;
+  --bg-tertiary: #EFEEEB;
   --signal-green-bg: #EDF3EC;
   --signal-green: #346538;
   --signal-blue-bg: #E1F3FE;
@@ -45,6 +48,9 @@ body {
   --text-tertiary: #666666;
   --accent: #666666;
   --accent-hover: #888888;
+  --accent-dim: #555555;
+  --bg-secondary: #2E2E2E;
+  --bg-tertiary: #1E1E1E;
   --signal-green-bg: #1A2E1A;
   --signal-green: #4ADE80;
   --signal-blue-bg: #1A2E3E;
@@ -193,7 +199,7 @@ body {
 .spec-row.spec-row-path .spec-label { min-width: 100px; flex-shrink: 0; }
 .spec-row.spec-row-path .path-val {
   font-size: 0.5625rem; line-height: 1.35;
-  overflow-wrap: anywhere; word-break: normal; flex: 1; min-width: 0;
+  overflow-wrap: anywhere; word-break: break-all; flex: 1; min-width: 0;
 }
 .spec-row:nth-child(odd) { background: var(--canvas); }
 .spec-label { color: var(--text-secondary); }
@@ -214,6 +220,61 @@ body {
 .profile-select:hover { border-color: var(--accent); }
 .profile-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
 .profile-select option { background: var(--bg-secondary); color: var(--text-primary); }
+
+/* ── Quant / VAE Selects (Auto-Tune) ── */
+.quant-select,
+.vae-select {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px 20px 3px 8px; font-size: 0.6875rem;
+  font-family: 'Geist Mono', 'SF Mono', monospace;
+  cursor: pointer; min-width: 210px;
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center;
+  background-size: 8px 5px;
+}
+.quant-select:hover,
+.vae-select:hover { border-color: var(--accent); }
+.quant-select:focus,
+.vae-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
+.quant-select option,
+.vae-select option { background: var(--bg-secondary); color: var(--text-primary); }
+
+/* ── Profile Matrix Table (Auto-Tune) ── */
+.profile-matrix {
+  width: 100%; border-collapse: collapse;
+  font-size: 0.6rem; line-height: 1.35;
+}
+.profile-matrix th {
+  text-align: left; padding: 3px 5px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary); font-weight: 500;
+}
+.profile-matrix td {
+  padding: 3px 5px; border-bottom: 1px solid var(--border-dim);
+}
+.profile-matrix .tier-range {
+  font-size: 0.5rem; color: var(--text-tertiary);
+}
+.profile-matrix tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Compact Hardware Info (Auto-Tune) ── */
+.hw-compact {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+}
+.hw-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--canvas); border: 1px solid var(--border-dim);
+  border-radius: 4px; padding: 2px 6px;
+  font-size: 0.625rem; font-family: 'Geist Mono', 'SF Mono', monospace;
+  color: var(--text-primary); line-height: 1.4;
+}
+.hw-chip-label {
+  color: var(--text-tertiary); font-family: inherit;
+}
 .spec-free { font-size: 0.55rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; margin-left: 2px; }
 
 /* ── Dashboard Layout ── */
@@ -388,6 +449,10 @@ body {
   white-space: pre-wrap; word-break: break-all;
   user-select: text; -webkit-user-select: text;
 }
+.term-body::-webkit-scrollbar { width: 6px; }
+.term-body::-webkit-scrollbar-track { background: transparent; }
+.term-body::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+.term-body::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
 /* ── Installer ── */
 #installer { align-items: center; justify-content: flex-start; padding: 40px 20px; overflow-y: auto; }
@@ -751,6 +816,7 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+  overflow: hidden;
 }
 /* dock positions */
 .floating-term.dock-bottom { bottom: 0; left: 0; right: 0; height: 200px; border-left: none; border-right: none; }

@@ -150,6 +150,15 @@
           <p class="token-hint">Detects your hardware and recommends optimal performance settings for Wan2GP. These settings are written directly to <code>wgp_config.json</code>.</p>
         </div>
 
+        <!-- Not-installed banner (shown when Wan2GP repo is missing) -->
+        <div id="autotuneNotInstalled" class="hidden" style="padding:14px;border-radius:8px;background:var(--signal-yellow-bg);border:1px solid var(--signal-yellow);margin-bottom:12px">
+          <p style="font-size:0.75rem;color:var(--signal-yellow);margin:0"><strong>Wan2GP is not installed yet.</strong></p>
+          <p style="font-size:0.6875rem;color:var(--text-secondary);margin:6px 0 0">Auto-Tune requires a Wan2GP installation to detect your environment and save configuration. Please install Wan2GP first from the setup screen.</p>
+        </div>
+
+        <!-- Auto-Tune content (hidden when not installed) -->
+        <div id="autotuneContent">
+
         <!-- Hardware Card -->
         <div class="card" style="margin-bottom:12px">
           <div class="card-header">
@@ -175,6 +184,7 @@
         <!-- Status / Result -->
         <div id="autotuneStatus" class="hidden" style="padding:10px 14px;border-radius:8px;font-size:0.75rem;line-height:1.5;background:var(--bg-tertiary)"></div>
       </div>
+    </div>
     </div>
   </div>
 
