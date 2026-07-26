@@ -97,7 +97,7 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.2.3** — verbose env unlink progress, isolated Python 3.11 for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quantization dropdowns and matrix table, compact hardware display, prerequisite help card, xcopy restore fix. [Full changelog →](CHANGELOG-v2.2.3.md)
+> **New in v2.2.3** — verbose env unlink progress, isolated Python 3.11 for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quantization dropdowns and matrix table, compact hardware display, prerequisite help card, xcopy restore fix. [Full changelog →](changelogs/CHANGELOG-v2.2.3.md)
 
 ## Prerequisites
 
@@ -133,20 +133,20 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
-- **v2.2.3** — **UX, reliability, and install flow** — verbose env unlink progress, isolated Python for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quant dropdowns and matrix table, compact hardware display, prerequisite help card, console scrollbar, xcopy restore fix, profile dropdown readability fix. See [CHANGELOG-v2.2.3.md](CHANGELOG-v2.2.3.md).
-- **v2.2.2** — **Bugfix + security + quality** — green dot fix (git state tracking, `git reset --hard` over unreliable merge), command-injection fixes, async system metrics, unified package lists, UI layout compaction, plus platform guards and code quality improvements. See [CHANGELOG-v2.2.2.md](CHANGELOG-v2.2.2.md).
-- **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](CHANGELOG-v2.2.1.md).
-- **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](CHANGELOG-v2.2.0.md).
-- **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](CHANGELOG-v2.1.9.md).
-- **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](CHANGELOG-v2.1.8.md).
-- **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](CHANGELOG-v2.1.7.md).
-- **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](CHANGELOG-v2.1.6.md).
-- **v2.1.5** — **System tray** — minimize to tray, window state persistence, auto-start with Windows, follow system theme, desktop notifications, F12 DevTools picker, release automation. See [CHANGELOG-v2.1.5.md](CHANGELOG-v2.1.5.md).
-- **v2.1.4** — **Live topbar sparkline charts**, browser detection + default picker, keyboard shortcuts, floating terminal enhancements, refresh button, GPU detection rewrite, already-running detection, Electron GPU toggle, path panel layout fix, button colors/renames. See [CHANGELOG-v2.1.4.md](CHANGELOG-v2.1.4.md).
-- **v2.1.3** — Launch Wan2GP inside the app via Electron BrowserView (back/forward/reload, zoom, popout, dockable console, running LED, stop button). See [CHANGELOG-v2.1.3.md](CHANGELOG-v2.1.3.md).
+- **v2.2.3** — **UX, reliability, and install flow** — verbose env unlink progress, isolated Python for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quant dropdowns and matrix table, compact hardware display, prerequisite help card, console scrollbar, xcopy restore fix, profile dropdown readability fix. See [CHANGELOG-v2.2.3.md](changelogs/CHANGELOG-v2.2.3.md).
+- **v2.2.2** — **Bugfix + security + quality** — green dot fix (git state tracking, `git reset --hard` over unreliable merge), command-injection fixes, async system metrics, unified package lists, UI layout compaction, plus platform guards and code quality improvements. See [CHANGELOG-v2.2.2.md](changelogs/CHANGELOG-v2.2.2.md).
+- **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](changelogs/CHANGELOG-v2.2.1.md).
+- **v2.2.0** — **Feature + security + quality** — **Auto-Tune** hardware detection & settings optimizer, **Xet Storage (hf_xet)** integration, **live tqdm progress bars**, **real CPU metric**, **GPU detection cache**, plus **critical security fixes** (shell injection, path traversal, code injection, URL validation) and deep code quality improvements. See [CHANGELOG-v2.2.0.md](changelogs/CHANGELOG-v2.2.0.md).
+- **v2.1.9** — **Pre-release** — External Terminal mode, terminal/UI reliability fixes. Superseded by v2.2.0. See [CHANGELOG-v2.1.9.md](changelogs/CHANGELOG-v2.1.9.md).
+- **v2.1.8** — **Bugfix release** — terminal docking/floating reliability. Closing the console always restores Wan2GP to full size (no grey gap), floating mode keeps Wan2GP visible with the console in its own movable window, and the floating console now resizes with its window. See [CHANGELOG-v2.1.8.md](changelogs/CHANGELOG-v2.1.8.md).
+- **v2.1.7** — **Bugfix release** — fixes a critical blank/gray-screen on launch (installer mis-nested under the dashboard collapsed to 0×0), installer model-folder paths (ckpts/loras/output) being ignored/defaulted, live topbar metrics (CPU/GPU/RAM/VRAM) not starting on a fresh install, and the empty installer console. See [CHANGELOG-v2.1.7.md](changelogs/CHANGELOG-v2.1.7.md).
+- **v2.1.6** — **Bugfix release** — tray icon properly destroyed on quit, child processes killed reliably via `taskkill /f /t`, single-instance lock prevents duplicate launchers, window close now quits app. See [CHANGELOG-v2.1.6.md](changelogs/CHANGELOG-v2.1.6.md).
+- **v2.1.5** — **System tray** — minimize to tray, window state persistence, auto-start with Windows, follow system theme, desktop notifications, F12 DevTools picker, release automation. See [CHANGELOG-v2.1.5.md](changelogs/CHANGELOG-v2.1.5.md).
+- **v2.1.4** — **Live topbar sparkline charts**, browser detection + default picker, keyboard shortcuts, floating terminal enhancements, refresh button, GPU detection rewrite, already-running detection, Electron GPU toggle, path panel layout fix, button colors/renames. See [CHANGELOG-v2.1.4.md](changelogs/CHANGELOG-v2.1.4.md).
+- **v2.1.3** — Launch Wan2GP inside the app via Electron BrowserView (back/forward/reload, zoom, popout, dockable console, running LED, stop button). See [CHANGELOG-v2.1.3.md](changelogs/CHANGELOG-v2.1.3.md).
 - **v2.1.2** — Fix: installer uses Python 3.11 (via uv) instead of falling back to 3.14; resolves `pygame`/kernel build failures.
 - **v2.1.1** — HuggingFace token support, remembered tokens, update-button fix.
-- **v2.0** — Full rewrite as pure launcher. See [CHANGELOG-v2.0.md](CHANGELOG-v2.0.md).
+- **v2.0** — Full rewrite as pure launcher. See [CHANGELOG-v2.0.md](changelogs/CHANGELOG-v2.0.md).
 
 ## License
 
