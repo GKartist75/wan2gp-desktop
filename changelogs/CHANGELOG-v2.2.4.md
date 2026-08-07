@@ -51,6 +51,12 @@ console output everywhere.
 - **Silent clone failures** — `git clone` is wrapped so timeouts (e.g. under
   antivirus load) produce a clear error with manual-clone instructions and AV
   exclusion advice instead of a frozen install.
+- **Z-Image crash on generation (`BFloat16`/`Half` conv2d)** — temporary
+  workaround applied at every launch: the bootstrap forces the Z-Image VAE to
+  load as bf16 (the checkpoint's native precision) to match the latents, so
+  bf16-quantized ZImageTurbo checkpoints generate without the
+  `RuntimeError: Input type (struct c10::BFloat16) and bias type (struct c10::Half)`
+  crash. Permanent fix tracked upstream in [PR #2095](https://github.com/deepbeepmeep/Wan2GP/pull/2095).
 
 ## Improvements
 
