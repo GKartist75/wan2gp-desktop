@@ -108,6 +108,28 @@ so you can override the recommendation.
 
 > **New in v2.2.4** — **Uninstall Wan2GP** with the option to keep your checkpoints/LoRAs/outputs (launch buttons disable with a "restart to install" hint), the invisible console progress bar fixed, a removal engine that survives locked files and antivirus scans, uv-managed Python auto-repair, live install progress, and UTF-8 console output. [Full changelog →](changelogs/CHANGELOG-v2.2.4.md)
 
+## ⚠️ Temporary fix: Z-Image crash on generation
+
+If Z-Image generation crashes right after sampling starts with:
+
+```
+RuntimeError: Input type (struct c10::BFloat16) and bias type (struct c10::Half) should be the same
+```
+
+that's a known Wan2GP core bug. The Z-Image pipeline casts the sampled latents to the
+**transformer's** dtype (bf16 for bf16-quantized checkpoints like `ZImageTurbo_quanto_bf16_int8`),
+but Wan2GP loads the **VAE** as fp16 by default — and `F.conv2d` requires both to match.
+Setting `vae_precision="32"` does **not** help (fp32 VAE + bf16 latents fails identically).
+
+**v2.2.4+ applies a temporary workaround automatically at every launch:** the launcher's
+bootstrap forces the Z-Image VAE to load as **bf16** (the checkpoint's native precision) to
+match the latents, so Z-Image generation works out of the box. You'll see
+`[bootstrap] z-image VAE dtype fix APPLIED (bf16)` in the console — no action needed.
+
+The permanent fix is upstream: **[PR #2095](https://github.com/deepbeepmeep/Wan2GP/pull/2095)**
+(`latents.to(self.vae.dtype)` at the VAE decode boundary). Once it's merged, the workaround
+becomes a harmless no-op — nothing to uninstall or configure.
+
 ## 🗺️ Visual Guide
 
 👉 **[Open the infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — a single-page visual walkthrough covering install steps, hardware profiles, the dashboard layout, Auto-Tune, launch modes, and every feature.
