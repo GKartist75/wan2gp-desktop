@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   detectGpu: () => ipcRenderer.invoke('detect-gpu'),
   install: (envType) => ipcRenderer.invoke('install', envType),
   reinstall: () => ipcRenderer.invoke('reinstall'),
+  uninstall: () => ipcRenderer.invoke('uninstall'),
 
   // Status
   getStatus: () => ipcRenderer.invoke('get-status'),

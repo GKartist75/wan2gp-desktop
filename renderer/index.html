@@ -94,6 +94,11 @@
           <p class="token-hint" id="xetStatusLine">Speeds up HuggingFace model downloads with delta compression. Status: <span id="xetStatus">checking...</span></p>
           <button class="btn btn-primary small" id="xetInstallBtn">Install hf_xet</button>
         </div>
+        <div class="settings-section">
+          <h3 style="color:var(--signal-red)">Uninstall Wan2GP</h3>
+          <p class="token-hint">Removes the Wan2GP app, its Python environment, and all installed packages. Downloaded models can be kept. The Desktop launcher itself stays installed.</p>
+          <button class="btn btn-ghost small" id="uninstallBtn" style="margin-top:8px;color:var(--signal-red);border-color:var(--signal-red)">Uninstall Wan2GP…</button>
+        </div>
       </div>
       <div class="settings-tab-content" data-tab="launch">
         <div class="settings-section">
@@ -357,6 +362,7 @@
           <div class="li-text">⏳ First launch loads models + compiles CUDA kernels — this will take some extra time. Subsequent starts are faster.</div>
           <div class="li-bar"><div class="li-fill"></div></div>
         </div>
+        <div class="launch-hint" id="notInstalledHint" style="display:none">Wan2GP is not installed — restart the Desktop launcher to install.</div>
         <div class="action-grid-2">
           <button class="action-item" id="updateBtn">
             <svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>

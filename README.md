@@ -4,7 +4,7 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
-[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.2.3)](https://github.com/GKartist75/wan2gp-desktop/releases)
+[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.2.4)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
@@ -106,7 +106,7 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.2.3** — verbose env unlink progress, isolated Python 3.11 for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quantization dropdowns and matrix table, compact hardware display, prerequisite help card, xcopy restore fix. [Full changelog →](changelogs/CHANGELOG-v2.2.3.md)
+> **New in v2.2.4** — **Uninstall Wan2GP** with the option to keep your checkpoints/LoRAs/outputs (launch buttons disable with a "restart to install" hint), the invisible console progress bar fixed, a removal engine that survives locked files and antivirus scans, uv-managed Python auto-repair, live install progress, and UTF-8 console output. [Full changelog →](changelogs/CHANGELOG-v2.2.4.md)
 
 ## 🗺️ Visual Guide
 
@@ -146,6 +146,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.2.4** — **Uninstall + progress-bar + install-flow hardening** — **Uninstall Wan2GP** (keep checkpoints/LoRAs/outputs or delete everything; launch buttons disable with a restart-to-install hint), invisible console progress bar fixed (tqdm env-var truthiness bug), robust removal engine that survives locked files/antivirus scans, "Reinstall (fresh)" no longer silently keeps the old install, uv-managed Python auto-repair, live install progress, UTF-8 console output, Prompt Enhancer button default, AV-aware clone errors. See [CHANGELOG-v2.2.4.md](changelogs/CHANGELOG-v2.2.4.md).
 - **v2.2.3** — **UX, reliability, and install flow** — verbose env unlink progress, isolated Python for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quant dropdowns and matrix table, compact hardware display, prerequisite help card, console scrollbar, xcopy restore fix, profile dropdown readability fix. See [CHANGELOG-v2.2.3.md](changelogs/CHANGELOG-v2.2.3.md).
 - **v2.2.2** — **Bugfix + security + quality** — green dot fix (git state tracking, `git reset --hard` over unreliable merge), command-injection fixes, async system metrics, unified package lists, UI layout compaction, plus platform guards and code quality improvements. See [CHANGELOG-v2.2.2.md](changelogs/CHANGELOG-v2.2.2.md).
 - **v2.2.1** — **Feature + bugfix release** — **Share Link toggle** for proxy/VPN users, **Auto-Tune dashboard shortcut**, Gradio localhost error fixed, helpful error logging, refactored settings tab navigation. See [CHANGELOG-v2.2.1.md](changelogs/CHANGELOG-v2.2.1.md).

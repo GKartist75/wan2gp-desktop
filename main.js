@@ -220,14 +220,12 @@ function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
 // ── Progress-forcing bootstrap ──
 // Writes inline Python to a temp file so child Python can access it
 // even from inside app.asar (asar is Node-only virtual filesystem).
-const BOOTSTRAP_SCRIPT = (() => {
-  // Concatenated to avoid template-literal indentation issues
-  const lines = [
-    '#!/usr/bin/env python3',
+// Concatenated to avoid template-literal indentation issues
+const BOOTSTRAP_LINES = [
+  '#!/usr/bin/env python3',
     'import os, sys, runpy',
     'def _patch_tty():',
     '    os.environ["PYTHONUNBUFFERED"] = "1"',
-    '    os.environ["TQDM_DISABLE"] = "0"',
     '    os.environ["TQDM_MININTERVAL"] = "0"',
     '    os.environ["TQDM_MINITERS"] = "1"',
     '    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"',
@@ -246,6 +244,23 @@ const BOOTSTRAP_SCRIPT = (() => {
     '    sys.__stderr__ = sys.stderr',
     '    sys.__stdout__ = sys.stdout',
     '    print("[bootstrap] active", flush=True)',
+    'def _patch_zimage_vae_dtype():',
+    '    # Z-Image: pipeline casts latents to the transformer dtype (bf16) before VAE decode',
+    '    # (pipeline_z_image.py ~:978), but wgp.py loads the VAE as fp16 by default',
+    '    # (vae_precision=16) -> F.conv2d "Input type (BFloat16) and bias type (Half)" crash.',
+    '    # The ZImageTurbo VAE checkpoint is natively bf16 (and fp32 VAE crashes too),',
+    '    # so force the z-image factory to load the VAE as bf16 to match the latents.',
+    '    try:',
+    '        import torch, models.z_image.z_image_main as _zim',
+    '        _orig_init = _zim.model_factory.__init__',
+    '        def _init(self, *a, **kw):',
+    '            kw["VAE_dtype"] = torch.bfloat16',
+    '            print("[bootstrap] z-image VAE dtype fix APPLIED (bf16)", flush=True)',
+    '            return _orig_init(self, *a, **kw)',
+    '        _zim.model_factory.__init__ = _init',
+    '        print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)',
+    '    except Exception as e:',
+    '        print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)',
     'def main():',
     '    if len(sys.argv) < 2 or sys.argv[1].startswith("-"):',
     '        print("Usage: bootstrap.py <target> [args...]", file=sys.stderr)',
@@ -258,14 +273,25 @@ const BOOTSTRAP_SCRIPT = (() => {
     '    sys.argv = sys.argv[1:]',
     '    d = os.path.dirname(target)',
     '    if d not in sys.path: sys.path.insert(0, d)',
+    '    _patch_zimage_vae_dtype()',
     '    runpy.run_path(target, run_name="__main__")',
     'if __name__ == "__main__":',
     '    main()',
-  ]
+]
+
+// The bootstrap must exist on disk for every spawned python process. Rewritten on EVERY
+// call (not once at startup): %TEMP% cleaners, other processes, or a deleted file used
+// to break all launches with a cryptic "python can't open file" error until app restart.
+// Throws a clear error if the write fails so the UI can show what actually happened.
+function bootstrapScriptPath() {
   const p = path.join(os.tmpdir(), 'wan2gp-bootstrap.py')
-  try { fs.writeFileSync(p, lines.join('\n'), 'utf8') } catch {}
+  try {
+    fs.writeFileSync(p, BOOTSTRAP_LINES.join('\n'), 'utf8')
+  } catch (e) {
+    throw new Error('Failed to write launcher bootstrap script to ' + p + ': ' + ((e && e.message) || e))
+  }
   return p
-})()
+}
 
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
@@ -288,19 +314,44 @@ function sysPython() {
 
 // Resolve a Python 3.11 interpreter for installs. Building the env on 3.14
 // breaks deps (pygame has no 3.14 wheel, insightface/flash-attn version-skew).
+// uv-managed installs are preferred; a broken managed install (e.g. its DLL
+// fails to load on some Windows 11 builds — "'charmap'… not suitable for
+// Windows" loader error 0xc0e90002) is auto-repaired with a forced reinstall
+// before falling back to a verified system Python.
 // ponytail: once uv becomes mandatory, return null here to hard-fail instead of falling back.
 function installPython() {
+  const find311 = () => {
+    try { return execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 30000 }).trim() } catch { return '' }
+  }
+  // Confirm the interpreter actually executes — uv's "find" only locates it,
+  // and a corrupted/blocked managed install still shows up in the list.
+  const runs = (p) => {
+    if (!p) return false
+    try { execSync(`"${p}" -c "import sys"`, { stdio: 'pipe', windowsHide: true, timeout: 30000 }); return true } catch { return false }
+  }
   // Preferred: uv-managed 3.11 (default env type already requires uv)
-  try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true }) } catch {}
-  try {
-    const p = execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true }).trim()
-    if (p) return p
-  } catch {}
-  // Fallback: system python3.11 if present
-  try {
-    execSync('python3.11 --version', { stdio: 'pipe', windowsHide: true })
-    return 'python3.11'
-  } catch {}
+  try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 120000 }) } catch {}
+  let p = find311()
+  if (runs(p)) return p
+  // Managed 3.11 exists but won't run (corrupted download / loader block).
+  // Force a clean reinstall instead of handing the broken exe to setup.py.
+  send('setup-output', '[!] Managed Python 3.11 is broken (DLL load failure). Forcing a clean reinstall...\n')
+  try { execSync('uv python install --reinstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) }
+  catch {
+    // Older uv without --reinstall: uninstall + install
+    try { execSync('uv python uninstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }) } catch {}
+    try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) } catch {}
+  }
+  p = find311()
+  if (runs(p)) return p
+  // Fallback: any system 3.11 that actually runs (verified, so setup.py never
+  // spawns a dead exe — previously this dead-ended in "exited code 9009").
+  const sysCandidates = IS_WIN ? ['python', 'python3.11'] : ['python3.11', 'python3']
+  for (const cand of sysCandidates) {
+    let resolved = cand
+    try { resolved = execSync(IS_WIN ? 'where ' + cand : 'which ' + cand, { encoding: 'utf8', windowsHide: true }).split('\n')[0].trim() || cand } catch {}
+    if (runs(resolved)) return resolved
+  }
   return null
 }
 
@@ -409,15 +460,16 @@ function runSetup(args, extraPath) {
   return new Promise((resolve, reject) => {
     let py = installPython()
     if (!py) {
-      send('setup-output', '[!] Python 3.11 not found (uv python find 3.11 failed). Falling back to system Python — this may break builds (e.g. pygame on 3.14).\n')
-      py = sysPython()
+      send('setup-output', '[!] No usable Python 3.11 found: the uv-managed install is broken and no working system Python 3.11 is available.\n')
+      send('setup-output', '[!] Fix: run "uv python install --reinstall 3.11" in a terminal (or uninstall + install), or install Python 3.11 from https://www.python.org/downloads/ and retry.\n')
+      return reject(new Error('No usable Python 3.11 interpreter found (see output above)'))
     }
-    var env = { ...process.env, PYTHONUNBUFFERED: '1', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
-        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+    var env = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
+        TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
     if (extraPath) {
       env.PATH = extraPath + path.delimiter + (env.PATH || '')
     }
-    const proc = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'setup.py', ...args], {
+    const proc = spawn(py, ['-u', bootstrapScriptPath(), 'setup.py', ...args], {
       cwd: getRepoDir(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
       env: env
     })
@@ -537,9 +589,55 @@ ipcMain.handle('install', async (_, envType) => {
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     fs.mkdirSync(getDataDir(), { recursive: true })
-    execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"`, {
-      stdio: 'pipe', timeout: 120000, windowsHide: true
-    })
+    // A keep-models uninstall leaves a models-only folder behind — git clone needs an
+    // empty target, so stash the leftover aside, clone fresh, then fold it back in.
+    let stashDir = null
+    try {
+      if (fs.existsSync(getRepoDir()) && fs.readdirSync(getRepoDir()).length > 0) {
+        stashDir = getRepoDir() + '.leftover'
+        if (fs.existsSync(stashDir)) fs.rmSync(stashDir, { recursive: true, force: true })
+        fs.renameSync(getRepoDir(), stashDir)
+        send('setup-output', '[*] Found leftover folder (models from a keep-models uninstall?) — stashing it aside.\n')
+      }
+    } catch (e) {
+      stashDir = null
+      send('setup-output', `[!] Could not stash leftover folder: ${e.message}\n`)
+    }
+    try {
+      execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"`, {
+        stdio: 'pipe', timeout: 120000, windowsHide: true
+      })
+    } catch (e) {
+      // Restore the leftover folder if the clone failed
+      try {
+        if (stashDir && fs.existsSync(stashDir) && !fs.existsSync(getRepoDir())) fs.renameSync(stashDir, getRepoDir())
+      } catch {}
+      // A fresh install that previously worked but now times out here is almost
+      // always antivirus interference (MalwareBytes etc.) blocking git or the
+      // download — the same AV that may have quarantined the uv-managed Python.
+      send('setup-output', '[!] Git clone failed or timed out (2 min).\n')
+      send('setup-output', `[!] If a previous install worked, add antivirus exclusions for:\n`)
+      send('setup-output', `[!]   ${getDataDir()}\n`)
+      send('setup-output', `[!]   %APPDATA%\\uv\\python   (uv-managed Python)\n`)
+      send('setup-output', '[!] then retry. You can also clone manually first:\n')
+      send('setup-output', `[!]   git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"\n`)
+      throw new Error('Git clone failed/timed out — see output above (likely antivirus interference)')
+    }
+    // Fold the stashed leftover (models etc.) back into the fresh clone
+    if (stashDir && fs.existsSync(stashDir)) {
+      try {
+        for (const item of fs.readdirSync(stashDir)) {
+          const from = path.join(stashDir, item)
+          const to = path.join(getRepoDir(), item)
+          if (fs.existsSync(to)) fs.rmSync(to, { recursive: true, force: true })
+          fs.renameSync(from, to)
+        }
+        fs.rmSync(stashDir, { recursive: true, force: true })
+        send('setup-output', '[*] Preserved leftover models/ from the previous installation.\n')
+      } catch (e) {
+        send('setup-output', `[!] Could not fold leftover folder back in: ${e.message}. Leftover kept at ${stashDir}\n`)
+      }
+    }
     send('setup-output', '[*] Repository cloned.\n')
     // Restore backed-up plugins, finetunes, and config from reinstall
     try {
@@ -632,6 +730,112 @@ ipcMain.handle('install', async (_, envType) => {
   return true
 })
 
+// ── Shared removal engine (used by reinstall + uninstall) ──
+// Kills every running Wan2GP process, waits for Windows to release their
+// directory handles, then deletes the install tree. Children are deleted
+// first — a directory that is a process's CWD (e.g. a terminal open in the
+// install folder) can't be removed itself, but its contents can.
+// keepFolders: list of in-repo folder names (lowercase) to leave in place, or
+// null/undefined to delete everything including the root.
+// Returns { ok, leftoverFolder, error }.
+function forceRemoveRepo(repo, log, keepFolders) {
+  const killedPids = new Set()
+  try {
+    if (_wangpProc) { killedPids.add(_wangpProc.pid); try { killProcessTree(_wangpProc) } catch {}; _wangpProc = null }
+    for (let i = 0; i < 5; i++) {
+      const pid = findWan2gpPid()
+      if (!pid || killedPids.has(pid)) break
+      killedPids.add(pid)
+      try { killProcessTree({ pid }) } catch {}
+    }
+  } catch {}
+  // Windows releases a killed process's directory handles asynchronously — wait
+  // until every Wan2GP python is really gone AND the install dir is enumerable
+  // again, so the deletion below doesn't race a still-exiting process (EPERM).
+  const sleepSync = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } catch {} }
+  const isPidAlive = (pid) => {
+    try {
+      const out = execSync('tasklist /fi "PID eq ' + pid + '" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
+      return out.trim().length > 0 && !out.includes('No tasks')
+    } catch { return false }
+  }
+  let released = false
+  for (let i = 0; i < 20; i++) {
+    let stillRunning = [...killedPids].some(p => isPidAlive(p))
+    if (!stillRunning) {
+      try { fs.readdirSync(repo); released = true; break } catch { /* dir handle still held */ }
+    }
+    sleepSync(500)
+  }
+  if (!released) {
+    log('[!] Wan2GP processes are still shutting down — files may be locked. Stop them and retry.')
+    return { ok: false, leftoverFolder: null, error: 'Wan2GP processes are still running. Stop them and retry.' }
+  }
+  const rmRetry = (p) => {
+    let lastErr = null
+    for (let i = 0; i < 20; i++) {
+      try { fs.rmSync(p, { recursive: true, force: true }); return null } catch (e) { lastErr = e }
+      // Antivirus scanning a freshly installed venv can hold a directory for
+      // several seconds — wait it out instead of giving up. A killed process can
+      // also be slow to release its handles; re-poll it here too.
+      if ([...killedPids].some(pid => isPidAlive(pid))) {
+        for (let j = 0; j < 20 && [...killedPids].some(pid2 => isPidAlive(pid2)); j++) sleepSync(500)
+      }
+      sleepSync(1000)
+    }
+    return lastErr
+  }
+  let ok = true
+  let leftoverFolder = null
+  const failed = []
+  try {
+    let items = fs.readdirSync(repo)
+    // The Python venv is the largest and most antivirus-scan-prone folder — delete
+    // everything else first so a scan on env_uv can finish while we work.
+    const venvIdx = items.findIndex(i => i.toLowerCase() === 'env_uv')
+    if (venvIdx >= 0) items = items.filter(i => i !== items[venvIdx]).concat(items[venvIdx])
+    for (const item of items) {
+      if (keepFolders && keepFolders.includes(item.toLowerCase())) continue
+      const err = rmRetry(path.join(repo, item))
+      if (err) { log(`[!] Could not remove ${item}: ${err.message}`); failed.push(item); ok = false }
+    }
+    // One last sweep: a process that escaped the first kill (or respawned) gets
+    // another chance, then retry only the items that failed.
+    if (failed.length) {
+      let extra = null
+      for (let i = 0; i < 5; i++) { extra = findWan2gpPid(); if (!extra) break; killedPids.add(extra); try { killProcessTree({ pid: extra }) } catch {} }
+      if (extra) {
+        log('[i] Waiting for a lingering Wan2GP process to exit...')
+        for (let j = 0; j < 20 && [...killedPids].some(pid2 => isPidAlive(pid2)); j++) sleepSync(500)
+      }
+      for (const item of [...failed]) {
+        const err = rmRetry(path.join(repo, item))
+        if (err) { log(`[!] Still could not remove ${item}: ${err.message}`) }
+        else failed.splice(failed.indexOf(item), 1)
+      }
+      ok = failed.length === 0
+    }
+    if (!keepFolders) {
+      // Remove the now-empty root last (it may be CWD-locked by a terminal window)
+      const err = rmRetry(repo)
+      if (err) {
+        if (ok) {
+          leftoverFolder = repo
+          log('[i] Installation removed, but the empty folder could not be deleted (locked by a process open in it):')
+          log(`[i]   ${repo}`)
+          log('[i] Close any terminal/Explorer window open in it and delete the folder manually.')
+        } else {
+          log(`[!] Could not remove ${repo}: ${err.message}`)
+        }
+      }
+    }
+  } catch (e) {
+    log(`[!] Uninstall error: ${e.message}`)
+    ok = false
+  }
+  return { ok, leftoverFolder, error: null }
+}
+
 ipcMain.handle('reinstall', async () => {
   send('setup-output', '[*] Preparing reinstall...\n')
   // Ask user if they want to backup plugins, finetunes, and config
@@ -667,14 +871,76 @@ ipcMain.handle('reinstall', async () => {
     // Clean any stale backup
     try { if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true }) } catch {}
   }
-  // Remove repo and envs
+  // Remove the existing installation with the same robust engine as uninstall —
+  // a silent rmdir failure here used to leave the old tree in place and break the
+  // subsequent clone.
   send('setup-output', '[*] Removing existing installation...\n')
-  const rmCmd = IS_WIN ? 'rmdir /s /q' : 'rm -rf'
-  try { execSync(`${rmCmd} "${getRepoDir()}"`, { stdio: 'pipe', timeout: 30000, windowsHide: true }) } catch {}
-  try { execSync(`${rmCmd} "${getEnvsFile()}"`, { stdio: 'pipe', timeout: 10000, windowsHide: true }) } catch {}
+  const repo = getRepoDir()
+  if (fs.existsSync(repo)) {
+    const res = forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
+    if (!res.ok) {
+      send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
+      send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
+      return false
+    }
+    if (res.leftoverFolder) send('setup-output', '[i] An empty locked folder remains — the fresh install will reuse it.\n')
+  }
+  try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
+  try { fs.rmSync(path.join(getDataDir(), '.py-shim'), { recursive: true, force: true }) } catch {}
   invalidateGitCache()
   send('setup-output', '[*] Ready for fresh install.\n')
   return true
+})
+
+ipcMain.handle('uninstall', async () => {
+  const log = (m) => send('launch-log', m + '\n')
+  log('[*] Preparing to uninstall Wan2GP...')
+  const repo = getRepoDir()
+  if (!fs.existsSync(repo)) {
+    log('[!] Wan2GP is not installed (no installation folder found).')
+    return { success: false, error: 'Wan2GP is not installed' }
+  }
+  // Which in-repo folders hold user files? Models live under ckpts/loras in the
+  // current Wan2GP layout; older installs use models/; output is outputs/ or output/.
+  const userFolders = ['ckpts', 'loras', 'outputs', 'output', 'models']
+  const present = userFolders.filter(f => fs.existsSync(path.join(repo, f)))
+  let keepFiles = false
+  try {
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Uninstall (keep my files)', 'Uninstall (delete everything)', 'Cancel'],
+      defaultId: 0, cancelId: 2,
+      title: 'Uninstall Wan2GP',
+      message: 'Remove the Wan2GP installation?',
+      detail: 'This deletes the Wan2GP app, its Python environment, and all installed packages.\n\n' +
+        (present.length
+          ? `Keep these folders (checkpoints, LoRAs, output)?\n  ${present.map(f => path.join(repo, f)).join('\n  ')}\n\n`
+          : '') +
+        'Folders outside the installation (custom checkpoints/LoRA/output paths) are never touched.'
+    })
+    if (result.response === 2) { log('[*] Uninstall cancelled.'); return { success: false, cancelled: true } }
+    keepFiles = result.response === 0
+  } catch { keepFiles = false }
+  log('[*] Removing installation...')
+  const res = forceRemoveRepo(repo, log, keepFiles ? userFolders : null)
+  const keptPaths = keepFiles ? present.map(f => path.join(repo, f)) : []
+  try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
+  try { fs.rmSync(path.join(getDataDir(), '.py-shim'), { recursive: true, force: true }) } catch {}
+  invalidateGitCache()
+  if (!res.ok) {
+    log('[!] Some files could not be deleted — they are locked by a running process, a terminal/Explorer window open in the folder, or antivirus scanning.')
+    log(`[!] Close any terminal open in ${repo}, wait a moment, and retry. If it keeps failing, add the Wan2GP folder to your antivirus exclusions.`)
+    return { success: false, error: 'Some files are locked (a terminal open in the folder, or antivirus scanning). Close terminals in the Wan2GP folder and retry.' }
+  }
+  log('[✓] Wan2GP uninstalled.')
+  if (keepFiles && keptPaths.length) {
+    log('[i] Kept your files (checkpoints, LoRAs, output):')
+    for (const p of keptPaths) log(`[i]   ${p}`)
+    log('[i] Reinstalling will reuse them automatically.')
+  } else if (!res.leftoverFolder) {
+    log('[i] All installation files were removed.')
+  }
+  return { success: true, keptFiles: keepFiles, keptPaths, leftoverFolder: res.leftoverFolder }
 })
 
 ipcMain.handle('get-status', async () => {
@@ -735,6 +1001,9 @@ function checkPort(host, port, timeoutMs = 2000) {
 // ── Launch with proper port check ──
 // mode: 'browser' (default, python in a visible window) | 'terminal' (run.bat style: real cmd.exe /K window)
 ipcMain.handle('launch', async (_, mode = 'browser') => {
+  if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
+    throw new Error('Wan2GP is not installed. Restart the Desktop launcher to install it.')
+  }
   const env = getActiveEnv()
   if (!env) throw new Error('No active environment')
   const py = getPythonForEnv(env)
@@ -805,6 +1074,8 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     const argsStr = extraArgs.map(escapeBatCmdArg).join(' ')
     const batLines = [
       '@echo off',
+      'set PYTHONIOENCODING=utf-8',
+      'set PYTHONUTF8=1',
       'title ' + _terminalTitle,
       'cd /d "' + getRepoDir() + '"',
       'echo.',
@@ -819,7 +1090,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       batLines.push('echo.')
     }
     batLines.push('echo Starting wgp.py in background...')
-    batLines.push(`start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py ${argsStr}" 2>&1`)
+    batLines.push(`start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py ${argsStr}" 2>&1`)
     batLines.push('echo.')
     batLines.push('echo Waiting for Wan2GP server on port ' + preferredPort + '...')
     batLines.push('set RETRY_COUNT=0')
@@ -844,8 +1115,8 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', _terminalTitle, 'cmd.exe', '/K', _terminalBatFile], {
         cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
         env: {
-          ...process.env, PYTHONUNBUFFERED: '1',
-          TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+          ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+          TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           NO_PROXY: 'localhost,127.0.0.1,::1',
           ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
@@ -856,8 +1127,8 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       child = spawn('cmd.exe', ['/c', 'start', `"${_terminalTitle}"`, 'cmd.exe', '/K', _terminalBatFile], {
         cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
         env: {
-          ...process.env, PYTHONUNBUFFERED: '1',
-          TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+          ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+          TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
           NO_PROXY: 'localhost,127.0.0.1,::1',
           ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
           ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
@@ -868,11 +1139,11 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     _wangpProc = null
   } else {
     send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
-    child = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'wgp.py', ...extraArgs], {
+    child = spawn(py, ['-u', bootstrapScriptPath(), 'wgp.py', ...extraArgs], {
       cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false,
       env: {
-        ...process.env, PYTHONUNBUFFERED: '1',
-        TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+        ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+        TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
         NO_PROXY: 'localhost,127.0.0.1,::1',
         ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
@@ -895,7 +1166,21 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       _wangpProc = null; _currentPort = 0
       send('launch-log', `[!] Wan2GP process exited (code ${code})\n`)
       send('wangp-exit', code)
-      try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {}
+      try {
+        if (loadConfig().notificationsEnabled !== false) {
+          // Surface the last real output lines so a crash (exit 1) carries a hint
+          // of what went wrong instead of a bare exit code.
+          const tail = _logHistory
+            .filter(e => e.channel === 'launch-log')
+            .slice(-8)
+            .map(e => e.data.replace(/\s+$/, '').trim())
+            .filter(Boolean)
+            .slice(-4)
+            .join('\n')
+          const body = 'Server has stopped (exit ' + code + ').' + (tail ? '\n\nLast output:\n' + tail : '')
+          new Notification({ title: 'Wan2GP', body }).show()
+        }
+      } catch {}
     })
   }
 
@@ -961,10 +1246,10 @@ ipcMain.handle('launch-webview', async () => {
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
-  const proc = spawn(py, ['-u', BOOTSTRAP_SCRIPT, 'wgp.py', ...extraArgs], {
+  const proc = spawn(py, ['-u', bootstrapScriptPath(), 'wgp.py', ...extraArgs], {
     cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-    env: { ...process.env, PYTHONUNBUFFERED: '1',
-      TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+      TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
       NO_PROXY: 'localhost,127.0.0.1,::1',
       ...(cfg.share ? { GRADIO_SHARE: 'true' } : {}),
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
@@ -1620,86 +1905,87 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
   const tmpDir = require('os').tmpdir()
   const sendLog = (msg) => send('launch-log', msg + '\n')
 
-  // Download helper: follows redirects, checks status, validates file size
-  function downloadFile(url, dest) {
-    return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest)
-      const req = https.get(url, {
-        timeout: 120000,
-        headers: { 'User-Agent': 'wan2gp-desktop' }
-      }, (res) => {
-        // Follow redirects manually (https.get doesn't always)
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          file.close()
-          try { fs.rmSync(dest) } catch {}
-          return downloadFile(res.headers.location, dest).then(resolve).catch(reject)
-        }
-        if (res.statusCode !== 200) {
-          file.close()
-          try { fs.rmSync(dest) } catch {}
-          return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
-        }
-        res.pipe(file)
-        file.on('finish', () => file.close())
-        file.on('close', () => {
-          // File handle released — verify and resolve
-          const stat = fs.statSync(dest)
-          if (stat.size < 1024 * 1024) {
-            try { fs.rmSync(dest) } catch {}
-            return reject(new Error(`Downloaded file too small (${Math.round(stat.size/1024)} KB) — likely a redirect page`))
-          }
-          resolve()
-        })
-      })
-      req.on('error', (e) => { try { fs.rmSync(dest) } catch {}; reject(e) })
-      req.on('timeout', () => { req.destroy(); try { fs.rmSync(dest) } catch {}; reject(new Error('Download timed out')) })
-    })
-  }
-
-  // Async exec helper — keeps Electron UI responsive during long installs
-  const asyncExec = (cmd, opts) => new Promise((resolve, reject) => {
-    exec(cmd, opts, (err) => err ? reject(err) : resolve())
+  // Run a command and stream its output into the log panel (live progress).
+  // Without this, "Installing uv..." sits silent for minutes and users can't
+  // tell if anything is happening.
+  const runLive = (cmd, opts = {}) => new Promise((resolve, reject) => {
+    const child = spawn(cmd, { shell: true, windowsHide: true, ...opts })
+    let buf = ''
+    const fwd = (chunk) => {
+      buf += chunk.toString()
+      const parts = buf.split(/\r?\n/)
+      buf = parts.pop()
+      for (const p of parts) { const line = p.replace(/\r/g, '').trim(); if (line) sendLog('    ' + line) }
+    }
+    child.stdout.on('data', fwd)
+    child.stderr.on('data', fwd)
+    child.on('error', reject)
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Command exited with code ${code}: ${cmd}`)))
+    if (opts.timeout) {
+      setTimeout(() => { try { child.kill() } catch {}; reject(new Error(`Command timed out after ${Math.round(opts.timeout / 1000)}s: ${cmd}`)) }, opts.timeout).unref()
+    }
   })
 
-  if (tool === 'git') {
-    sendLog('[*] Downloading Git for Windows...')
-    // NOTE: Update Git version periodically — check https://git-scm.com/download/win
-    const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
-    const dest = path.join(tmpDir, 'Git-2.49.0-64-bit.exe')
-    await downloadFile(url, dest)
-    sendLog('[*] Installing Git (silent)...')
-    await asyncExec(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
-    sendLog('[*] Git installed. Please restart the launcher.')
-    return { success: true }
+  try {
+    if (tool === 'git') {
+      sendLog('[*] Downloading Git for Windows (~120 MB)...')
+      // NOTE: Update Git version periodically — check https://git-scm.com/download/win
+      const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
+      const dest = path.join(tmpDir, 'Git-2.49.0-64-bit.exe')
+      await downloadFile(url, dest)
+      sendLog('[*] Downloaded. Installing silently — this can take a couple of minutes...')
+      await asyncExec(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
+      sendLog('[*] Git installed. Please restart the launcher to pick up the new PATH.')
+      return { success: true }
 
-  } else if (tool === 'python') {
-    sendLog('[*] Downloading Python 3.11...')
-    // NOTE: Update Python version when 3.11.x goes EOL. Check python.org for latest 3.11.x.
-    const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
-    const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
-    await downloadFile(url, dest)
-    sendLog('[*] Installing Python 3.11.9 (silent)...')
-    await asyncExec(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
-    sendLog('[*] Python installed. Please restart the launcher.')
-    return { success: true }
+    } else if (tool === 'python') {
+      sendLog('[*] Downloading Python 3.11 (~25 MB)...')
+      // NOTE: Update Python version when 3.11.x goes EOL. Check python.org for latest 3.11.x.
+      const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
+      const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
+      await downloadFile(url, dest)
+      sendLog('[*] Downloaded. Installing silently — this can take a couple of minutes...')
+      await asyncExec(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
+      sendLog('[*] Python 3.11 installed. Please restart the launcher to pick up the new PATH.')
+      return { success: true }
 
-  } else if (tool === 'uv') {
-    sendLog('[*] Installing uv via PowerShell...')
-    await asyncExec('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 60000, windowsHide: true })
-    sendLog('[*] uv installed. Please restart the launcher.')
-    return { success: true }
+    } else if (tool === 'uv') {
+      sendLog('[*] Installing uv via PowerShell...')
+      sendLog('[*]   This downloads ~30 MB and can take a minute or two.')
+      await runLive('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 120000 })
+      // Verify the install actually landed (PATH isn't updated in this process yet).
+      const userHome = process.env.USERPROFILE || process.env.HOME || ''
+      const candidates = [path.join(userHome, '.local', 'bin', 'uv.exe'), path.join(userHome, '.cargo', 'bin', 'uv.exe')]
+      const uvExe = candidates.find((c) => fs.existsSync(c))
+      if (!uvExe) {
+        sendLog('[!] uv install finished but uv.exe was not found in the usual locations.')
+        sendLog('[!] Install it manually in a terminal:  irm https://astral.sh/uv/install.ps1 | iex')
+        return { error: 'uv install did not produce uv.exe (see output above)' }
+      }
+      let ver = '?'
+      try { ver = execSync(`"${uvExe}" --version`, { encoding: 'utf8', windowsHide: true }).trim() } catch {}
+      sendLog(`[✓] ${ver} installed at ${uvExe}`)
+      sendLog('[*] Please restart the launcher to pick up the new PATH.')
+      return { success: true }
 
-  } else if (tool === 'conda') {
-    sendLog('[*] Downloading Miniconda...')
-    const url = 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe'
-    const dest = path.join(tmpDir, 'Miniconda3-latest-Windows-x86_64.exe')
-    await downloadFile(url, dest)
-    sendLog('[*] Installing Miniconda (silent)...')
-    await asyncExec(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
-    sendLog('[*] Miniconda installed. Please restart the launcher.')
-    return { success: true }
+    } else if (tool === 'conda') {
+      sendLog('[*] Downloading Miniconda (~90 MB)...')
+      const url = 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe'
+      const dest = path.join(tmpDir, 'Miniconda3-latest-Windows-x86_64.exe')
+      await downloadFile(url, dest)
+      sendLog('[*] Downloaded. Installing silently — this can take a few minutes...')
+      await asyncExec(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
+      sendLog('[*] Miniconda installed. Please restart the launcher to pick up the new PATH.')
+      return { success: true }
+    }
+    return { error: 'Unknown tool: ' + tool }
+  } catch (e) {
+    // Never reject: a rejection makes the renderer's await throw and the UI
+    // silently freezes on "Installing..." with no feedback. Surface it instead.
+    sendLog(`[!] ${tool} install failed: ${e.message}`)
+    sendLog('[!] Check your network connection, and your antivirus — MalwareBytes and others can block installers/downloads. Then retry.')
+    return { error: e.message }
   }
-  return { error: 'Unknown tool: ' + tool }
 })
 
 // ── Hardware-tuned default settings for wgp_config.json ──
@@ -1814,6 +2100,9 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
   if (cfg.process_queues_when_browser_unfocused === undefined) cfg.process_queues_when_browser_unfocused = 1
   if (cfg.model_hierarchy_type === undefined) cfg.model_hierarchy_type = hw.hierarchy
   if (cfg.prompt_enhancer_quantization === undefined) cfg.prompt_enhancer_quantization = 'quanto_int8'
+  // On-Demand Button mode (matches Wan2GP's own default; wgp.py otherwise treats a
+  // missing enhancer_mode as Automatic, hiding the "Enhance Prompt" button).
+  if (cfg.enhancer_mode === undefined) cfg.enhancer_mode = 1
   if (cfg.prompt_enhancer_temperature === undefined) cfg.prompt_enhancer_temperature = 0.6
   if (cfg.prompt_enhancer_top_p === undefined) cfg.prompt_enhancer_top_p = 0.9
   if (cfg.prompt_enhancer_randomize_seed === undefined) cfg.prompt_enhancer_randomize_seed = true
@@ -1928,7 +2217,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
     const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
     const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
     const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(escapeBatCmdArg).join(' ') : ''
-    batContent += `start /b "" cmd /c "python -u "${BOOTSTRAP_SCRIPT}" wgp.py --server-port ${port}${serverNameArg}${shareArg}${escapedExtra}" 2>&1\n`
+    batContent += `start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py --server-port ${port}${serverNameArg}${shareArg}${escapedExtra}" 2>&1\n`
     batContent += 'echo.\n'
     batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
     // Poll via HTTP (wait for real Gradio response, not just TCP socket)
@@ -2070,7 +2359,7 @@ ipcMain.handle('upgrade-package', async (_, pkgName) => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', pkgName], {
         cwd: getRepoDir(), timeout: 120000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -2097,7 +2386,7 @@ ipcMain.handle('install-package', async (_, pkgName) => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', pkgName], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -2197,7 +2486,7 @@ ipcMain.handle('restore-requirements', async () => {
     await new Promise((resolve, reject) => {
       const proc = spawn(py, ['-m', 'pip', 'install', '-r', reqPath], {
         cwd: getRepoDir(), timeout: 300000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_DISABLE: '0', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
       })
       proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
       proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })

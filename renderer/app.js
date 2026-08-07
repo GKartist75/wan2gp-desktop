@@ -530,7 +530,9 @@ async function startInstall(){
     $('prereqDownloadBtn').onclick = async function() {
       this.disabled = true; this.textContent = 'Installing...'
       appendLog('[*] Installing ' + tool + '...')
-      var r = await window.w2gp.installPrerequisite(tool)
+      var r
+      try { r = await window.w2gp.installPrerequisite(tool) }
+      catch (e) { r = { error: (e && e.message) || String(e) } } // never leave the button frozen
       this.disabled = false; this.textContent = 'Download & Install'
       if (r && r.success) { showToast('✓ ' + tool + ' installed. Please restart the launcher.') }
       else showToast('✗ Install failed: ' + (r?.error || 'unknown'))
@@ -580,7 +582,17 @@ async function doInstall(installed, mode) {
   if (mode === 'reinstall') {
     $('installSubtitle').textContent='Removing existing installation...'
     appendLog('[*] Removing existing Wan2GP installation...')
-    await window.w2gp.reinstall()
+    const ok = await window.w2gp.reinstall()
+    if (!ok) {
+      appendLog('[!] Reinstall aborted — the existing installation could not be removed (files likely locked by a running process or a terminal open in the folder).')
+      appendLog('[!] Close any terminal/Explorer window open in the Wan2GP folder, then retry.')
+      showToast('✗ Could not remove existing installation')
+      $('installSubtitle').textContent='Setup Wan2GP'
+      $('envTypeSelect').classList.remove('disabled')
+      document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = false)
+      $('installStartBtn').classList.remove('hidden')
+      return
+    }
   } else {
     $('installSubtitle').textContent='Update instead of fresh install...'
     skipClone = true
@@ -622,6 +634,11 @@ $('settingsOverlay').addEventListener('click', closeSettings)
 // ── Dashboard ──
 async function refreshDashboard(){
   const status = await window.w2gp.getStatus()
+  // Launch buttons only make sense when Wan2GP is actually installed
+  try {
+    const inst = await window.w2gp.checkInstalled()
+    setLaunchButtonsInstalled(!!(inst && inst.repo))
+  } catch {}
   if(status.error||!status.env){
     $('envName').textContent='No active environment'
     $('envNameHint')?.classList.remove('hidden')
@@ -975,6 +992,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.w2gp.openExternal('https://huggingface.co/DeepBeepMeep')
   })
 })
+
+// ── Launch buttons: disabled + hint when Wan2GP is not installed ──
+function setLaunchButtonsInstalled(installed) {
+  ;['browserBtn', 'browserNoGpuBtn', 'termBtn', 'appBtn'].forEach(id => {
+    const b = $(id)
+    if (b) b.disabled = !installed
+  })
+  const hint = $('notInstalledHint')
+  if (hint) hint.style.display = installed ? 'none' : 'block'
+}
 
 // ── Launch in Browser (uses the user's chosen default browser) ──
 $('browserBtn').addEventListener('click', async () => {
@@ -1850,5 +1877,42 @@ $('xetInstallBtn')?.addEventListener('click', async function() {
     showToast('✗ ' + e.message)
   } finally {
     this.disabled = false
+  }
+})
+
+// ── Uninstall Wan2GP (Manage → General → danger section) ──
+$('uninstallBtn')?.addEventListener('click', async function() {
+  this.disabled = true
+  this.textContent = 'Uninstalling...'
+  appendLog('[*] Uninstalling Wan2GP...')
+  try {
+    const r = await window.w2gp.uninstall()
+    if (r && r.cancelled) {
+      appendLog('[*] Uninstall cancelled.')
+    } else if (r && r.success) {
+      appendLog('[✓] Wan2GP uninstalled.')
+      if (r.keptFiles && r.keptPaths && r.keptPaths.length) {
+        appendLog('[i] Kept your files (checkpoints, LoRAs, output):')
+        r.keptPaths.forEach(p => appendLog('[i]   ' + p))
+        appendLog('[i] Reinstalling will reuse them automatically.')
+      }
+      if (r.leftoverFolder) {
+        appendLog('[i] The empty folder could not be deleted (locked by a process open in it):')
+        appendLog('[i]   ' + r.leftoverFolder)
+        appendLog('[i] Close any terminal/Explorer window open in it and delete it manually.')
+      }
+      showToast('✓ Wan2GP uninstalled' + (r.keptFiles ? ' (files kept)' : '') + (r.leftoverFolder ? ' (empty folder left)' : ''))
+      setLaunchButtonsInstalled(false)
+      show('dashboard'); refreshDashboard()
+    } else {
+      appendLog('[!] Uninstall failed: ' + ((r && r.error) || 'unknown'))
+      showToast('✗ ' + ((r && r.error) || 'Uninstall failed'))
+    }
+  } catch (e) {
+    appendLog('[!] Uninstall error: ' + e.message)
+    showToast('✗ ' + e.message)
+  } finally {
+    this.disabled = false
+    this.textContent = 'Uninstall Wan2GP…'
   }
 })
