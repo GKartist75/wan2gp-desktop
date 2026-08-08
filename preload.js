@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Install
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   detectGpu: () => ipcRenderer.invoke('detect-gpu'),
+  detectGpus: () => ipcRenderer.invoke('detect-gpus'),
   install: (envType) => ipcRenderer.invoke('install', envType),
   reinstall: () => ipcRenderer.invoke('reinstall'),
   uninstall: () => ipcRenderer.invoke('uninstall'),
@@ -90,6 +91,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   installPrerequisite: (tool) => ipcRenderer.invoke('install-prerequisite', tool),
   detectModelFolders: () => ipcRenderer.invoke('detect-model-folders'),
   getModelPaths: () => ipcRenderer.invoke('get-model-paths'),
+  repairSettings: () => ipcRenderer.invoke('repair-settings'),
 
   // Config
   configLoad: () => ipcRenderer.invoke('config-load'),
@@ -112,6 +114,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   getDesktopGitInfo: () => ipcRenderer.invoke('get-desktop-git-info'),
   getDesktopVersion: () => ipcRenderer.invoke('get-desktop-version'),
   getWangpVersion: () => ipcRenderer.invoke('get-wangp-version'),
+  reportIssue: () => ipcRenderer.invoke('report-issue'),
 
   // Desktop shortcut
   createDesktopShortcut: () => ipcRenderer.invoke('create-desktop-shortcut'),

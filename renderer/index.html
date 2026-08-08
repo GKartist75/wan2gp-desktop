@@ -95,6 +95,11 @@
           <button class="btn btn-primary small" id="xetInstallBtn">Install hf_xet</button>
         </div>
         <div class="settings-section">
+          <h3>Repair Settings</h3>
+          <p class="token-hint">If saving settings in Wan2GP fails with <em>"Value: N is not in the list of choices: [0, 1]"</em>, a saved value is out of range for a dropdown (usually from an older version or imported settings). This scans <code>models/_settings.json</code> and all <code>*_settings.json</code> files and resets out-of-range values to valid ones. Originals are backed up as <code>*.bak-repair</code>.</p>
+          <button class="btn btn-primary small" id="repairSettingsBtn" style="margin-top:8px">Scan & Repair Settings</button>
+        </div>
+        <div class="settings-section">
           <h3 style="color:var(--signal-red)">Uninstall Wan2GP</h3>
           <p class="token-hint">Removes the Wan2GP app, its Python environment, and all installed packages. Downloaded models can be kept. The Desktop launcher itself stays installed.</p>
           <button class="btn btn-ghost small" id="uninstallBtn" style="margin-top:8px;color:var(--signal-red);border-color:var(--signal-red)">Uninstall Wan2GP…</button>
@@ -119,6 +124,16 @@
               <button class="btn btn-primary small" id="portSaveBtn">Save</button>
             </div>
             <p class="token-hint">Port for the Wan2GP web interface. Default: <code>7860</code>. Changes apply on next launch.</p>
+          </div>
+          <div class="settings-section" style="margin-top:12px">
+            <h3>GPU Device</h3>
+            <div class="token-field">
+              <select id="gpuDeviceSelect" class="input" style="max-width:360px">
+                <option value="auto">Auto (let Wan2GP pick)</option>
+              </select>
+              <button class="btn btn-primary small" id="gpuDeviceSaveBtn">Save</button>
+            </div>
+            <p class="token-hint">On machines with multiple GPUs (integrated + dedicated, or dual NVIDIA), choose which one runs generation. Passed as <code>--gpu cuda:N</code> on launch. Changes apply on next launch.</p>
           </div>
           <p class="token-hint">Arguments passed to <code>wgp.py</code> on launch. See <a href="#" id="cliDocsLink">CLI docs</a> for all options. Changes apply on next launch.</p>
           <details class="launch-args-help">
@@ -145,6 +160,8 @@
           <h3>Wan2GP Desktop Launcher</h3>
           <p class="token-hint">Version <span id="settingsVersionNum">—</span></p>
           <p class="token-hint">Desktop launcher for <a href="#" id="settingsWgpLink">Wan2GP</a> — the video generation AI toolkit.</p>
+          <button class="btn btn-ghost small" id="reportIssueBtn" style="margin-top:8px">🐞 Report an issue…</button>
+          <p class="token-hint" style="margin-top:6px">Bundles your system info, launch log, and crash diagnostics (if any) into a zip, opens it in Explorer, and opens a pre-filled GitHub issue.</p>
         </div>
       </div>
 

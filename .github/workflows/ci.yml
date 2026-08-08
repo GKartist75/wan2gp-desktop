@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Syntax-check main-process sources
+        run: |
+          node --check main.js
+          node --check preload.js
+          node --check services/auto-tune.js
+          node --check services/settings-repair.js
+          node --check renderer/app.js
+
+      - name: Run unit tests
+        run: npm test
+
+  build-windows:
+    # Build the installer on version tags so the release is reproducible and
+    # never depends on a maintainer's machine.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    needs: check-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npx electron-builder --win --config electron-builder.yml
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-installer
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error

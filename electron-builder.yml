@@ -5,6 +5,9 @@ directories:
 files:
   - '**/*'
   - '!**/.git/**'
+  - '!tests/**'
+  - '!.github/**'
+  - '!dist/**'
 win:
   target: nsis
   icon: resources/icon.png

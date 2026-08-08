@@ -187,6 +187,8 @@ function openSettings() {
     if (notifications) notifications.checked = cfg.notificationsEnabled !== false
     const share = $('shareToggle')
     if (share) share.checked = cfg.share === true
+    // GPU device picker: fill the dropdown from the main process, keep current choice
+    loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
   })
   loadBrowserList()
   // Check hf_xet install status
@@ -1545,6 +1547,35 @@ $('portSaveBtn')?.addEventListener('click', async () => {
   await window.w2gp.configSave(cfg)
   showToast('Server port set to ' + val)
 })
+// GPU device picker (multi-GPU machines) — populate dropdown + save selection
+async function loadGpuDeviceOptions(current) {
+  const sel = $('gpuDeviceSelect')
+  if (!sel) return
+  try {
+    const gpus = await window.w2gp.detectGpus()
+    // Keep "Auto" first, then one option per detected GPU
+    const existing = Array.from(sel.options).map(o => o.value)
+    gpus.forEach(g => {
+      const v = 'cuda:' + g.index
+      if (!existing.includes(v)) {
+        const opt = document.createElement('option')
+        opt.value = v
+        opt.textContent = g.name + ' (' + (g.vramMB ? (g.vramMB + ' MB') : 'VRAM n/a') + ') — ' + v
+        sel.appendChild(opt)
+      }
+    })
+    sel.value = (current && /^cuda:\d+$/.test(current)) ? current : 'auto'
+  } catch (e) {
+    sel.value = 'auto'
+  }
+}
+$('gpuDeviceSaveBtn')?.addEventListener('click', async () => {
+  const val = $('gpuDeviceSelect')?.value || 'auto'
+  const cfg = await window.w2gp.configLoad()
+  cfg.gpuDevice = val
+  await window.w2gp.configSave(cfg)
+  showToast(val === 'auto' ? 'GPU device set to Auto' : 'GPU device set to ' + val + ' (applies on next launch)')
+})
 $('cliDocsLink')?.addEventListener('click', (e) => {
   e.preventDefault()
   window.w2gp.openExternal('https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/CLI.md')
@@ -1877,6 +1908,64 @@ $('xetInstallBtn')?.addEventListener('click', async function() {
     showToast('✗ ' + e.message)
   } finally {
     this.disabled = false
+  }
+})
+
+// ── Repair Settings (Manage → General) — fixes "Value: N is not in the list of choices" ──
+$('repairSettingsBtn')?.addEventListener('click', async function() {
+  this.disabled = true
+  this.textContent = 'Scanning...'
+  appendLog('[*] Scanning settings files for out-of-range values...')
+  try {
+    const r = await window.w2gp.repairSettings()
+    if (r && r.success) {
+      if (r.fixed > 0) {
+        appendLog(`[✓] Repaired ${r.fixed} out-of-range value(s) across ${r.scanned} settings file(s).`)
+        r.results.filter(x => x.fixed).forEach(x => appendLog('[✓]   ' + x.file + ' — ' + x.fixed + ' fixed (backup: ' + x.backup + ')'))
+        showToast('✓ Settings repaired (' + r.fixed + ' values)')
+      } else {
+        appendLog(`[i] No problems found — scanned ${r.scanned} settings file(s).`)
+        showToast('✓ Settings OK — nothing to repair')
+      }
+      if (r.problems && r.problems.length) {
+        appendLog('[!] Could not read some files (skipped):')
+        r.problems.forEach(p => appendLog('[!]   ' + p.file + ' — ' + p.error))
+      }
+    } else {
+      appendLog('[!] ' + ((r && r.error) || 'Repair failed'))
+      showToast('✗ ' + ((r && r.error) || 'Repair failed'))
+    }
+  } catch (e) {
+    appendLog('[!] Repair error: ' + e.message)
+    showToast('✗ ' + e.message)
+  } finally {
+    this.disabled = false
+    this.textContent = 'Scan & Repair Settings'
+  }
+})
+
+// ── Report an issue (Manage → About) — bundles diagnostics + prefills GitHub issue ──
+$('reportIssueBtn')?.addEventListener('click', async function() {
+  this.disabled = true
+  this.textContent = 'Bundling diagnostics...'
+  appendLog('[*] Gathering diagnostics...')
+  try {
+    const r = await window.w2gp.reportIssue()
+    if (r && r.success) {
+      appendLog('[✓] Diagnostic bundle created (' + r.logLines + ' log lines' + (r.hadErrorQueue ? ', crash diagnostics included' : '') + ').')
+      appendLog('[✓] Bundle: ' + (r.zipPath || r.bundleDir))
+      appendLog('[i] A GitHub issue has been opened pre-filled with your system info — attach the bundle zip to it.')
+      showToast('✓ Diagnostics bundled — issue opened')
+    } else {
+      appendLog('[!] ' + ((r && r.error) || 'Failed to create diagnostics'))
+      showToast('✗ ' + ((r && r.error) || 'Failed to create diagnostics'))
+    }
+  } catch (e) {
+    appendLog('[!] Report-issue error: ' + e.message)
+    showToast('✗ ' + e.message)
+  } finally {
+    this.disabled = false
+    this.textContent = '🐞 Report an issue…'
   }
 })
 

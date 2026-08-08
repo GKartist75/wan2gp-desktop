@@ -584,6 +584,38 @@ ipcMain.handle('detect-gpu', () => {
   } catch (e) { logError('detect-gpu', e); return { vendor: 'UNKNOWN', name: 'Unknown' } }
 })
 
+// ── Multi-GPU detection (device picker) ──
+// Lists EVERY GPU so users on multi-GPU machines (iGPU + dGPU, dual NVIDIA) can
+// choose which device Wan2GP runs on. nvidia-smi enumerates all NVIDIA GPUs with
+// index + VRAM; WMI fallback lists all video controllers (not just the first).
+ipcMain.handle('detect-gpus', () => {
+  const gpus = []
+  try {
+    const ns = execSync('nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
+    if (ns) {
+      for (const line of ns.split('\n')) {
+        const [idx, name, mem] = line.split(',').map(s => s.trim())
+        const mi = parseInt(idx)
+        if (!Number.isNaN(mi)) {
+          gpus.push({ index: mi, name, vramMB: parseFloat(mem) || 0, vendor: 'NVIDIA' })
+        }
+      }
+    }
+  } catch {}
+  if (!gpus.length) {
+    try {
+      const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + \'|\' + $_.AdapterRAM }"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
+      if (wmi) {
+        wmi.split('\n').forEach((line, i) => {
+          const [name, ram] = line.split('|').map(s => s.trim())
+          if (name) gpus.push({ index: i, name, vramMB: Math.round((parseInt(ram) || 0) / (1024 * 1024)), vendor: /radeon|amd/i.test(name) ? 'AMD' : 'INTEL' })
+        })
+      }
+    } catch {}
+  }
+  return gpus.length ? gpus : [{ index: 0, name: 'Unknown', vramMB: 0, vendor: 'UNKNOWN' }]
+})
+
 ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
@@ -1029,6 +1061,12 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   if (cfg.share && !extraArgs.some(a => a === '--share')) {
     extraArgs.push('--share')
   }
+  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
+  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
+  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
+  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
+    extraArgs.push('--gpu', gpuDevice)
+  }
 
   const port = preferredPort
   _currentPort = port
@@ -1236,6 +1274,12 @@ ipcMain.handle('launch-webview', async () => {
   // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
   if (cfg.share && !extraArgs.some(a => a === '--share')) {
     extraArgs.push('--share')
+  }
+  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
+  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
+  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
+  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
+    extraArgs.push('--gpu', gpuDevice)
   }
   _currentPort = port
 
@@ -2116,6 +2160,13 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
   }
   // Ensure all tensors default to cuda:0
   if (cfg.device === undefined) cfg.device = 'cuda:0'
+  // Multi-GPU picker overrides the device key (write-wgp-config runs at install;
+  // the launch path also injects --gpu cuda:N so this stays consistent)
+  try {
+    const lc = loadConfig()
+    const gpuDevice = (lc.gpuDevice || 'auto').trim()
+    if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice)) cfg.device = gpuDevice
+  } catch {}
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
   return true
 })
@@ -2157,6 +2208,40 @@ ipcMain.handle('detect-model-folders', () => {
     }
   } catch {}
   return suggestions
+})
+
+// ── Repair settings (issue #7: "Value: 2 is not in the list of choices: [0, 1]") ──
+// Scans models/_settings.json + every *_settings.json in the install dir and clamps
+// dropdown values that fall outside the choices Wan2GP accepts. A stale value (e.g. 2
+// from an older version or imported settings) makes Gradio reject the ENTIRE form on
+// save — this is the launcher-side fix for the core-side dropdown bug (upstream PR
+// #2088 was withdrawn). Each file is backed up as <name>.bak-repair before editing.
+// Pure logic lives in services/settings-repair.js (shared with the test suite).
+const { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles } = require('./services/settings-repair')
+
+ipcMain.handle('repair-settings', async () => {
+  const repo = getRepoDir()
+  if (!repo || !fs.existsSync(path.join(repo, 'wgp.py'))) {
+    return { success: false, error: 'Wan2GP is not installed — nothing to repair.' }
+  }
+  const files = collectSettingsFiles(repo)
+  const results = []
+  let totalFixed = 0
+  for (const f of files) {
+    const r = clampSettingsFile(f)
+    if (r.file) r.file = path.relative(repo, r.file)
+    if (r.backup) r.backup = path.relative(repo, r.backup)
+    if (r.fixed) totalFixed += r.fixed
+    results.push(r)
+  }
+  const problems = results.filter(r => r.error)
+  return {
+    success: true,
+    scanned: files.length,
+    fixed: totalFixed,
+    results,
+    problems: problems.length ? problems : null
+  }
 })
 
 
@@ -2744,6 +2829,76 @@ ipcMain.handle('get-system-metrics', async () => {
     }
   } catch { }
   return result
+})
+
+// ── Report issue bundler ──
+// One click: gather system info + launch-log tail + error_queue.zip (core crash
+// diagnostics) into a folder under the data dir, zip it, open it in Explorer,
+// and prefill a GitHub issue with the key diagnostics. Kills the
+// "please paste your launch log" round-trip.
+ipcMain.handle('report-issue', async () => {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const bundleDir = path.join(getDataDir(), 'report-' + stamp)
+    fs.mkdirSync(bundleDir, { recursive: true })
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'))
+    let wv = null
+    try { wv = getLocalWangpHead() } catch {}
+    const gpu = getGpuInfo()
+    const gb = b => Math.round(b / 1073741824)
+    const lines = []
+    lines.push('Wan2GP Desktop Launcher version: ' + (pkg.version || 'unknown'))
+    lines.push('Wan2GP core (local): ' + (wv || 'unknown'))
+    lines.push('GPU: ' + (gpu.name || 'unknown') + ' (' + (gpu.vendor || '?') + ', ' + (gpu.vramMB || 0) + ' MB)')
+    lines.push('OS: ' + os.platform() + ' ' + os.release() + ' arch=' + os.arch())
+    lines.push('RAM: ' + gb(os.totalmem()) + ' GB total, ' + gb(os.freemem()) + ' GB free')
+    lines.push('')
+    lines.push('── Last ' + _logHistory.length + ' log line(s) ──')
+    for (const h of _logHistory.slice(-300)) {
+      lines.push(String(h.data || '').replace(/\u001b\[[0-9;]*m/g, '').replace(/\r/g, '').trimEnd())
+    }
+    fs.writeFileSync(path.join(bundleDir, 'system-info.txt'), lines.join('\n'), 'utf8')
+    // Copy error_queue.zip from the Wan2GP repo if present (core crash diagnostics)
+    let hadErrorQueue = false
+    const eq = path.join(getRepoDir(), 'error_queue.zip')
+    if (fs.existsSync(eq)) {
+      try { fs.copyFileSync(eq, path.join(bundleDir, 'error_queue.zip')); hadErrorQueue = true } catch {}
+    }
+    // Zip the bundle (Windows-native Compress-Archive; launcher is Windows-only anyway)
+    let zipPath = null
+    if (IS_WIN) {
+      try {
+        const z = path.join(getDataDir(), 'report-' + stamp + '.zip')
+        execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${bundleDir}\\*' -DestinationPath '${z}' -Force"`, { timeout: 30000, windowsHide: true })
+        zipPath = z
+      } catch {}
+    }
+    // Prefill the GitHub issue URL with key diagnostics
+    const title = encodeURIComponent('[Issue report] ' + ((gpu.name || 'unknown GPU').slice(0, 60)))
+    const body = [
+      '**Launcher:** ' + (pkg.version || 'unknown'),
+      '**Wan2GP core:** ' + (wv || 'unknown'),
+      '**GPU:** ' + (gpu.name || 'unknown') + ' (' + (gpu.vramMB || 0) + ' MB)',
+      '**OS:** ' + os.platform() + ' ' + os.release(),
+      '',
+      '**Describe the issue:**',
+      '',
+      '',
+      '**Log tail:**',
+      '```',
+      ..._logHistory.slice(-30).map(h => String(h.data || '').replace(/\u001b\[[0-9;]*m/g, '').replace(/\r/g, '').trimEnd()),
+      '```',
+      '',
+      '> Diagnostic bundle saved to: ' + (zipPath || bundleDir)
+    ].join('\n')
+    const issueUrl = 'https://github.com/GKartist75/wan2gp-desktop/issues/new?title=' + title + '&body=' + encodeURIComponent(body)
+    shell.openPath(zipPath || bundleDir)
+    shell.openExternal(issueUrl)
+    return { success: true, bundleDir, zipPath, hadErrorQueue, logLines: _logHistory.length }
+  } catch (e) {
+    logError('report-issue', e)
+    return { success: false, error: e.message }
+  }
 })
 
 // ── Desktop experience IPC handlers (tray, auto-start, notifications, theme) ──
