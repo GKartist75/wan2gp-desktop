@@ -149,6 +149,13 @@ function initSettingsToggles() {
     await window.w2gp.setNotificationsEnabled(el.checked)
     showToast(el.checked ? 'Notifications enabled' : 'Notifications disabled')
   })
+  $('autoUpdateToggle')?.addEventListener('change', async () => {
+    const el = $('autoUpdateToggle')
+    const c = await window.w2gp.configLoad()
+    c.autoUpdateEnabled = el.checked
+    await window.w2gp.configSave(c)
+    showToast(el.checked ? 'Auto-updates enabled' : 'Auto-updates disabled — updates only via "Check for updates"')
+  })
   $('shareToggle')?.addEventListener('change', async () => {
     const el = $('shareToggle')
     const c = await window.w2gp.configLoad()
@@ -185,6 +192,8 @@ function openSettings() {
     if (followTheme) followTheme.checked = cfg.themeFollowSystem === true
     const notifications = $('notificationsToggle')
     if (notifications) notifications.checked = cfg.notificationsEnabled !== false
+    const autoUpdate = $('autoUpdateToggle')
+    if (autoUpdate) autoUpdate.checked = cfg.autoUpdateEnabled !== false
     const share = $('shareToggle')
     if (share) share.checked = cfg.share === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
@@ -1302,6 +1311,11 @@ document.querySelectorAll('.settings-tab').forEach(function(tab) {
 })
 $('settingsBtn').addEventListener('click',()=>{ openSettings() })
 $('autoTuneDashBtn').addEventListener('click',()=>{ openSettings(); switchSettingsTab('autotune') })
+// Windows-only UI: hide the Task Manager button on other platforms.
+if (window.w2gp && window.w2gp.platform !== 'win32') {
+  const taskMgrBtn = $('taskMgrBtn')
+  if (taskMgrBtn) taskMgrBtn.style.display = 'none'
+}
 $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 
 // ── Quick pip install ──
@@ -1597,15 +1611,27 @@ window.w2gp.onUpdateStatus((status) => {
       break
     case 'available':
       updateState = status
-      $('updateText').textContent = `v${status.version} — downloading...`
-      $('updateDownloadBtn').classList.add('hidden')
-      $('updateInstallBtn').classList.add('hidden')
-      $('updateActions').classList.add('hidden')
-      $('updateProgress').classList.remove('hidden')
-      $('progressFill').style.width = '0%'
-      $('progressText').textContent = '0%'
-      $('updateBanner').classList.remove('hidden')
-      $('updateDismissBtn').classList.add('hidden')
+      if (status.autoDownload === false) {
+        // Auto-updates disabled: don't auto-download — offer the manual
+        // Download button instead.
+        $('updateText').textContent = `v${status.version} available`
+        $('updateDownloadBtn').classList.remove('hidden')
+        $('updateInstallBtn').classList.add('hidden')
+        $('updateActions').classList.remove('hidden')
+        $('updateProgress').classList.add('hidden')
+        $('updateBanner').classList.remove('hidden')
+        $('updateDismissBtn').classList.add('hidden')
+      } else {
+        $('updateText').textContent = `v${status.version} — downloading...`
+        $('updateDownloadBtn').classList.add('hidden')
+        $('updateInstallBtn').classList.add('hidden')
+        $('updateActions').classList.add('hidden')
+        $('updateProgress').classList.remove('hidden')
+        $('progressFill').style.width = '0%'
+        $('progressText').textContent = '0%'
+        $('updateBanner').classList.remove('hidden')
+        $('updateDismissBtn').classList.add('hidden')
+      }
       break
     case 'up-to-date':
       $('updateText').textContent = 'Up to date ✓'

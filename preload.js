@@ -3,6 +3,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('w2gp', {
+  // Platform (used by the renderer to gate Windows-only UI)
+  platform: process.platform,
   // Install
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   detectGpu: () => ipcRenderer.invoke('detect-gpu'),

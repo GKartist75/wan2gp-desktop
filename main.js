@@ -114,6 +114,20 @@ function killProcessTree(proc) {
   }
 }
 
+// ── Find a usable terminal emulator on Linux (for external-terminal mode) ──
+// Tries the common desktop terminals in order; returns the first one on PATH.
+function findTerminalEmulator() {
+  if (IS_WIN) return null
+  const candidates = ['gnome-terminal', 'konsole', 'xfce4-terminal', 'mate-terminal', 'tilix', 'xterm']
+  for (const c of candidates) {
+    try {
+      const out = execSync('command -v ' + c, { encoding: 'utf8', timeout: 3000 }).trim()
+      if (out) return c
+    } catch {}
+  }
+  return null
+}
+
 // ── Stop the Wan2GP server (works for both tracked-child and external-terminal modes) ──
 function stopWangpServer() {
   // Clear terminal-mode monitor interval first
@@ -127,17 +141,20 @@ function stopWangpServer() {
     if (_terminalPidFile && fs.existsSync(_terminalPidFile)) {
       try {
         const pid = parseInt(fs.readFileSync(_terminalPidFile, 'utf8').trim(), 10)
-        if (pid) execSync('taskkill /pid ' + pid + ' /f /t', { windowsHide: true, timeout: 5000 })
+        if (pid) {
+          if (IS_WIN) execSync('taskkill /pid ' + pid + ' /f /t', { windowsHide: true, timeout: 5000 })
+          else killProcessTree({ pid })
+        }
       } catch {}
       try { fs.unlinkSync(_terminalPidFile) } catch {}
     }
-    if (_terminalTitle) {
+    if (_terminalTitle && IS_WIN) {
       try { execSync(`taskkill /fi "WINDOWTITLE eq ${_terminalTitle}*" /f /t`, { windowsHide: true, timeout: 5000 }) } catch {}
     }
-    if (_terminalBatFile) { try { fs.unlinkSync(_terminalBatFile) } catch {} }
+    if (_terminalScriptFile) { try { fs.unlinkSync(_terminalScriptFile) } catch {} }
     _terminalTitle = null
     _terminalPidFile = null
-    _terminalBatFile = null
+    _terminalScriptFile = null
     return true
   }
   if (_wangpProc) { killProcessTree(_wangpProc); _wangpProc = null; return true }
@@ -146,11 +163,18 @@ function stopWangpServer() {
 
 // Find the running Wan2GP python PID (used to make external-terminal Stop bulletproof).
 // Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a cmd CommandLine filter.
-// Uses Get-CimInstance (modern WMI) instead of deprecated wmic.
+// Windows: Uses Get-CimInstance (modern WMI) instead of deprecated wmic.
+// POSIX: pgrep -f matches the full command line (the spawn includes wgp.py).
 function findWan2gpPid() {
   try {
+    if (!IS_WIN) {
+      const out = execSync('pgrep -f wgp.py', { encoding: 'utf8', timeout: 5000 }).toString().trim()
+      if (!out) return null
+      const pids = out.split('\n').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n))
+      return pids[0] || null
+    }
     const list = execSync('tasklist /fi "IMAGENAME eq python.exe" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
-    const pids = [...list.matchAll(/"(\d+)"/g)].map(m => m[1])
+    const pids = [...list.matchAll(/\"(\d+)\"/g)].map(m => m[1])
     for (const pid of pids) {
       try {
         const cl = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"ProcessId=' + pid + '\" | Select-Object -ExpandProperty CommandLine"', { windowsHide: true, timeout: 5000 }).toString()
@@ -176,8 +200,11 @@ try {
   if (!cfgPath) {
     cfgPath = path.join(app.getPath('userData'), 'Wan2GP', 'desktop-config.json')
   }
-  const _cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-  if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
+  // First run on Linux: config file may not exist yet — skip gracefully instead of logging an ENOENT stack.
+  if (fs.existsSync(cfgPath)) {
+    const _cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
+  }
 } catch (e) { logError('gpu-config', e) }
 
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
@@ -299,7 +326,7 @@ const IS_WIN = PLATFORM === 'win32'
 let mainWin = null, setupProc = null, _wangpProc = null
 let _terminalTitle = null   // set when launched in external-terminal mode (tracked by title for Stop)
 let _terminalPidFile = null // temp file holding the python PID for a bulletproof kill
-let _terminalBatFile = null // temp .bat launched in the external terminal (cmd window, like the desktop shortcut)
+let _terminalScriptFile = null // temp .bat (Windows) / .sh (POSIX) launched in the external terminal
 let _currentPort = 7860 // tracked across launches/restarts
 let _monitorInterval = null // terminal-mode port monitor, cleared on explicit stop
 let tray = null
@@ -373,7 +400,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true }
 }
 
 function saveConfig(cfg) {
@@ -787,8 +814,13 @@ function forceRemoveRepo(repo, log, keepFolders) {
   const sleepSync = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } catch {} }
   const isPidAlive = (pid) => {
     try {
-      const out = execSync('tasklist /fi "PID eq ' + pid + '" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
-      return out.trim().length > 0 && !out.includes('No tasks')
+      if (IS_WIN) {
+        const out = execSync('tasklist /fi "PID eq ' + pid + '" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
+        return out.trim().length > 0 && !out.includes('No tasks')
+      }
+      // POSIX: signal 0 tests existence without delivering a signal
+      process.kill(pid, 0)
+      return true
     } catch { return false }
   }
   let released = false
@@ -1087,93 +1119,172 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
 
   let child = null
   if (mode === 'terminal') {
-    // External-terminal mode (run.bat / desktop-shortcut style): generate a .bat that mirrors the
-    // "Launch Wan2GP.bat" shortcut (env activation, launch args, background server, wait + open
-    // browser, "close this window to stop"), and run it in a real cmd window via Windows Terminal
-    // (wt.exe) or a plain conhost window. Not a child of the launcher — the user controls it.
-    // Stop is bulletproof via the captured python PID (Node side) and the window title fallback.
+    // External-terminal mode (run.bat / desktop-shortcut style): generate a .bat (Windows) or
+    // .sh (POSIX) that mirrors the launch shortcut (env activation, launch args, background
+    // server, wait + open browser, "close this window to stop"), and run it in a real terminal
+    // window. Not a child of the launcher — the user controls it. Stop is bulletproof via the
+    // captured python PID (Node side) plus a window-title fallback on Windows.
     _terminalTitle = 'Wan2GP-Launcher-' + Date.now()
     _terminalPidFile = path.join(os.tmpdir(), 'wan2gp-terminal.pid')
-    _terminalBatFile = path.join(os.tmpdir(), 'wan2gp-terminal.bat')
 
-    // Env activation (mirrors the desktop shortcut) so the right python is used.
-    let activateLine = '', setPathLine = ''
-    const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
-    if (env.type === 'venv' || env.type === 'uv') {
-      const activateScript = IS_WIN ? path.join(envPath, 'Scripts', 'activate') : path.join(envPath, 'bin', 'activate')
-      if (fs.existsSync(activateScript)) {
-        activateLine = 'call "' + activateScript + '"'
-        if (IS_WIN && (env.type === 'venv' || env.type === 'uv')) setPathLine = 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%'
+    if (IS_WIN) {
+      _terminalScriptFile = path.join(os.tmpdir(), 'wan2gp-terminal.bat')
+
+      // Env activation (mirrors the desktop shortcut) so the right python is used.
+      let activateLine = '', setPathLine = ''
+      const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
+      if (env.type === 'venv' || env.type === 'uv') {
+        const activateScript = path.join(envPath, 'Scripts', 'activate')
+        if (fs.existsSync(activateScript)) {
+          activateLine = 'call "' + activateScript + '"'
+          if (env.type === 'venv' || env.type === 'uv') setPathLine = 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%'
+        }
+      } else if (env.type === 'conda') {
+        activateLine = 'call conda activate "' + envPath + '"'
       }
-    } else if (env.type === 'conda') {
-      activateLine = 'call conda activate "' + envPath + '"'
-    }
 
-    const argsStr = extraArgs.map(escapeBatCmdArg).join(' ')
-    const batLines = [
-      '@echo off',
-      'set PYTHONIOENCODING=utf-8',
-      'set PYTHONUTF8=1',
-      'title ' + _terminalTitle,
-      'cd /d "' + getRepoDir() + '"',
-      'echo.',
-      'echo [Wan2GP Desktop Launcher]',
-      'echo Starting Wan2GP on port ' + preferredPort + '...',
-      'echo.'
-    ]
-    if (activateLine) {
-      batLines.push('echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')')
-      batLines.push(activateLine)
-      if (setPathLine) batLines.push(setPathLine)
+      const argsStr = extraArgs.map(escapeBatCmdArg).join(' ')
+      const batLines = [
+        '@echo off',
+        'set PYTHONIOENCODING=utf-8',
+        'set PYTHONUTF8=1',
+        'title ' + _terminalTitle,
+        'cd /d "' + getRepoDir() + '"',
+        'echo.',
+        'echo [Wan2GP Desktop Launcher]',
+        'echo Starting Wan2GP on port ' + preferredPort + '...',
+        'echo.'
+      ]
+      if (activateLine) {
+        batLines.push('echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')')
+        batLines.push(activateLine)
+        if (setPathLine) batLines.push(setPathLine)
+        batLines.push('echo.')
+      }
+      batLines.push('echo Starting wgp.py in background...')
+      batLines.push(`start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py ${argsStr}" 2>&1`)
       batLines.push('echo.')
-    }
-    batLines.push('echo Starting wgp.py in background...')
-    batLines.push(`start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py ${argsStr}" 2>&1`)
-    batLines.push('echo.')
-    batLines.push('echo Waiting for Wan2GP server on port ' + preferredPort + '...')
-    batLines.push('set RETRY_COUNT=0')
-    batLines.push(':waitloop')
-    batLines.push('timeout /t 2 /nobreak >nul')
-    batLines.push('set /a RETRY_COUNT+=1')
-    batLines.push('if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. ^& pause ^& exit /b 1)')
-    batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://127.0.0.1:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
-    batLines.push('goto waitloop')
-    batLines.push(':ready')
-    batLines.push('echo Wan2GP is ready! Opening browser...')
-    batLines.push('start http://127.0.0.1:' + preferredPort)
-    batLines.push('echo.')
-    batLines.push('echo [Wan2GP] Server is running. Close this window to stop it.')
-    batLines.push('pause >nul')
-    try { fs.writeFileSync(_terminalBatFile, batLines.join('\r\n'), 'utf8') } catch (e) { send('launch-log', `[!] Failed to write terminal script: ${e.message}\n`) }
+      batLines.push('echo Waiting for Wan2GP server on port ' + preferredPort + '...')
+      batLines.push('set RETRY_COUNT=0')
+      batLines.push(':waitloop')
+      batLines.push('timeout /t 2 /nobreak >nul')
+      batLines.push('set /a RETRY_COUNT+=1')
+      batLines.push('if %RETRY_COUNT% gtr 60 (echo Server failed to start within 2 minutes. Check console for errors. ^& pause ^& exit /b 1)')
+      batLines.push('powershell -Command "try{$(Invoke-WebRequest -Uri http://127.0.0.1:' + preferredPort + '/config -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200;exit 0}catch{exit 1}" >nul 2>&1 && goto ready')
+      batLines.push('goto waitloop')
+      batLines.push(':ready')
+      batLines.push('echo Wan2GP is ready! Opening browser...')
+      batLines.push('start http://127.0.0.1:' + preferredPort)
+      batLines.push('echo.')
+      batLines.push('echo [Wan2GP] Server is running. Close this window to stop it.')
+      batLines.push('pause >nul')
+      try { fs.writeFileSync(_terminalScriptFile, batLines.join('\r\n'), 'utf8') } catch (e) { send('launch-log', `[!] Failed to write terminal script: ${e.message}\n`) }
 
-    let useWt = false
-    try { execSync('where wt', { windowsHide: true, timeout: 3000 }); useWt = true } catch {}
-    if (useWt) {
-      send('launch-log', '[*] Starting Wan2GP in Windows Terminal (run.bat style)...\n')
-      child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', _terminalTitle, 'cmd.exe', '/K', _terminalBatFile], {
-        cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
-        env: {
-          ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
-          TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
-          NO_PROXY: 'localhost,127.0.0.1,::1',
-          ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
-          ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
-        }
-      })
+      let useWt = false
+      try { execSync('where wt', { windowsHide: true, timeout: 3000 }); useWt = true } catch {}
+      if (useWt) {
+        send('launch-log', '[*] Starting Wan2GP in Windows Terminal (run.bat style)...\n')
+        child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', _terminalTitle, 'cmd.exe', '/K', _terminalScriptFile], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
+          env: {
+            ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+            TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+            NO_PROXY: 'localhost,127.0.0.1,::1',
+            ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
+            ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+          }
+        })
+      } else {
+        send('launch-log', '[*] Starting Wan2GP in an external terminal window (run.bat style)...\n')
+        child = spawn('cmd.exe', ['/c', 'start', `"${_terminalTitle}"`, 'cmd.exe', '/K', _terminalScriptFile], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
+          env: {
+            ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+            TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
+            NO_PROXY: 'localhost,127.0.0.1,::1',
+            ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
+            ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+          }
+        })
+      }
     } else {
-      send('launch-log', '[*] Starting Wan2GP in an external terminal window (run.bat style)...\n')
-      child = spawn('cmd.exe', ['/c', 'start', `"${_terminalTitle}"`, 'cmd.exe', '/K', _terminalBatFile], {
-        cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'],
-        env: {
-          ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
-          TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
-          NO_PROXY: 'localhost,127.0.0.1,::1',
-          ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
-          ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
+      // POSIX external-terminal mode: write a bash script that launches wgp.py with the resolved
+      // interpreter (no activation needed — the absolute python path IS the environment), waits
+      // for the server, opens the browser, then blocks until the server exits. Closing the
+      // terminal window sends SIGHUP and stops the server, mirroring the Windows .bat behavior.
+      _terminalScriptFile = path.join(os.tmpdir(), 'wan2gp-terminal.sh')
+
+      // Shell-quote a value for safe embedding in the generated script.
+      const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'"
+      const argsStr = extraArgs.map(shq).join(' ')
+      const shLines = [
+        '#!/usr/bin/env bash',
+        'export PYTHONIOENCODING=utf-8',
+        'export PYTHONUTF8=1',
+        'export PYTHONUNBUFFERED=1',
+        'export TQDM_MININTERVAL=0',
+        'export TQDM_MINITERS=1',
+        'export HF_HUB_DISABLE_PROGRESS_BARS=0',
+        'export NO_PROXY=localhost,127.0.0.1,::1',
+        ...(launchCfg.share ? ['export GRADIO_SHARE=true'] : []),
+        ...(launchCfg.hfToken ? ['export HF_TOKEN=' + shq(launchCfg.hfToken), 'export HUGGINGFACE_HUB_TOKEN=' + shq(launchCfg.hfToken)] : []),
+        'cd ' + shq(getRepoDir()),
+        'echo "[Wan2GP Desktop Launcher]"',
+        'echo "Starting Wan2GP on port ' + preferredPort + '..."',
+        'echo ""',
+        shq(py) + ' -u ' + shq(bootstrapScriptPath()) + ' wgp.py ' + argsStr + ' &',
+        'WGP_PID=$!',
+        'echo "$WGP_PID" > ' + shq(_terminalPidFile),
+        'echo ""',
+        'echo "Waiting for Wan2GP server on port ' + preferredPort + '..."',
+        'RETRY=0',
+        'while [ $RETRY -lt 60 ]; do',
+        '  if ' + shq(py) + ` -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${preferredPort}/config', timeout=2).status==200 else 1)" >/dev/null 2>&1; then`,
+        '    break',
+        '  fi',
+        '  sleep 2',
+        '  RETRY=$((RETRY+1))',
+        'done',
+        'if [ $RETRY -ge 60 ]; then',
+        '  echo "Server failed to start within 2 minutes. Check console for errors."',
+        '  read -r -p "Press Enter to close..."',
+        '  exit 1',
+        'fi',
+        'echo "Wan2GP is ready! Opening browser..."',
+        'xdg-open "http://127.0.0.1:' + preferredPort + '" >/dev/null 2>&1 &',
+        'echo ""',
+        'echo "[Wan2GP] Server is running. Close this window to stop it."',
+        'wait $WGP_PID'
+      ]
+      try { fs.writeFileSync(_terminalScriptFile, shLines.join('\n') + '\n', 'utf8') } catch (e) { send('launch-log', `[!] Failed to write terminal script: ${e.message}\n`) }
+      try { fs.chmodSync(_terminalScriptFile, 0o755) } catch {}
+
+      // Launch in a detected terminal emulator (Linux), or Terminal.app (macOS).
+      if (PLATFORM === 'darwin') {
+        send('launch-log', '[*] Starting Wan2GP in Terminal.app...\n')
+        child = spawn('open', ['-a', 'Terminal', _terminalScriptFile], {
+          cwd: getRepoDir(), stdio: ['ignore', 'ignore', 'ignore']
+        })
+      } else {
+        const term = findTerminalEmulator()
+        if (!term) {
+          send('launch-log', '[!] No terminal emulator found (tried gnome-terminal, konsole, xfce4-terminal, mate-terminal, xterm). Install one or use the in-app/desktop launch mode.\n')
+          child = null
+        } else {
+          send('launch-log', `[*] Starting Wan2GP in ${term} (run.bat style)...\n`)
+          if (term === 'gnome-terminal') {
+            child = spawn(term, ['--', 'bash', _terminalScriptFile], { cwd: getRepoDir(), stdio: ['ignore', 'ignore', 'ignore'] })
+          } else if (term === 'xterm') {
+            child = spawn(term, ['-e', 'bash', _terminalScriptFile], { cwd: getRepoDir(), stdio: ['ignore', 'ignore', 'ignore'] })
+          } else {
+            // konsole/xfce4-terminal/mate-terminal/tilix/x-terminal-emulator take the whole
+            // command as one string after -e.
+            child = spawn(term, ['-e', `bash ${_terminalScriptFile}`], { cwd: getRepoDir(), stdio: ['ignore', 'ignore', 'ignore'] })
+          }
         }
-      })
+      }
     }
-    // The launcher-side process (wt.exe / start wrapper) exits independently — it is NOT the server.
+    // The launcher-side process (wt.exe / terminal wrapper) exits independently — it is NOT the server.
     _wangpProc = null
   } else {
     send('launch-log', '[*] Starting Wan2GP in a visible terminal...\n')
@@ -1245,7 +1356,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
         _terminalTitle = null
         _currentPort = 0
         if (_terminalPidFile) { try { fs.unlinkSync(_terminalPidFile) } catch {} _terminalPidFile = null }
-        if (_terminalBatFile) { try { fs.unlinkSync(_terminalBatFile) } catch {} _terminalBatFile = null }
+        if (_terminalScriptFile) { try { fs.unlinkSync(_terminalScriptFile) } catch {} _terminalScriptFile = null }
         send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
         send('wangp-exit', -1)
         try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
@@ -1905,6 +2016,27 @@ ipcMain.handle('check-command', (_, cmd) => {
         if (fs.existsSync(p)) return true
       }
     }
+  } else {
+    const home = process.env.HOME || ''
+    if (cmd === 'conda') {
+      const commonPaths = [
+        path.join(home, 'miniconda3', 'bin', 'conda'),
+        path.join(home, 'anaconda3', 'bin', 'conda'),
+        path.join(home, 'Miniconda3', 'bin', 'conda'),
+      ]
+      for (const p of commonPaths) {
+        if (fs.existsSync(p)) return true
+      }
+    }
+    if (cmd === 'uv') {
+      const commonPaths = [
+        path.join(home, '.local', 'bin', 'uv'),
+        path.join(home, '.cargo', 'bin', 'uv'),
+      ]
+      for (const p of commonPaths) {
+        if (fs.existsSync(p)) return true
+      }
+    }
   }
   try {
     const out = execSync(IS_WIN ? `where ${cmd}` : `which ${cmd}`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
@@ -1913,7 +2045,13 @@ ipcMain.handle('check-command', (_, cmd) => {
 })
 
 ipcMain.handle('config-load', () => loadConfig())
-ipcMain.handle('config-save', (_, cfg) => { saveConfig(cfg); return true })
+ipcMain.handle('config-save', (_, cfg) => {
+  saveConfig(cfg)
+  // Re-apply the update policy immediately so toggling auto-updates in
+  // settings takes effect without an app restart.
+  if (typeof applyAutoUpdatePolicy === 'function') applyAutoUpdatePolicy()
+  return true
+})
 
 // ── Install paths ──
 ipcMain.handle('get-install-paths', () => ({
@@ -1972,6 +2110,16 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
 
   try {
     if (tool === 'git') {
+      if (!IS_WIN) {
+        // POSIX: git usually ships with the OS or a dev toolchain; never auto-sudo.
+        try { execSync('command -v git', { encoding: 'utf8', timeout: 5000 }); sendLog('[*] git is already installed.'); return { success: true } } catch {}
+        sendLog('[!] git is not installed. Install it with your package manager, e.g.:')
+        sendLog('      Ubuntu/Debian:  sudo apt install git')
+        sendLog('      Fedora:          sudo dnf install git')
+        sendLog('      Arch:            sudo pacman -S git')
+        sendLog('      macOS:           brew install git')
+        return { error: 'git not installed — install it via your package manager (see log output)' }
+      }
       sendLog('[*] Downloading Git for Windows (~120 MB)...')
       // NOTE: Update Git version periodically — check https://git-scm.com/download/win
       const url = 'https://github.com/git-for-windows/git/releases/download/v2.49.0.windows.1/Git-2.49.0-64-bit.exe'
@@ -1983,6 +2131,16 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
       return { success: true }
 
     } else if (tool === 'python') {
+      if (!IS_WIN) {
+        // POSIX: prefer uv-managed Python 3.11 (the install flow already auto-fetches it).
+        try { execSync('command -v python3', { encoding: 'utf8', timeout: 5000 }); sendLog('[*] python3 is already installed. The launcher uses a uv-managed Python 3.11 for installs.'); return { success: true } } catch {}
+        sendLog('[!] python3 is not installed. Install it with your package manager, e.g.:')
+        sendLog('      Ubuntu/Debian:  sudo apt install python3 python3-venv')
+        sendLog('      Fedora:          sudo dnf install python3')
+        sendLog('      Arch:            sudo pacman -S python')
+        sendLog('      macOS:           brew install python@3.11')
+        return { error: 'python3 not installed — install it via your package manager (see log output)' }
+      }
       sendLog('[*] Downloading Python 3.11 (~25 MB)...')
       // NOTE: Update Python version when 3.11.x goes EOL. Check python.org for latest 3.11.x.
       const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
@@ -1994,6 +2152,25 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
       return { success: true }
 
     } else if (tool === 'uv') {
+      if (!IS_WIN) {
+        sendLog('[*] Installing uv via the official install script...')
+        sendLog('[*]   This downloads ~30 MB and can take a minute or two.')
+        await runLive('curl -LsSf https://astral.sh/uv/install.sh | sh', { timeout: 120000 })
+        // Verify the install actually landed (PATH isn't updated in this process yet).
+        const userHome = process.env.HOME || ''
+        const candidates = [path.join(userHome, '.local', 'bin', 'uv'), path.join(userHome, '.cargo', 'bin', 'uv')]
+        const uvExe = candidates.find((c) => fs.existsSync(c))
+        if (!uvExe) {
+          sendLog('[!] uv install finished but uv was not found in the usual locations.')
+          sendLog('[!] Install it manually in a terminal:  curl -LsSf https://astral.sh/uv/install.sh | sh')
+          return { error: 'uv install did not produce uv (see output above)' }
+        }
+        let ver = '?'
+        try { ver = execSync(`"${uvExe}" --version`, { encoding: 'utf8' }).trim() } catch {}
+        sendLog(`[✓] ${ver} installed at ${uvExe}`)
+        sendLog('[*] Please restart the launcher to pick up the new PATH.')
+        return { success: true }
+      }
       sendLog('[*] Installing uv via PowerShell...')
       sendLog('[*]   This downloads ~30 MB and can take a minute or two.')
       await runLive('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { timeout: 120000 })
@@ -2013,6 +2190,23 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
       return { success: true }
 
     } else if (tool === 'conda') {
+      if (!IS_WIN) {
+        // POSIX: Miniconda ships as a self-extracting .sh installer (batch mode: -b -p).
+        const isMac = PLATFORM === 'darwin'
+        const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64'
+        const url = isMac
+          ? `https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-${arch}.sh`
+          : 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh'
+        const dest = path.join(tmpDir, 'Miniconda3-installer.sh')
+        sendLog('[*] Downloading Miniconda (~90 MB)...')
+        await downloadFile(url, dest)
+        sendLog('[*] Downloaded. Installing silently — this can take a few minutes...')
+        const prefix = path.join(process.env.HOME || '', 'miniconda3')
+        await runLive(`bash "${dest}" -b -p "${prefix}"`, { timeout: 240000 })
+        sendLog(`[✓] Miniconda installed at ${prefix}`)
+        sendLog('[*] Please restart the launcher to pick up the new PATH.')
+        return { success: true }
+      }
       sendLog('[*] Downloading Miniconda (~90 MB)...')
       const url = 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe'
       const dest = path.join(tmpDir, 'Miniconda3-latest-Windows-x86_64.exe')
@@ -2246,9 +2440,9 @@ ipcMain.handle('repair-settings', async () => {
 
 
 // ── Create Desktop Shortcut for Wan2GP (standalone launch without desktop app) ──
-// Windows-only: creates a .bat file on the desktop.
+// Windows: creates a .bat on the desktop. Linux: .desktop entry + launch script.
+// macOS: .command file (double-click opens Terminal).
 ipcMain.handle('create-desktop-shortcut', () => {
-  if (!IS_WIN) return { error: 'Desktop shortcuts are Windows-only (creates .bat)' }
   try {
     const env = getActiveEnv()
     if (!env) return { error: 'No active environment' }
@@ -2263,17 +2457,75 @@ ipcMain.handle('create-desktop-shortcut', () => {
     const port = cfg.serverPort || 7860
     const extraArgs = (cfg.launchArgs || '').trim()
 
-    // Build activation command based on env type
+    if (!IS_WIN) {
+      // ── POSIX: self-contained launch script + platform launcher ──
+      const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'"
+      // Build activation command based on env type
+      let activate = ''
+      const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
+      if (env.type === 'venv' || env.type === 'uv') {
+        const activateScript = path.join(envPath, 'bin', 'activate')
+        if (fs.existsSync(activateScript)) activate = 'source "' + activateScript + '"'
+      } else if (env.type === 'conda') {
+        const activateScript = path.join(envPath, 'bin', 'activate')
+        if (fs.existsSync(activateScript)) activate = 'source "' + activateScript + '"'
+      }
+      const hasServerName = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--server-name')
+      const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
+      const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
+      const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
+      const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(shq).join(' ') : ''
+      const shContent = [
+        '#!/usr/bin/env bash',
+        'export PYTHONIOENCODING=utf-8',
+        'export PYTHONUTF8=1',
+        'cd ' + shq(repo),
+        'echo "[Wan2GP Desktop Launcher]"',
+        'echo "Starting Wan2GP on port ' + port + '..."',
+        'echo ""',
+        ...(activate ? ['echo "Activating environment: ' + env.name + ' (' + env.type + ')"', activate, 'echo ""'] : []),
+        'exec ' + shq(py) + ' -u ' + shq(bootstrapScriptPath()) + ' wgp.py --server-port ' + port + serverNameArg + shareArg + escapedExtra
+      ].join('\n') + '\n'
+
+      if (PLATFORM === 'linux') {
+        // Launch script lives in the data dir (stable path, survives temp cleaners).
+        const shPath = path.join(getDataDir(), 'Launch-Wan2GP.sh')
+        fs.writeFileSync(shPath, shContent, 'utf8')
+        fs.chmodSync(shPath, 0o755)
+        // .desktop entry — Exec field quoting per freedesktop spec: wrap in double quotes,
+        // escape \, ", $, ` (a lone space inside a path also requires quoting).
+        const escDesktop = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`') + '"'
+        const desktopContent = [
+          '[Desktop Entry]',
+          'Type=Application',
+          'Name=Wan2GP',
+          'Comment=Launch Wan2GP (via Wan2GP Desktop Launcher)',
+          'Exec=' + escDesktop(shPath),
+          'Terminal=true',
+          'Icon=' + escDesktop(path.join(__dirname, 'resources', 'icon-1024.png')),
+          'Categories=Development;',
+          'StartupNotify=false'
+        ].join('\n') + '\n'
+        const desktopPath = path.join(desktop, 'Wan2GP.desktop')
+        fs.writeFileSync(desktopPath, desktopContent, 'utf8')
+        fs.chmodSync(desktopPath, 0o755)
+        return { success: true, path: desktopPath }
+      } else {
+        // macOS: .command is executable and opens in Terminal on double-click.
+        const cmdPath = path.join(desktop, 'Launch Wan2GP.command')
+        fs.writeFileSync(cmdPath, shContent, 'utf8')
+        fs.chmodSync(cmdPath, 0o755)
+        return { success: true, path: cmdPath }
+      }
+    }
+
+    // ── Windows: .bat on the desktop ──
     let activate = ''
     const envPath = path.isAbsolute(env.path) ? env.path : path.join(getRepoDir(), env.path)
     if (env.type === 'venv' || env.type === 'uv') {
-      const activateScript = IS_WIN
-        ? path.join(envPath, 'Scripts', 'activate')
-        : path.join(envPath, 'bin', 'activate')
+      const activateScript = path.join(envPath, 'Scripts', 'activate')
       if (fs.existsSync(activateScript)) {
-        activate = IS_WIN
-          ? 'call "' + activateScript + '"'
-          : 'source "' + activateScript + '"'
+        activate = 'call "' + activateScript + '"'
       }
     } else if (env.type === 'conda') {
       activate = 'call conda activate "' + envPath + '"'
@@ -2289,7 +2541,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
     if (activate) {
       batContent += 'echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')\n'
       batContent += activate + '\n'
-      if (IS_WIN && (env.type === 'venv' || env.type === 'uv')) {
+      if (env.type === 'venv' || env.type === 'uv') {
         batContent += 'set PATH=' + path.join(envPath, 'Scripts') + ';%PATH%\n'
       }
     }
@@ -2936,11 +3188,23 @@ ipcMain.handle('quit-app', () => {
 })
 
 // ── Auto-updater ──
-autoUpdater.autoDownload = true
+// Update policy is config-driven. When autoUpdateEnabled is off we never check
+// on launch, never auto-download, and never auto-install on quit — updates only
+// happen through explicit user action (Check for updates → Download → Install & Restart).
+function applyAutoUpdatePolicy() {
+  const enabled = loadConfig().autoUpdateEnabled !== false
+  autoUpdater.autoDownload = enabled
+  // electron-updater's default is to install a downloaded update on quit.
+  // Force it off when auto-updates are disabled so a manual download never
+  // turns into a surprise install+restart at the next app exit.
+  autoUpdater.autoInstallOnAppQuit = enabled
+  return enabled
+}
+applyAutoUpdatePolicy()
 autoUpdater.allowPrerelease = false
 
 autoUpdater.on('checking-for-update', () => { console.log('[DEBUG] Checking for update...'); send('update-status', { status: 'checking' }) })
-autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes }) })
+autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes, autoDownload: autoUpdater.autoDownload }) })
 autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date'); send('update-status', { status: 'up-to-date' }) })
 autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
@@ -2971,7 +3235,10 @@ ipcMain.handle('check-update', async (_, opts) => {
       })
     }
   }
-  try { autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
+  // checkForUpdates() returns a Promise — must await so a rejection (e.g. 404 on a
+  // missing channel file, like latest-linux.yml before a Linux release exists) is
+  // caught instead of killing the app with an unhandled rejection (Linux crash fix).
+  try { await autoUpdater.checkForUpdates() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
 
 ipcMain.handle('download-update', async () => {
@@ -3159,19 +3426,27 @@ app.whenReady().then(() => {
   } catch {}
 
   setTimeout(() => {
-    try {
-      const cfg = loadConfig()
-      if (cfg.githubToken) {
-        process.env.GH_TOKEN = cfg.githubToken
-        autoUpdater.setFeedURL({
-          provider: 'github',
-          owner: 'GKartist75',
-          repo: 'wan2gp-desktop',
-          token: cfg.githubToken
-        })
-      }
-      autoUpdater.checkForUpdates()
-    } catch {}
+    (async () => {
+      try {
+        const cfg = loadConfig()
+        // Auto-update gate: when disabled, never check on launch. Updates only
+        // happen through the explicit "Check for updates" button in the UI.
+        if (cfg.autoUpdateEnabled === false) return
+        if (cfg.githubToken) {
+          process.env.GH_TOKEN = cfg.githubToken
+          autoUpdater.setFeedURL({
+            provider: 'github',
+            owner: 'GKartist75',
+            repo: 'wan2gp-desktop',
+            token: cfg.githubToken
+          })
+        }
+        // checkForUpdates() returns a Promise — await so a rejection (404 on missing
+        // channel file, e.g. latest-linux.yml before a Linux release exists) is caught
+        // instead of killing the app (Linux startup crash fix).
+        await autoUpdater.checkForUpdates()
+      } catch {}
+    })()
   }, 5000)
 })
 app.on('window-all-closed', () => {

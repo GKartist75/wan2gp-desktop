@@ -4,7 +4,7 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
-[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.3.0)](https://github.com/GKartist75/wan2gp-desktop/releases)
+[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.4.0)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
@@ -106,6 +106,12 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
+> **New in v2.4.0** — **Auto-update control**. Turn automatic updates off from
+> Manage → Desktop → *Auto-update*: no launch-time update check, no silent
+> download, and no surprise install on quit. Updates then only happen through
+> the explicit *Check for updates → Download → Install & Restart* flow.
+> [Full changelog →](changelogs/CHANGELOG-v2.4.0.md)
+
 > **New in v2.3.0** — **Repair Settings** (one-click fix for the "Value is not in the
 > list of choices" save error), a **multi-GPU device picker** (`--gpu cuda:N` for any
 > detected GPU), a **report-an-issue bundler** (system info + launch log + error queue
@@ -173,6 +179,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.4.0** — **Auto-update control** — new **Auto-update** toggle (Manage → Desktop): turn off automatic update checks, downloads, and the surprise install-on-quit; updates then only happen through the explicit Check for updates → Download → Install & Restart flow, and the setting takes effect without restarting. See [CHANGELOG-v2.4.0.md](changelogs/CHANGELOG-v2.4.0.md).
 - **v2.3.0** — **Settings repair + multi-GPU + issue reporting + tests** — **Repair Settings** (one-click fix for the "Value: N is not in the list of choices" save error — scans and clamps `*_settings.json` files with `*.bak-repair` backups), **GPU Device picker** (choose which GPU Wan2GP runs on, `--gpu cuda:N` in both launch modes), **🐞 Report an issue** (system info + launch log + error queue bundled into a zip with a pre-filled GitHub issue), first **test suite** (18 tests) + **CI**, release script auto-reads the version from package.json. See [CHANGELOG-v2.3.0.md](changelogs/CHANGELOG-v2.3.0.md).
 - **v2.2.4** — **Uninstall + progress-bar + install-flow hardening** — **Uninstall Wan2GP** (keep checkpoints/LoRAs/outputs or delete everything; launch buttons disable with a restart-to-install hint), invisible console progress bar fixed (tqdm env-var truthiness bug), robust removal engine that survives locked files/antivirus scans, "Reinstall (fresh)" no longer silently keeps the old install, uv-managed Python auto-repair, live install progress, UTF-8 console output, Prompt Enhancer button default, AV-aware clone errors. See [CHANGELOG-v2.2.4.md](changelogs/CHANGELOG-v2.2.4.md).
 - **v2.2.3** — **UX, reliability, and install flow** — verbose env unlink progress, isolated Python for venv (no global install), backup confirmation dialog, 7-profile Auto-Tune with VAE/quant dropdowns and matrix table, compact hardware display, prerequisite help card, console scrollbar, xcopy restore fix, profile dropdown readability fix. See [CHANGELOG-v2.2.3.md](changelogs/CHANGELOG-v2.2.3.md).

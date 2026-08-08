@@ -10,7 +10,7 @@ files:
   - '!dist/**'
 win:
   target: nsis
-  icon: resources/icon.png
+  icon: resources/icon-1024.png
 nsis:
   oneClick: false
   perMachine: false
@@ -18,14 +18,16 @@ nsis:
   createDesktopShortcut: true
 mac:
   target: dmg
-  icon: resources/icon.png
+  icon: resources/icon-1024.png
   category: public.app-category.creative-tools
 linux:
   target:
     - AppImage
     - deb
-  icon: resources/icon.png
+  icon: resources/icon-1024.png
   category: Development
+  synopsis: Wan2GP Desktop Launcher
+  syncDesktopName: true
 publish:
   provider: github
   owner: GKartist75

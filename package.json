@@ -1,6 +1,6 @@
 {
   "name": "wan2gp-desktop",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {
@@ -12,7 +12,10 @@
     "publish:win": "electron-builder --win --publish always",
     "release:win": "bash scripts/release-win.sh"
   },
-  "author": "GKartist75",
+  "author": {
+    "name": "GKartist75",
+    "email": "GKartist75@users.noreply.github.com"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
