@@ -16,6 +16,10 @@
 Grab the latest `.deb` or `.AppImage` from the
 [Releases page](https://github.com/GKartist75/wan2gp-desktop/releases).
 
+> 🏷️ Linux releases are tagged **`linux-vX.Y.Z`** and marked **Pre-release** —
+> the stable `vX.Y.Z` releases are Windows-only. The newest Linux build is the
+> latest pre-release with a `linux-v` prefix.
+
 ## Install (Debian/Ubuntu, incl. WSL)
 
 Download the `.deb` from the
