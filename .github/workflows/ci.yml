@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npx electron-builder --win --config electron-builder.yml
+        run: npx electron-builder --win --publish never --config electron-builder.yml
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -78,7 +78,7 @@ jobs:
         run: npm ci
 
       - name: Build Linux packages
-        run: npx electron-builder --linux --config electron-builder.yml
+        run: npx electron-builder --linux --publish never --config electron-builder.yml
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
