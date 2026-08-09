@@ -58,22 +58,28 @@ rendering when no GPU passthrough is available.
 ### Troubleshooting (WSL)
 
 - **No window appears (WSL, Windows 10)** — the WSL 2.7.x release line (the
-  final WSL version for Windows 10) has a WSLg regression that breaks
-  Chromium's shared memory: the log shows `Creating shared memory in /dev/shm
-  failed: No such process (3)` (or `F_ADD_SEALS`/memfd `Operation not
-  permitted` errors), and the window opens blank with no renderer. The
-  launcher works around the GPU-passthrough half automatically
-  (`--disable-dev-shm-usage` + SwiftShader), but the kernel-level shared
-  memory breakage cannot be fixed from the app — it survives `wsl --shutdown`
-  and `wsl --update` reports no newer version is available for Windows 10:
+  final WSL version for Windows 10) has a WSLg kernel regression: the kernel
+  refuses to seal memfds (`F_ADD_SEALS` returns `Operation not permitted` even
+  with `MFD_ALLOW_SEALING`, verified by direct syscall probes), so Chromium's
+  shared-memory escape hatch is dead and the renderer never boots — the window
+  opens blank. (Pre-2.4.2 the log showed a hard FATAL on `/dev/shm: No such
+  process (3)`; 2.4.2+ logs a `/tmp` ESRCH line, but that same line also
+  appears on healthy Linux with `--disable-dev-shm-usage` and is benign —
+  the real WSL-only breakage is the memfd sealing EPERM.) The launcher works
+  around the GPU-passthrough half automatically (`--disable-dev-shm-usage` +
+  SwiftShader), but the kernel-level memory breakage cannot be fixed from the
+  app — it survives `wsl --shutdown` and `wsl --update` reports no newer
+  version is available for Windows 10:
   ```powershell
   wsl --update      # try first (PowerShell, admin)
   wsl --shutdown    # sometimes restores the display stack
   ```
   If both fail, the WSLg layer on that Windows 10 machine cannot run
-  Chromium renderers at all — use a real Linux desktop (or Windows 11's WSL)
-  for the Linux build. The launcher never touches GPU flags on real Linux
-  desktops.
+  Chromium renderers at all — use a real Linux desktop or Windows 11's WSL
+  (WSLg works there; the fallback flags activate only when `WSL_DISTRO_NAME`
+  is set, and the CI smoke matrix verifies that path renders with a live
+  renderer on a stock kernel). The launcher never touches GPU flags on real
+  Linux desktops.
 - **`Unable to locate package @url:`...`** — you pasted a link wrapped by a
   chat app (the `@url:`...` wrapper). Strip the wrapper, or download the
   `.deb` and run `sudo apt install -y ./file.deb` (`./` means a local file —
