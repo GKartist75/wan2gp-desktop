@@ -7,6 +7,9 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      matrix:
+        mode: [plain, wsl-fallback]
     steps:
       - name: Install test deps
         run: |
@@ -20,19 +23,30 @@ jobs:
           which wan2gp-desktop
 
       - name: Launch under Xvfb and capture
+        env:
+          SIM_WSL: ${{ matrix.mode == 'wsl-fallback' && '1' || '0' }}
         run: |
           set +e
           export DISPLAY=:99
+          if [ "$SIM_WSL" = 1 ]; then
+            export WSL_DISTRO_NAME=Ubuntu
+            echo "=== simulated Win11 WSL: WSL_DISTRO_NAME=Ubuntu set ==="
+          else
+            echo "=== plain real-Linux path (no WSL_DISTRO_NAME) ==="
+          fi
+          echo "=== /dev/dri ==="
+          if ls /dev/dri >/dev/null 2>&1; then echo "/dev/dri PRESENT"; else echo "/dev/dri absent -> full WSLg fallback cascade activates"; fi
           Xvfb :99 -screen 0 1280x800x24 -nolisten tcp &
           sleep 3
-          (wan2gp-desktop --no-sandbox > /tmp/wgp.log 2>&1 &)
+          APP_ARGS=$([ "$SIM_WSL" = 1 ] && echo '' || echo '--no-sandbox')
+          (wan2gp-desktop $APP_ARGS > /tmp/wgp.log 2>&1 &)
           sleep 30
           echo "=== processes ==="
           ps -eo pid,etime,args | grep -E 'wan2gp-desktop|type=renderer' | grep -v grep
           RENDERERS=$(ps -eo args | grep -c 'type=renderer')
           echo "renderers=$RENDERERS"
-          echo "=== X11 window tree ==="
-          xwininfo -root -tree -display :99 2>/dev/null | grep -iE 'wan2gp|chromium|electron' | head -5
+          echo "=== browser cmdline switches ==="
+          ps -eo args | grep -E 'wan2gp-desktop --' | grep -v grep | head -1
           echo "=== log tail ==="
           tail -8 /tmp/wgp.log
           echo "=== screenshot ==="
@@ -54,5 +68,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: linux-smoke-screenshot
+          name: linux-smoke-${{ matrix.mode }}-shot
           path: shot.png
