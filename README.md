@@ -55,6 +55,25 @@ distributions, download the AppImage, `chmod +x` it, and run it. Under WSL
 the launcher auto-detects the WSLg display and falls back to software
 rendering when no GPU passthrough is available.
 
+### Troubleshooting (WSL)
+
+- **No window appears (WSL, Windows 10)** — the WSL 2.7.x release line has a
+  known WSLg regression (microsoft/WSL#1456 family) that breaks Chromium's
+  shared memory: the log shows `Creating shared memory in /dev/shm failed:
+  No such process (3)` (or `F_ADD_SEALS`/memfd errors). The launcher works
+  around the GPU-passthrough half automatically; the shared-memory half needs
+  the WSL component updated:
+  ```powershell
+  wsl --update      # PowerShell (admin)
+  wsl --shutdown    # then relaunch the terminal
+  ```
+  If an update isn't possible, `wsl --shutdown` alone sometimes restores the
+  display stack. The launcher never touches GPU flags on real Linux desktops.
+- **`Unable to locate package @url:`...`** — you pasted a link wrapped by a
+  chat app (the `@url:`...` wrapper). Strip the wrapper, or download the
+  `.deb` and run `sudo apt install -y ./file.deb` (`./` means a local file —
+  apt does not fetch URLs by itself).
+
 ## Screenshots
 
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)
