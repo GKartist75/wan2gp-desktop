@@ -324,12 +324,29 @@ const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
 // ── WSLg fallback (Linux under WSL) ──
-// WSLg on Windows 10 has a broken GPU passthrough (no /dev/dri) and a broken
-// shared-memory channel (Chromium renderers FATAL on /dev/shm with ESRCH —
-// the WSL 2.7.x wslg#1456 regression family): without these switches
-// Electron's renderer can't init and the window never shows.
-// Real Linux desktops are untouched (WSL_DISTRO_NAME is unset there).
-if (PLATFORM === 'linux' && process.env.WSL_DISTRO_NAME) {
+// WSLg on Windows 10 had a broken shared-memory channel (Chromium renderers
+// FATAL on /dev/shm with ESRCH — the WSL 2.7.x wslg#1456 regression family)
+// and no GPU passthrough (no /dev/dri). Modern WSL (2.8+, kernel ≥ 6.12 —
+// Ubuntu 24.04/26.04 WSLg) has a healthy /dev/shm and a working seccomp
+// sandbox; there the old blanket switches are actively HARMFUL:
+// --disable-dev-shm-usage forces Chromium onto the /tmp shm path, which
+// fails (ESRCH) on WSLg and kills the renderer (verified 2026-08-09 on
+// Ubuntu 26.04 / kernel 6.18: renderer dies with the flags, runs clean
+// without). Gate all workarounds on the legacy kernel line that actually
+// needs them. Real Linux desktops are untouched (WSL_DISTRO_NAME is unset).
+function wslKernelVersion() {
+  try {
+    const m = /^(\d+)\.(\d+)/.exec(fs.readFileSync('/proc/sys/kernel/osrelease', 'utf8').trim())
+    return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null
+  } catch (e) { return null }
+}
+const WSL_LEGACY = (() => {
+  if (PLATFORM !== 'linux' || !process.env.WSL_DISTRO_NAME) return false
+  const v = wslKernelVersion()
+  // Legacy WSLg line (WSL ≤ 2.7.x, kernel < 6.12): broken /dev/shm channel.
+  return v === null || v[0] < 6 || (v[0] === 6 && v[1] < 12)
+})()
+if (WSL_LEGACY) {
   app.commandLine.appendSwitch('no-sandbox')
   // renderer shm_open() on /dev/shm returns ESRCH on broken WSLg — use /tmp
   app.commandLine.appendSwitch('disable-dev-shm-usage')

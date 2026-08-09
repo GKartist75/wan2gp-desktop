@@ -52,8 +52,9 @@ sudo apt install -y https://github.com/GKartist75/wan2gp-desktop/releases/downlo
 
 The Electron runtime dependencies are pulled automatically. For other
 distributions, download the AppImage, `chmod +x` it, and run it. Under WSL
-the launcher auto-detects the WSLg display and falls back to software
-rendering when no GPU passthrough is available.
+the launcher only applies WSLg fallback switches on the legacy WSL line
+(kernel < 6.12); modern WSLg (Windows 11, WSL 2.8+) runs clean with none —
+software rendering kicks in automatically when no GPU passthrough exists.
 
 ### Troubleshooting (WSL)
 
@@ -64,9 +65,10 @@ rendering when no GPU passthrough is available.
   shared-memory escape hatch is dead and the renderer never boots — the window
   opens blank. (Pre-2.4.2 the log showed a hard FATAL on `/dev/shm: No such
   process (3)`; 2.4.2+ logs a `/tmp` ESRCH line, but that same line also
-  appears on healthy Linux with `--disable-dev-shm-usage` and is benign —
-  the real WSL-only breakage is the memfd sealing EPERM.) The launcher works
-  around the GPU-passthrough half automatically (`--disable-dev-shm-usage` +
+  appears on healthy Linux with `--disable-dev-shm-usage` and is benign — the
+  real WSL-only breakage is the memfd sealing EPERM.) The launcher detects
+  this legacy line (`/proc/sys/kernel/osrelease` < 6.12) and applies the
+  workarounds automatically (`--no-sandbox`, `--disable-dev-shm-usage`,
   SwiftShader), but the kernel-level memory breakage cannot be fixed from the
   app — it survives `wsl --shutdown` and `wsl --update` reports no newer
   version is available for Windows 10:
@@ -75,11 +77,15 @@ rendering when no GPU passthrough is available.
   wsl --shutdown    # sometimes restores the display stack
   ```
   If both fail, the WSLg layer on that Windows 10 machine cannot run
-  Chromium renderers at all — use a real Linux desktop or Windows 11's WSL
-  (WSLg works there; the fallback flags activate only when `WSL_DISTRO_NAME`
-  is set, and the CI smoke matrix verifies that path renders with a live
-  renderer on a stock kernel). The launcher never touches GPU flags on real
-  Linux desktops.
+  Chromium renderers at all — use a real Linux desktop or Windows 11's WSL.
+- **No window appears (WSL, Windows 11)** — make sure WSL is up to date
+  (`wsl --update` from an admin PowerShell, reboot if prompted) and the
+  distro is a recent Ubuntu (`wsl --install -d Ubuntu`). On modern WSLg
+  (kernel ≥ 6.12) the launcher applies no fallback switches — verified
+  rendering on Ubuntu 26.04 / kernel 6.18.33.2 (2026-08-09). The old blanket
+  switches are *not* applied there because `--disable-dev-shm-usage` forces
+  Chromium onto the `/tmp` shm path, which fails (ESRCH) on WSLg and kills
+  the renderer; the default `/dev/shm` path is healthy.
 - **`Unable to locate package @url:`...`** — you pasted a link wrapped by a
   chat app (the `@url:`...` wrapper). Strip the wrapper, or download the
   `.deb` and run `sudo apt install -y ./file.deb` (`./` means a local file —
