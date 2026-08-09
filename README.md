@@ -4,8 +4,8 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
-[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=v2.4.0)](https://github.com/GKartist75/wan2gp-desktop/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](<>)
+[![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=release)](https://github.com/GKartist75/wan2gp-desktop/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
 
 ## Download
@@ -28,19 +28,27 @@ so you don't have to configure them manually.
 Alternatively, grab the latest `.exe`, `.deb`, or `.AppImage` from the
 [Releases page](https://github.com/GKartist75/wan2gp-desktop/releases).
 
-**Linux install (Debian/Ubuntu, incl. WSL):** first download the `.deb` from
-the [Releases page](https://github.com/GKartist75/wan2gp-desktop/releases),
-then install the local file:
+**Linux install (Debian/Ubuntu, incl. WSL):** download the `.deb` from the
+[Releases page](https://github.com/GKartist75/wan2gp-desktop/releases)
+(right-click → *Copy link address* on the latest `*-linux-amd64.deb`), then
+install the local file:
 
 ```bash
-# from the directory you downloaded the .deb to:
-sudo apt install -y ./Wan2GP-Desktop-Launcher-2.4.1-linux-amd64.deb
+# replace <version> with the version you downloaded (e.g. 2.4.1):
+sudo apt install -y ./Wan2GP-Desktop-Launcher-<version>-linux-amd64.deb
 wan2gp-desktop
 ```
 
 (`./` = the file is already on your machine — apt does not fetch it. You can
-also point apt straight at the release URL: `sudo apt install -y
-https://github.com/GKartist75/wan2gp-desktop/releases/download/v2.4.1/Wan2GP-Desktop-Launcher-2.4.1-linux-amd64.deb`.)
+also point apt straight at the release URL, e.g. for v2.4.1:
+
+```bash
+sudo apt install -y https://github.com/GKartist75/wan2gp-desktop/releases/download/v2.4.1/Wan2GP-Desktop-Launcher-2.4.1-linux-amd64.deb
+```
+
+> 💡 Paste the **raw URL**. If you copy the link from a chat app that wraps
+> it in `@url:`...`, strip the wrapper first — otherwise apt reports
+> `Unable to locate package @url:...`.)
 
 The Electron runtime dependencies are pulled automatically. For other
 distributions, download the AppImage, `chmod +x` it, and run it. Under WSL
