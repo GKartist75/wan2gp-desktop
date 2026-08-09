@@ -1,0 +1,58 @@
+name: linux-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install test deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb x11-apps imagemagick
+
+      - name: Install launcher deb (latest release)
+        run: |
+          wget -q https://github.com/GKartist75/wan2gp-desktop/releases/download/v2.4.2/Wan2GP-Desktop-Launcher-2.4.2-linux-amd64.deb -O /tmp/wgp.deb
+          sudo apt-get install -y -qq /tmp/wgp.deb
+          which wan2gp-desktop
+
+      - name: Launch under Xvfb and capture
+        run: |
+          set +e
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x800x24 -nolisten tcp &
+          sleep 3
+          (wan2gp-desktop --no-sandbox > /tmp/wgp.log 2>&1 &)
+          sleep 30
+          echo "=== processes ==="
+          ps -eo pid,etime,args | grep -E 'wan2gp-desktop|type=renderer' | grep -v grep
+          RENDERERS=$(ps -eo args | grep -c 'type=renderer')
+          echo "renderers=$RENDERERS"
+          echo "=== X11 window tree ==="
+          xwininfo -root -tree -display :99 2>/dev/null | grep -iE 'wan2gp|chromium|electron' | head -5
+          echo "=== log tail ==="
+          tail -8 /tmp/wgp.log
+          echo "=== screenshot ==="
+          xwd -root -display :99 | convert xwd:- /tmp/shot.png 2>/dev/null
+          cp /tmp/shot.png shot.png
+          ls -la shot.png
+          echo "SMOKE_RESULT=$([ "$RENDERERS" -ge 1 ] && echo PASS || echo FAIL)" >> "$GITHUB_ENV"
+
+      - name: Report result
+        if: always()
+        run: |
+          SIZE=$(stat -c%s shot.png 2>/dev/null || echo 0)
+          STD=$(identify -format "%[standard-deviation]" shot.png 2>/dev/null || echo 0)
+          echo "screenshot bytes=$SIZE stddev=$STD"
+          echo "result=$SMOKE_RESULT (renderer process alive)"
+          [ "$SMOKE_RESULT" = PASS ] && [ "$SIZE" -gt 20000 ] && echo "SMOKE OK: renderer alive + non-blank screenshot" || echo "SMOKE INCONCLUSIVE"
+
+      - name: Upload screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-smoke-screenshot
+          path: shot.png
