@@ -1,11 +1,11 @@
 {
   "name": "wan2gp-desktop",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/settings-repair.test.js tests/auto-tune.test.js",
+    "test": "node --test tests/settings-repair.test.js tests/auto-tune.test.js tests/signpath-sign.test.js",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
