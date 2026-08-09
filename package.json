@@ -1,7 +1,7 @@
 {
   "name": "wan2gp-desktop",
   "version": "2.4.2",
-  "description": "Desktop launcher for Wan2GP — install, update, maintain and run Wan2GP with hardware-aware setup",
+  "description": "Desktop launcher for Wan2GP \u2014 install, update, maintain and run Wan2GP with hardware-aware setup",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -27,5 +27,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1"
   }
 }
