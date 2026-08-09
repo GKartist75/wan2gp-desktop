@@ -18,13 +18,27 @@ so you don't have to configure them manually.
 
 <p align="center">
   <code>Wan2GP-Desktop-Launcher-*-win-x64.exe</code><br>
-  <small>≈ 90 MB — Windows 10/11 only</small>
+  <small>≈ 90 MB — Windows 10/11</small><br>
+  <code>Wan2GP-Desktop-Launcher-*-linux-x86_64.deb</code> / <code>*.AppImage</code><br>
+  <small>≈ 115 MB — Debian/Ubuntu (incl. WSL) / all other Linux distros</small>
 </p>
 
 > ⚠️ **Unsigned installer** — the "unknown publisher" warning is normal for open-source software without a code-signing certificate.
 
-Alternatively, grab the latest `.exe` from the
+Alternatively, grab the latest `.exe`, `.deb`, or `.AppImage` from the
 [Releases page](https://github.com/GKartist75/wan2gp-desktop/releases).
+
+**Linux install (Debian/Ubuntu, incl. WSL):**
+
+```bash
+sudo apt install -y ./Wan2GP-Desktop-Launcher-2.4.1-linux-x86_64.deb
+wan2gp-desktop
+```
+
+The Electron runtime dependencies are pulled automatically. For other
+distributions, download the AppImage, `chmod +x` it, and run it. Under WSL
+the launcher auto-detects the WSLg display and falls back to software
+rendering when no GPU passthrough is available.
 
 ## Screenshots
 
