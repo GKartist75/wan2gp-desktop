@@ -39,11 +39,12 @@ linux:
   category: Development
   synopsis: Wan2GP Desktop Launcher
   syncDesktopName: true
-  # Explicit full Electron dependency set. electron-builder's defaults omit
-  # libasound2/libgbm1, which makes the deb fail to load on fresh minimal
-  # Ubuntu installs ("libasound.so.2: cannot open shared object file").
-  # libasound2 is a transitional package on 24.04+/26.04 (pulls t64), so it
-  # still resolves on both old and new Ubuntu lines.
+# Explicit full Electron dependency set. electron-builder's defaults omit
+# libasound2/libgbm1, which makes the deb fail to load on fresh minimal
+# Ubuntu installs ("libasound.so.2: cannot open shared object file").
+# libasound2 is a transitional package on 24.04+/26.04 (pulls t64), so it
+# still resolves on both old and new Ubuntu lines.
+deb:
   depends:
     - libgtk-3-0
     - libnotify4
