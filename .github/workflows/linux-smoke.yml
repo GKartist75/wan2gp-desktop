@@ -18,9 +18,14 @@ jobs:
 
       - name: Install launcher deb (latest release)
         run: |
-          wget -q https://github.com/GKartist75/wan2gp-desktop/releases/download/v2.4.2/Wan2GP-Desktop-Launcher-2.4.2-linux-amd64.deb -O /tmp/wgp.deb
+          TAG=$(gh api repos/GKartist75/wan2gp-desktop/releases/latest --jq .tag_name)
+          echo "smoke-testing release $TAG"
+          wget -q "https://github.com/GKartist75/wan2gp-desktop/releases/download/${TAG}/Wan2GP-Desktop-Launcher-${TAG#v}-linux-amd64.deb" -O /tmp/wgp.deb
+          ls -l /tmp/wgp.deb
           sudo apt-get install -y -qq /tmp/wgp.deb
           which wan2gp-desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Launch under Xvfb and capture
         env:
