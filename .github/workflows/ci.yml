@@ -26,6 +26,7 @@ jobs:
           node --check preload.js
           node --check services/auto-tune.js
           node --check services/settings-repair.js
+          node --check scripts/signpath-sign.js
           node --check renderer/app.js
 
       - name: Run unit tests
@@ -49,6 +50,15 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
+        env:
+          # SignPath.io code signing (free OSS tier). Empty until the secrets
+          # are added — the sign hook then logs and skips, keeping the build
+          # unsigned-but-green. See docs/SIGNPATH_SIGNING.md.
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
         run: npx electron-builder --win --publish never --config electron-builder.yml
 
       - name: Upload installer artifacts
