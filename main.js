@@ -323,6 +323,20 @@ function bootstrapScriptPath() {
 const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
+// ── WSLg fallback (Linux under WSL) ──
+// WSLg on Windows 10 has a broken GPU passthrough (no /dev/dri): without
+// these switches Electron's renderer can't init and the window never shows.
+// Real Linux desktops are untouched (WSL_DISTRO_NAME is unset there).
+if (PLATFORM === 'linux' && process.env.WSL_DISTRO_NAME) {
+  app.commandLine.appendSwitch('no-sandbox')
+  if (!fs.existsSync('/dev/dri')) {
+    app.commandLine.appendSwitch('disable-gpu')
+    app.commandLine.appendSwitch('in-process-gpu')
+    app.commandLine.appendSwitch('ozone-platform', 'x11')
+    app.commandLine.appendSwitch('use-gl', 'swiftshader')
+  }
+}
+
 let mainWin = null, setupProc = null, _wangpProc = null
 let _terminalTitle = null   // set when launched in external-terminal mode (tracked by title for Stop)
 let _terminalPidFile = null // temp file holding the python PID for a bulletproof kill
