@@ -324,11 +324,15 @@ const PLATFORM = process.platform
 const IS_WIN = PLATFORM === 'win32'
 
 // ── WSLg fallback (Linux under WSL) ──
-// WSLg on Windows 10 has a broken GPU passthrough (no /dev/dri): without
-// these switches Electron's renderer can't init and the window never shows.
+// WSLg on Windows 10 has a broken GPU passthrough (no /dev/dri) and a broken
+// shared-memory channel (Chromium renderers FATAL on /dev/shm with ESRCH —
+// the WSL 2.7.x wslg#1456 regression family): without these switches
+// Electron's renderer can't init and the window never shows.
 // Real Linux desktops are untouched (WSL_DISTRO_NAME is unset there).
 if (PLATFORM === 'linux' && process.env.WSL_DISTRO_NAME) {
   app.commandLine.appendSwitch('no-sandbox')
+  // renderer shm_open() on /dev/shm returns ESRCH on broken WSLg — use /tmp
+  app.commandLine.appendSwitch('disable-dev-shm-usage')
   if (!fs.existsSync('/dev/dri')) {
     app.commandLine.appendSwitch('disable-gpu')
     app.commandLine.appendSwitch('in-process-gpu')
