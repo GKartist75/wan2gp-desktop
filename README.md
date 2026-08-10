@@ -53,10 +53,8 @@ The launcher automates those steps and manages the environment for you.
 - **Hardware detection.** Reads your GPU (NVIDIA RTX 30/40/50, AMD, Apple Silicon) and selects the matching PyTorch + CUDA/ROCm build and attention kernels before installing.
 - **Isolated environment.** A Python 3.11 env via uv with pinned deps, so `pygame` and others install from prebuilt wheels.
 
-> **⚡ CUDA 13 stack on modern RTX cards.** Since v2.4.5 the launcher follows
-> the same modernization as the [Pinokio WanGP launcher overhaul](https://pinokio.co/posts/01kzh8a652cnf8ey59ej8dq352)
-> (by [cocktailpeanut](https://x.com/cocktailpeanut)): RTX 20/30/40/50 installs
-> get **PyTorch 2.10 + CUDA 13** with generation-aware acceleration —
+> **⚡ CUDA 13 stack on modern RTX cards.** Since v2.4.5, RTX 20/30/40/50
+> installs get **PyTorch 2.10 + CUDA 13** with generation-aware acceleration —
 > SageAttention (2.2 on RTX 30/40, 1.0.6 on RTX 20), FlashAttention 2.8.3,
 > SpargeAttention on 30/40/50, and LightX2V kernels on RTX 50, alongside
 > Nunchaku + GGUF kernels on modern cards.
