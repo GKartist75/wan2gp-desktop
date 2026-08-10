@@ -108,13 +108,17 @@ so you can override the recommendation.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.4.5** — **Wan2GP update checks, now periodic + manual**. The
-> dashboard re-checks the upstream Wan2GP repo every 30 minutes while open
-> (silent, skipped while the dashboard is hidden) and the Wan2GP Updates card
-> has a **↻ Check for updates** link for on-demand re-checks — no more waiting
-> for a restart to hear about a new Wan2GP release. Upstream lookups are
-> cached 5 minutes so the polling never hits the unauthenticated GitHub API
-> rate limit. [Full changelog →](changelogs/CHANGELOG-v2.4.5.md)
+> **New in v2.4.5** — **Wan2GP update checks, now periodic + manual**, plus
+> **update-flow hardening and a driver pre-check**. The dashboard re-checks the
+> upstream Wan2GP repo every 30 minutes while open (silent, skipped while the
+> dashboard is hidden) and the Wan2GP Updates card has a **↻ Check for updates**
+> link for on-demand re-checks. Updates no longer skip requirement bumps: if
+> upstream's `requirements.txt` changed, the new pins are force-installed after
+> the update. Install/update also warns when the NVIDIA driver is below R580
+> (unless GTX 10/16), and all launch paths now enable `--advanced
+> --multiple-images` automatically. Upstream lookups are cached 5 minutes so the
+> polling never hits the unauthenticated GitHub API rate limit.
+> [Full changelog →](changelogs/CHANGELOG-v2.4.5.md)
 
 > **New in v2.4.0** — **Auto-update control**. Turn automatic updates off from
 > Manage → Desktop → *Auto-update*: no launch-time update check, no silent
@@ -189,7 +193,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
-- **v2.4.5** — **Periodic + manual Wan2GP update checks (QOL)** — the dashboard now re-checks the upstream Wan2GP repo every 30 minutes while open (silent, skips while hidden) instead of only at launch, plus a **↻ Check for updates** link in the Wan2GP Updates card for on-demand re-checks. Upstream lookups are cached 5 minutes so polling never exhausts the unauthenticated GitHub API rate limit. See [CHANGELOG-v2.4.5.md](changelogs/CHANGELOG-v2.4.5.md).
+- **v2.4.5** — **Update checks (periodic + manual), update-flow hardening, driver pre-check** — the dashboard re-checks the upstream Wan2GP repo every 30 minutes while open (silent, skips while hidden) plus a **↻ Check for updates** link in the Wan2GP Updates card; updates no longer skip requirement bumps (changed `requirements.txt` pins are force-installed after the update — fixes the silently-skipped `mmgp` bump, and AMD/Windows installs pin `numpy==1.26.4` for ROCm wheel compat); NVIDIA driver pre-check warns below R580 (GTX 10/16 exempt); all launch paths now enable `--advanced --multiple-images`. See [CHANGELOG-v2.4.5.md](changelogs/CHANGELOG-v2.4.5.md).
 - **v2.4.0** — **Auto-update control** — new **Auto-update** toggle (Manage → Desktop): turn off automatic update checks, downloads, and the surprise install-on-quit; updates then only happen through the explicit Check for updates → Download → Install & Restart flow, and the setting takes effect without restarting. See [CHANGELOG-v2.4.0.md](changelogs/CHANGELOG-v2.4.0.md).
 - **v2.3.0** — **Settings repair + multi-GPU + issue reporting + tests** — **Repair Settings** (one-click fix for the "Value: N is not in the list of choices" save error — scans and clamps `*_settings.json` files with `*.bak-repair` backups), **GPU Device picker** (choose which GPU Wan2GP runs on, `--gpu cuda:N` in both launch modes), **🐞 Report an issue** (system info + launch log + error queue bundled into a zip with a pre-filled GitHub issue), first **test suite** (18 tests) + **CI**, release script auto-reads the version from package.json. See [CHANGELOG-v2.3.0.md](changelogs/CHANGELOG-v2.3.0.md).
 - **v2.2.4** — **Uninstall + progress-bar + install-flow hardening** — **Uninstall Wan2GP** (keep checkpoints/LoRAs/outputs or delete everything; launch buttons disable with a restart-to-install hint), invisible console progress bar fixed (tqdm env-var truthiness bug), robust removal engine that survives locked files/antivirus scans, "Reinstall (fresh)" no longer silently keeps the old install, uv-managed Python auto-repair, live install progress, UTF-8 console output, Prompt Enhancer button default, AV-aware clone errors. See [CHANGELOG-v2.2.4.md](changelogs/CHANGELOG-v2.2.4.md).
