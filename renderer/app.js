@@ -332,6 +332,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshDashboard()
     // Live system metrics polling (topbar sparklines + dashboard free-text)
     startMetricsPolling()
+    // Periodic Wan2GP update re-check while the app is open (30 min).
+    // Launch-time check alone misses updates released mid-session; the
+    // renderer-side timer re-polls and re-flags the green dot + changelog.
+    startWangpPolling()
   } else {
     $('splashStatus').textContent = 'First-time setup...'
     const hw = await window.w2gp.detectHardware()
@@ -428,6 +432,23 @@ function startMetricsPolling() {
   window.__metricsTick = tick
   tick()
   window.__metricsTimer = setInterval(tick, 2000)
+}
+
+// ── Periodic Wan2GP update check ──
+// Re-polls the upstream commit list every 30 min while the app is open so an
+// update released mid-session still flags the green dot + changelog without a
+// manual refresh. Silent re-check (no loading flash); the GitHub cache in
+// main.js keeps this off the rate-limit radar. Skips while the dashboard is
+// hidden (user is in the webview / embedded browser).
+const WANGP_POLL_MS = 30 * 60 * 1000
+function startWangpPolling() {
+  if (window.__wangpPollTimer) clearInterval(window.__wangpPollTimer)
+  const poll = () => {
+    const dash = $('dashBody')
+    if (dash && dash.style.display === 'none') return
+    loadWangpChangelog(false)
+  }
+  window.__wangpPollTimer = setInterval(poll, WANGP_POLL_MS)
 }
 
 // ── Task List ──
@@ -938,50 +959,60 @@ $('openAppDataBtn')?.addEventListener('click', function() {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
 });
 
-async function loadWangpChangelog() {
+// Re-entrancy guard: periodic + manual checks share one flight; a slow GitHub
+// response can't stack overlapping fetches.
+let _wangpCheckBusy = false
+async function loadWangpChangelog(showLoading) {
   const localEl = $('localCommit')
   const listEl = $('updatesList')
   const verEl = $('wangpVersion')
   if (!listEl) return
+  if (_wangpCheckBusy) return
+  _wangpCheckBusy = true
+  try {
+    if (showLoading) listEl.innerHTML = '<div class="changelog-loading">Checking for updates...</div>'
 
-  const local = await window.w2gp.getWangpLocalVersion()
-  if (local && localEl) localEl.textContent = local.hash.substring(0, 7)
+    const local = await window.w2gp.getWangpLocalVersion()
+    if (local && localEl) localEl.textContent = local.hash.substring(0, 7)
 
-  window.w2gp.getWangpVersion().then(v => { if (v && verEl) verEl.textContent = v })
+    window.w2gp.getWangpVersion().then(v => { if (v && verEl) verEl.textContent = v })
 
-  const upstream = await window.w2gp.getWangpUpstreamInfo()
-  if (!upstream || !upstream.commits) {
-    listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
-    // Clear any stale green dot from a previous check — don't leave it dangling
+    const upstream = await window.w2gp.getWangpUpstreamInfo()
+    if (!upstream || !upstream.commits) {
+      listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
+      // Clear any stale green dot from a previous check — don't leave it dangling
+      const updateBtn = $('updateBtn')
+      if (updateBtn) {
+        updateBtn.classList.remove('has-update')
+        updateBtn.querySelector('.update-dot')?.remove()
+      }
+      return
+    }
+
     const updateBtn = $('updateBtn')
-    if (updateBtn) {
-      updateBtn.classList.remove('has-update')
-      updateBtn.querySelector('.update-dot')?.remove()
+    const hasUpdate = local && upstream.commits[0]?.hash !== local.hash
+    if (hasUpdate) {
+      updateBtn?.classList.add('has-update')
+      if (!updateBtn?.querySelector('.update-dot')) {
+        const dot = document.createElement('span')
+        dot.className = 'update-dot'
+        updateBtn.appendChild(dot)
+      }
+    } else {
+      updateBtn?.classList.remove('has-update')
+      updateBtn?.querySelector('.update-dot')?.remove()
     }
-    return
-  }
 
-  const updateBtn = $('updateBtn')
-  const hasUpdate = local && upstream.commits[0]?.hash !== local.hash
-  if (hasUpdate) {
-    updateBtn?.classList.add('has-update')
-    if (!updateBtn?.querySelector('.update-dot')) {
-      const dot = document.createElement('span')
-      dot.className = 'update-dot'
-      updateBtn.appendChild(dot)
-    }
-  } else {
-    updateBtn?.classList.remove('has-update')
-    updateBtn?.querySelector('.update-dot')?.remove()
+    listEl.innerHTML = upstream.commits.map(c =>
+      `<div class="cl-item">
+        <span class="cl-date">${fmtDate(c.date)}</span>
+        <span class="cl-msg">${c.message}</span>
+        <span class="cl-author">${c.author}</span>
+      </div>`
+    ).join('')
+  } finally {
+    _wangpCheckBusy = false
   }
-
-  listEl.innerHTML = upstream.commits.map(c =>
-    `<div class="cl-item">
-      <span class="cl-date">${fmtDate(c.date)}</span>
-      <span class="cl-msg">${c.message}</span>
-      <span class="cl-author">${c.author}</span>
-    </div>`
-  ).join('')
 }
 
 function fmtDate(s) {
@@ -994,6 +1025,10 @@ function fmtDate(s) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  $('wangpCheckLink')?.addEventListener('click', (e) => {
+    e.preventDefault()
+    loadWangpChangelog(true)
+  })
   $('changelogLink')?.addEventListener('click', (e) => {
     e.preventDefault()
     window.w2gp.openExternal('https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/CHANGELOG.md')
