@@ -28,10 +28,6 @@ so you don't have to configure them manually.
 Alternatively, grab the latest `.exe` from the
 [Releases page](https://github.com/GKartist75/wan2gp-desktop/releases).
 
-> 🐧 **Linux?** Linux support is **in development and can change**. Install
-> instructions, WSL notes, and troubleshooting for the Linux build live on the
-> dedicated **[Linux page](LINUX.md)**.
-
 ## Screenshots
 
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)

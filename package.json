@@ -8,7 +8,6 @@
     "test": "node --test tests/settings-repair.test.js tests/auto-tune.test.js tests/signpath-sign.test.js",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
     "publish:win": "electron-builder --win --publish always",
     "release:win": "bash scripts/release-win.sh"
   },

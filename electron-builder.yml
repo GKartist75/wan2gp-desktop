@@ -31,32 +31,6 @@ mac:
   target: dmg
   icon: resources/icon-1024.png
   category: public.app-category.creative-tools
-linux:
-  target:
-    - AppImage
-    - deb
-  icon: resources/icon-1024.png
-  category: Development
-  synopsis: Wan2GP Desktop Launcher
-  syncDesktopName: true
-# Explicit full Electron dependency set. electron-builder's defaults omit
-# libasound2/libgbm1, which makes the deb fail to load on fresh minimal
-# Ubuntu installs ("libasound.so.2: cannot open shared object file").
-# libasound2 is a transitional package on 24.04+/26.04 (pulls t64), so it
-# still resolves on both old and new Ubuntu lines.
-deb:
-  depends:
-    - libgtk-3-0
-    - libnotify4
-    - libnss3
-    - libxss1
-    - libxtst6
-    - xdg-utils
-    - libatspi2.0-0
-    - libuuid1
-    - libsecret-1-0
-    - libasound2
-    - libgbm1
 publish:
   provider: github
   owner: GKartist75
