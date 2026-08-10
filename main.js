@@ -15,13 +15,14 @@ let _gpuCache = { result: null, ts: 0 }
 const GPU_CACHE_TTL = 30000
 function getGpuInfo() {
   if (_gpuCache.result && _gpuCache.result.vendor && Date.now() - _gpuCache.ts < GPU_CACHE_TTL) return _gpuCache.result
-  const result = { name: '', vramMB: 0, vendor: '' }
+  const result = { name: '', vramMB: 0, vendor: '', driverVersion: '' }
   try {
-    const ns = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
+    const ns = execSync('nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
     if (ns) {
       const parts = ns.split(', ')
       result.name = parts[0] || ''
       result.vramMB = parseFloat(parts[1]) || 0
+      result.driverVersion = (parts[2] || '').trim()
       result.vendor = 'NVIDIA'
     }
   } catch {
@@ -40,6 +41,20 @@ function getGpuInfo() {
     _gpuCache = { result, ts: Date.now() }
   }
   return result
+}
+
+// ── NVIDIA driver pre-check (Pinokio parity) ──
+// cu130 wheels (torch 2.10) need driver R580+; GTX 10/16 series fall back to
+// cu128 (torch 2.7.1) so they're exempt. Returns a warning string or ''.
+// Upstream setup.py has no such gate — the launcher adds it so users don't
+// burn a full install/update cycle on a driver that can't load CUDA 13.
+function checkNvidiaDriver() {
+  const gpu = getGpuInfo()
+  if (gpu.vendor !== 'NVIDIA') return ''
+  const dv = parseFloat(gpu.driverVersion)
+  if (!dv || dv >= 580) return ''
+  if (/ (10|16)\d+/.test(gpu.name)) return '' // GTX 10/16 → cu128 profile, old drivers OK
+  return `[!] NVIDIA driver ${gpu.driverVersion} is older than R580. The cu130 packages (torch 2.10 / CUDA 13) Wan2GP installs for your ${gpu.name} need driver R580 or newer. Update the driver first, then re-run — otherwise generation may fail with CUDA errors.\n`
 }
 
 
@@ -680,6 +695,10 @@ ipcMain.handle('detect-gpus', () => {
 
 ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
+  // NVIDIA driver pre-check (Pinokio parity) — warn before a long install if the
+  // driver can't run the cu130 stack Wan2GP's profile will install.
+  const _drvWarn = checkNvidiaDriver()
+  if (_drvWarn) send('setup-output', _drvWarn)
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     fs.mkdirSync(getDataDir(), { recursive: true })
@@ -802,6 +821,21 @@ ipcMain.handle('install', async (_, envType) => {
   // UI's "Installation complete" only shows after everything finishes.
   // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
   send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
+  // AMD/Windows numpy pin (Pinokio parity): upstream requirements.txt pins
+  // numpy==2.1.2, but the ROCm "TheRock" torch 2.7.0a0 wheels Wan2GP installs
+  // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
+  // Pinokio's install.js forces numpy==1.26.4 on win32+AMD for the same reason.
+  try {
+    const _gpuPost = getGpuInfo()
+    if (IS_WIN && _gpuPost.vendor === 'AMD') {
+      const _envPost = getActiveEnv()
+      const _pyPost = _envPost ? getPythonForEnv(_envPost) : null
+      if (_pyPost) {
+        send('setup-output', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
+        execSync(`"${_pyPost}" -m pip install numpy==1.26.4 -q`, { stdio: 'pipe', timeout: 60000, cwd: getRepoDir(), windowsHide: true })
+      }
+    }
+  } catch (e) { send('setup-output', `[!] AMD numpy pin: ${e.message}\n`) }
   send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
   try {
     const envData = getActiveEnv()
@@ -1134,6 +1168,13 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
+  // First Block Cache / advanced UI (Pinokio parity): --advanced exposes the
+  // "Steps skipping" tab where First Block Cache lives; --multiple-images enables
+  // multi-image I2V input. Both are wgp.py CLI flags (shared/cli_args.py) that
+  // Pinokio's start.js passes by default — without them the post's headline
+  // speed feature is invisible. Respect explicit user args (no duplication).
+  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
+  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
 
   const port = preferredPort
   _currentPort = port
@@ -1427,6 +1468,9 @@ ipcMain.handle('launch-webview', async () => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
+  // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
+  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
@@ -1662,6 +1706,20 @@ ipcMain.handle('bv-set-zoom', (_, factor) => {
 })
 
 ipcMain.handle('update', async () => {
+  // NVIDIA driver pre-check (Pinokio parity) — same gate as install; cu130 wheels
+  // need R580+, and setup.py's own pull/install won't warn about it.
+  const _drvWarn = checkNvidiaDriver()
+  if (_drvWarn) send('launch-log', _drvWarn)
+  // Snapshot the pre-update HEAD so we can detect requirements.txt changes after the
+  // reliable git reset below. setup.py update only installs requirements when ITS OWN
+  // git pull moved HEAD — if that pull no-ops or fails while the launcher's reset still
+  // lands new code, a pin bump (e.g. mmgp 3.7.11 -> 3.7.12) is silently skipped.
+  let oldHead = ''
+  try {
+    oldHead = execSync('git rev-parse HEAD', {
+      cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+    }).trim()
+  } catch {}
   // Run setup.py update (pip packages, etc.)
   await runSetup(['update'])
   // Also pull the latest git code — setup.py update alone may only upgrade deps.
@@ -1727,6 +1785,63 @@ ipcMain.handle('update', async () => {
       const errMsg = (e.stderr || e.message || String(e)).toString().trim()
       send('launch-log', `[!] git update failed: ${errMsg}\n`)
     }
+  }
+  // If requirements.txt changed between the pre-update HEAD and the now-reset HEAD,
+  // setup.py update may have installed against the OLD requirements (its own git pull
+  // either no-opped or failed; only the launcher's reset above is authoritative).
+  // Force a requirements reinstall so pin bumps (e.g. mmgp 3.7.11 -> 3.7.12) land.
+  try {
+    if (oldHead) {
+      const reqChanged = execSync(`git diff --name-only ${oldHead} HEAD -- requirements.txt 2>&1`, {
+        cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true
+      }).trim()
+      if (reqChanged) {
+        send('launch-log', `[*] requirements.txt changed since v${oldHead.substring(0,8)} — reinstalling dependencies...\n`)
+        const env = getActiveEnv()
+        const py = env ? getPythonForEnv(env) : null
+        if (!py) {
+          send('launch-log', '[!] No active environment — requirements install skipped. Run setup from the Manage tab.\n')
+        } else {
+          await new Promise((resolve, reject) => {
+            const proc = spawn(py, ['-m', 'pip', 'install', '-r', 'requirements.txt'], {
+              cwd: getRepoDir(), windowsHide: true,
+              env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+                TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+            })
+            proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+            proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+            proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('pip install -r requirements.txt exited code ' + code)))
+            proc.on('error', reject)
+          })
+          send('launch-log', `[*] Dependencies reinstalled from updated requirements.txt.\n`)
+        }
+      }
+    }
+  } catch (e) {
+    send('launch-log', `[!] requirements reinstall check failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
+  // AMD/Windows numpy pin (Pinokio parity) — re-applied after any requirements
+  // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
+  // the ROCm "TheRock" torch wheels on Windows/AMD.
+  try {
+    const _gpuUpd = getGpuInfo()
+    if (IS_WIN && _gpuUpd.vendor === 'AMD') {
+      const _envUpd = getActiveEnv()
+      const _pyUpd = _envUpd ? getPythonForEnv(_envUpd) : null
+      if (_pyUpd) {
+        send('launch-log', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
+        await new Promise((resolve) => {
+          const _p = spawn(_pyUpd, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], {
+            cwd: getRepoDir(), windowsHide: true,
+            env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
+          })
+          _p.on('close', () => resolve())
+          _p.on('error', () => resolve())
+        })
+      }
+    }
+  } catch (e) {
+    send('launch-log', `[!] AMD numpy pin: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
   invalidateGitCache() // don't return stale pre-update hashes
   return true
@@ -2509,6 +2624,11 @@ ipcMain.handle('create-desktop-shortcut', () => {
       const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
       const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
       const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
+      // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+      const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
+      const advancedArg = hasAdvanced ? '' : ' --advanced'
+      const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
+      const multiImgArg = hasMultiImg ? '' : ' --multiple-images'
       const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(shq).join(' ') : ''
       const shContent = [
         '#!/usr/bin/env bash',
@@ -2519,7 +2639,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
         'echo "Starting Wan2GP on port ' + port + '..."',
         'echo ""',
         ...(activate ? ['echo "Activating environment: ' + env.name + ' (' + env.type + ')"', activate, 'echo ""'] : []),
-        'exec ' + shq(py) + ' -u ' + shq(bootstrapScriptPath()) + ' wgp.py --server-port ' + port + serverNameArg + shareArg + escapedExtra
+        'exec ' + shq(py) + ' -u ' + shq(bootstrapScriptPath()) + ' wgp.py --server-port ' + port + serverNameArg + shareArg + advancedArg + multiImgArg + escapedExtra
       ].join('\n') + '\n'
 
       if (PLATFORM === 'linux') {
@@ -2588,8 +2708,13 @@ ipcMain.handle('create-desktop-shortcut', () => {
     const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
     const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
     const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
+    // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+    const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
+    const advancedArg = hasAdvanced ? '' : ' --advanced'
+    const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
+    const multiImgArg = hasMultiImg ? '' : ' --multiple-images'
     const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(escapeBatCmdArg).join(' ') : ''
-    batContent += `start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py --server-port ${port}${serverNameArg}${shareArg}${escapedExtra}" 2>&1\n`
+    batContent += `start /b "" cmd /c "python -u "${bootstrapScriptPath()}" wgp.py --server-port ${port}${serverNameArg}${shareArg}${advancedArg}${multiImgArg}${escapedExtra}" 2>&1\n`
     batContent += 'echo.\n'
     batContent += 'echo Waiting for Wan2GP server on port ' + port + '...\n'
     // Poll via HTTP (wait for real Gradio response, not just TCP socket)
