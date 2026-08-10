@@ -2639,19 +2639,13 @@ ipcMain.handle('get-disk-space', () => {
 // ── Wan2GP upstream version ──
 ipcMain.handle('get-wangp-local-version', () => getLocalWangpHead())
 
-// Upstream commit list is cached (5 min TTL) so periodic re-checks while the
-// app is open don't hammer the GitHub API (60 req/hr unauthenticated limit).
-let _wangpUpstreamCache = { data: null, ts: 0 }
-const WANGP_UPSTREAM_TTL = 300000
-
 ipcMain.handle('get-wangp-upstream-info', async () => {
-  if (_wangpUpstreamCache.data && Date.now() - _wangpUpstreamCache.ts < WANGP_UPSTREAM_TTL) return _wangpUpstreamCache.data
   try {
     const data = await fetchUrl(`https://api.github.com/repos/${WAN2GP_UPSTREAM}/commits?per_page=10&sha=main`, {
       headers: { 'User-Agent': 'wan2gp-desktop', 'Accept': 'application/vnd.github.v3+json' }
     })
     if (!Array.isArray(data)) return { error: 'Invalid response' }
-    const result = {
+    return {
       commits: data.map(c => ({
         hash: c.sha,
         date: c.commit.author.date,
@@ -2659,8 +2653,6 @@ ipcMain.handle('get-wangp-upstream-info', async () => {
         author: c.commit.author.name
       }))
     }
-    _wangpUpstreamCache = { data: result, ts: Date.now() }
-    return result
   } catch (e) { return { error: e.message } }
 })
 
