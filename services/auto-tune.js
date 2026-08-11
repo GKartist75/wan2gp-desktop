@@ -3,9 +3,11 @@
  *
  * Detect hardware → recommend optimal settings → apply to wgp_config.json.
  *
- * Port of the Python reference:
- *   - hardware_detect.py  (GPU/RAM detection + kernel classification)
- *   - perf_recommend.py   (triple-profile recommendation engine)
+ * Reworked 2026-08: tiers/coefficient/audio-profile aligned with Wan2GP's own
+ * calibrations (Maestro's perf_recommend.py / hardware_detect.py verified
+ * against wgp.py thresholds and the vae2_2 VAE tiling table). Detection is
+ * fully async — nothing blocks the Electron main process (previously up to
+ * ~30s of frozen UI from execSync probes).
  *
  * Pure functions — no side effects in detect()/recommend(). apply() writes
  * to Wan2GP's wgp_config.json on disk.
@@ -13,72 +15,83 @@
  * @module auto-tune
  */
 
-const { execSync } = require('child_process')
+const { execFile } = require('child_process')
+const { promisify } = require('util')
 const os = require('os')
 const fs = require('fs')
 const path = require('path')
+
+const execFileP = promisify(execFile)
+
+// ──────────────────────────────────────────────
+//  Bounded async runner (never blocks, never throws)
+// ──────────────────────────────────────────────
+
+/**
+ * Run a command with a hard timeout. Returns trimmed stdout or null.
+ * Bounded to timeoutMs so a driver/env problem can't hang the app.
+ */
+async function run(cmd, args, timeoutMs = 5000) {
+  try {
+    const { stdout } = await execFileP(cmd, args, {
+      timeout: timeoutMs,
+      windowsHide: true,
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024
+    })
+    return stdout.trim()
+  } catch {
+    return null
+  }
+}
 
 // ──────────────────────────────────────────────
 //  Hardware Detection
 // ──────────────────────────────────────────────
 
 /**
- * Run nvidia-smi and parse structured GPU info.
- * Returns null if no NVIDIA GPU is found.
+ * Query ALL NVIDIA GPUs via nvidia-smi and pick the one with the most VRAM.
+ * (Multi-GPU rigs: nvidia-smi lists in PCI order, not "primary" order, so the
+ * first entry is not necessarily the discrete card.)
+ *
+ * Returns { name, vramMb, vramGb, capability, driver } or null.
  */
-function queryNvidiaSmi() {
-  try {
-    const raw = execSync(
-      'nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader,nounits',
-      { encoding: 'utf8', timeout: 10000, windowsHide: true }
-    ).trim()
-    const lines = raw.split('\n').filter(Boolean)
-    if (!lines.length) return null
+async function queryNvidiaGpu() {
+  const raw = await run(
+    'nvidia-smi',
+    ['--query-gpu=name,memory.total,compute_cap,driver_version', '--format=csv,noheader,nounits'],
+    8000
+  )
+  if (!raw) return null
 
-    // Parse first GPU (primary)
-    const parts = lines[0].split(',').map(s => s.trim())
-    const name = parts[0] || 'Unknown'
-    let vramMb = parseInt(parts[1], 10)
-    const capability = parts[2] || ''
-
-    // nvidia-smi sometimes reports MiB — unify to MB
-    if (isNaN(vramMb)) {
-      // Try fallback with MiB suffix
-      const raw2 = execSync(
-        'nvidia-smi --query-gpu=memory.total --format=csv,noheader',
-        { encoding: 'utf8', timeout: 10000, windowsHide: true }
-      ).trim()
-      const m = raw2.match(/([\d.]+)\s*(MiB|MB)/)
-      vramMb = m ? parseFloat(m[1]) : 0
-    }
-
+  const gpus = raw.split('\n').filter(Boolean).map(line => {
+    const parts = line.split(',').map(s => s.trim())
+    const vramMb = parseFloat(parts[1]) || 0
     return {
-      gpu_name: name,
-      gpu_vram_mb: vramMb || 0,
-      gpu_vram_gb: Math.round((vramMb || 0) / 1024),
-      gpu_capability: capability
+      name: parts[0] || 'Unknown',
+      vram_mb: vramMb,
+      vram_gb: Math.round(vramMb / 1024),
+      capability: parts[2] || '',
+      driver: parts[3] || ''
     }
-  } catch {
-    return null
-  }
+  })
+  if (!gpus.length) return null
+  // Highest-VRAM GPU wins (discrete card on hybrid laptops).
+  return gpus.reduce((best, g) => (g.vram_mb > best.vram_mb ? g : best), gpus[0])
 }
 
 /**
- * Detect CUDA version via `nvidia-smi` top-level header.
- * Returns e.g. "12.8" or null.
+ * Detect CUDA version via `nvidia-smi --version`.
  */
-function queryCudaVersion() {
-  try {
-    const raw = execSync('nvidia-smi --version', { encoding: 'utf8', timeout: 5000, windowsHide: true })
-    const m = raw.match(/CUDA Version:\s*(\d+\.\d+)/)
-    return m ? m[1] : null
-  } catch {
-    return null
-  }
+async function queryCudaVersion() {
+  const raw = await run('nvidia-smi', ['--version'], 4000)
+  if (!raw) return null
+  const m = raw.match(/CUDA Version:\s*(\d+\.\d+)/)
+  return m ? m[1] : null
 }
 
 /**
- * Full hardware detection.
+ * Full hardware detection (async — never blocks the main process).
  *
  * @param {string} [repoDir] - Wan2GP repo directory (needed for Python import checks).
  *                             Pass null/undefined to skip Python-import checks.
@@ -91,38 +104,41 @@ function queryCudaVersion() {
  *   gpu_capability     string (e.g. "8.9")
  *   ram_gb             number
  *   cpu_count          number
- *   ram_tier           'low' | 'mid' | 'high'
- *   vram_tier          'low' | 'mid' | 'high' | 'very_high'
+ *   ram_tier           'high' (≥64GB) | 'low' (32-63GB) | 'very_low' (<32GB)
+ *   vram_tier          'high' (≥24GB) | 'low' (12-23GB) | 'tight' (<12GB) | 'none'
  *   supports_fp8       bool
  *   supports_nvfp4     bool  (capability ≥ 9.0)
  *   supports_sage      bool
  *   supports_flash     bool
  *   supports_triton    bool
  */
-function detect(repoDir) {
-  const nv = queryNvidiaSmi()
-  const cudaVer = queryCudaVersion()
+async function detect(repoDir) {
+  const gpu = await queryNvidiaGpu()
+  const cudaVer = gpu ? await queryCudaVersion() : null
 
-  const cudaAvailable = nv !== null
-  const gpuName = nv ? nv.gpu_name : '—'
-  const gpuVramGb = nv ? nv.gpu_vram_gb : 0
-  const gpuCap = nv ? nv.gpu_capability : ''
+  const cudaAvailable = gpu !== null
+  const gpuName = gpu ? gpu.name : '—'
+  const gpuVramGb = gpu ? gpu.vram_gb : 0
+  const gpuCap = gpu ? gpu.capability : ''
 
   // System RAM
   const ramGb = Math.round(os.totalmem() / 1073741824)
   const cpuCount = os.cpus().length
 
-  // ── Tiers ──
+  // ── Tiers (match Wan2GP's own thresholds — see maestro perf_recommend.py) ──
   // VRAM tier
-  let vramTier = 'low'
-  if (gpuVramGb >= 24) vramTier = 'very_high'
-  else if (gpuVramGb >= 16) vramTier = 'high'
-  else if (gpuVramGb >= 10) vramTier = 'mid'
+  let vramTier = 'none'
+  if (cudaAvailable) {
+    if (gpuVramGb >= 24) vramTier = 'high'
+    else if (gpuVramGb >= 12) vramTier = 'low'
+    else vramTier = 'tight'
+  }
 
   // RAM tier (system memory)
   let ramTier = 'low'
   if (ramGb >= 64) ramTier = 'high'
-  else if (ramGb >= 32) ramTier = 'mid'
+  else if (ramGb >= 32) ramTier = 'low'
+  else ramTier = 'very_low'
 
   // ── Capability-based flags ──
   const capMajor = parseFloat(gpuCap) || 0
@@ -130,16 +146,17 @@ function detect(repoDir) {
   const supportsNvfp4 = capMajor >= 9.0  // Blackwell only
 
   // ── Kernel support ──
-  // In Node.js we can't import Python modules directly. We check by trying
-  // a lightweight shell probe (import in a python one-liner from the active env).
-  // Falls back to capability-based estimation.
-  // repoDir must be provided to find the envs.json; if omitted, skip import checks.
+  // In Node.js we can't import Python modules directly. We probe by trying a
+  // bounded one-liner import from the active env. Parallel + 4s cap each so
+  // the whole detection stays well under ~10s.
   const env = repoDir ? getActiveEnv(repoDir) : null
   const py = env ? getPythonForEnv(env) : null
 
-  const supportsTriton = checkPythonImport(py, 'triton')
-  const supportsFlash = checkPythonImport(py, 'flash_attn')
-  const supportsSage = checkPythonImport(py, 'sageattention')
+  const [supportsTriton, supportsFlash, supportsSage] = await Promise.all([
+    checkPythonImport(py, 'triton'),
+    checkPythonImport(py, 'flash_attn'),
+    checkPythonImport(py, 'sageattention')
+  ])
 
   return {
     cuda_available: cudaAvailable,
@@ -167,33 +184,44 @@ function detect(repoDir) {
  * Profile matrix keyed by (vram_tier, ram_tier).
  * Maps to Wan2GP's mmgp profile_type with 7 numeric profiles:
  *   1   = HighRAM_HighVRAM       — ≥64GB RAM + ≥24GB VRAM
- *   2   = HighRAM_LowVRAM        — ≥64GB RAM + ≥12GB VRAM
- *   3   = LowRAM_HighVRAM        — ≥32GB RAM + ≥24GB VRAM
- *   3.5 = VeryLowRAM_HighVRAM    — ≥32GB RAM + ≥24GB VRAM (no reserved mem, saves RAM)
- *   4   = LowRAM_LowVRAM         — ≥32GB RAM + ≥12GB VRAM (Recommended)
- *   4.5 = LowRAM_LowVRAM+        — ≥32GB RAM + ≥12GB VRAM (slightly slower, less VRAM)
- *   5   = VerylowRAM_LowVRAM     — ≥24GB RAM + ≥10GB VRAM (Fail safe)
+ *   2   = HighRAM_LowVRAM        — ≥64GB RAM + 12-23GB VRAM
+ *   3   = LowRAM_HighVRAM        — 32-63GB RAM + ≥24GB VRAM
+ *   3.5 = VeryLowRAM_HighVRAM    — <32GB RAM + ≥24GB VRAM (no reserved mem)
+ *   4   = LowRAM_LowVRAM         — 32-63GB RAM + 12-23GB VRAM (Recommended)
+ *   4.5 = LowRAM_LowVRAM+        — 32-63GB RAM + <12GB VRAM (slightly slower, less VRAM)
+ *   5   = VerylowRAM_LowVRAM     — <32GB RAM + <12GB VRAM (Fail safe)
  *
- * Thresholds:
- *   VRAM tiers: very_high ≥ 24 GB | high ≥ 16 GB | mid ≥ 10 GB | low < 10 GB
- *   RAM  tiers: high ≥ 64 GB | mid ≥ 32 GB | low < 32 GB
+ * Thresholds (aligned with Wan2GP's memory profile table + Maestro):
+ *   VRAM tiers: high ≥ 24 GB | low 12-23 GB | tight < 12 GB | none (no CUDA)
+ *   RAM  tiers: high ≥ 64 GB | low 32-63 GB | very_low < 32 GB
  */
 const PROFILE_MATRIX = {
-  //        RAM→high         mid          low
-  very_high: { high: 1, mid: 3, low: 3.5 },  // ≥24GB VRAM
-  high:      { high: 2, mid: 4, low: 4.5 },  // ≥16GB VRAM
-  mid:       { high: 4, mid: 5, low: 5 },    // ≥10GB VRAM
-  low:       { high: 5, mid: 5, low: 5 }     // <10GB VRAM
+  //         RAM→high      low        very_low
+  high:   { high: 1, low: 3, very_low: 3.5 },  // ≥24GB VRAM
+  low:    { high: 2, low: 4, very_low: 5 },    // 12-23GB VRAM
+  tight:  { high: 4, low: 4.5, very_low: 5 }   // <12GB VRAM
 }
 
-function audioProfile(vramGb, videoProf) {
-  return videoProf
+/**
+ * Audio profile — port of Maestro's fix (perf_recommend._pick_profile audio rule).
+ *
+ * Wan2GP only engages the fast LM decoders (vllm / cg) when the memory profile
+ * loads the main models fully in VRAM (wgp.py: int(profile) in (1, 3)); any
+ * other profile silently falls back to the legacy LM decoder at <1 token/sec,
+ * making ACE audio generation take 10-15 minutes and look hung. On cards with
+ * ≥12GB pick profile 3 (LowRAM_HighVRAM) for audio so the LM stack engages;
+ * below 12GB the LM stack wouldn't fit anyway — inherit the video profile.
+ */
+function audioProfile(vramGb, videoProfile) {
+  if ((vramGb || 0) >= 12 && ![1, 3].includes(Number(videoProfile))) return 3
+  return videoProfile
 }
 
 /**
  * Quantization — recommends Scaled Int8 ("int8") for best balance.
  * This is Wan2GP's own recommended default and the mmgp offloader's
- * quantizeTransformer=True uses int8 by default.
+ * quantizeTransformer=True uses int8 by default (Maestro A/B tested:
+ * no meaningful quality gain from BF16, slower loads).
  */
 function quantForProfile(profile) {
   return 'int8'
@@ -208,37 +236,35 @@ const QUANT_OPTIONS = [
 ]
 
 /**
- * VAE config — recommends 0 (Auto).
- * Auto is the safest choice for quality — higher presets save VRAM but
- * can introduce banding artifacts.
+ * VAE config — port of Maestro's picker, labels verified against
+ * models/wan/modules/vae2_2.py get_VAE_tile_size():
+ *   0 = Auto (runtime: ≥24GB → 1, ≥8GB → 2, else 3)
+ *   1 = No tiling (fast, high VRAM)
+ *   2 = Tiling 256
+ *   3 = Tiling 128 (aggressive)
  */
-function vaeConfigForProfile(profile) {
-  return 0
+function vaeConfigForTier(vramTier) {
+  if (vramTier === 'high') return 1   // full VAE — VRAM is plentiful
+  if (vramTier === 'low') return 0   // auto — let the runtime decide
+  return 3                            // aggressive tiling — squeeze it
 }
 
-/** All supported VAE config options. */
+/** All supported VAE config options (labels per vae2_2.py semantics). */
 const VAE_OPTIONS = [
   { value: 0, label: 'Auto \u2705 recommended' },
-  { value: 1, label: 'Tiling' },
-  { value: 2, label: 'Split-Tiling' },
-  { value: 3, label: 'No Encode' }
+  { value: 1, label: 'Full (no tiling)' },
+  { value: 2, label: 'Tiling 256' },
+  { value: 3, label: 'Tiling 128 (aggressive)' }
 ]
 
 /**
- * VRAM safety coefficient per profile.
- * Higher = more headroom (slower but safer).
+ * VRAM safety coefficient — Maestro's calibrated flat policy:
+ *   0.80 for ≥12 GB VRAM, 0.70 for <12 GB.
+ * Real-world data shows even 24 GB cards OOM at 0.80 on heavy workloads;
+ * anything above 0.80 is actively harmful, per-tier tables under-reserve.
  */
-function vramCoefficientForProfile(profile) {
-  const map = {
-    1: 0.80,
-    2: 0.75,
-    3: 0.70,
-    3.5: 0.65,
-    4: 0.60,
-    4.5: 0.55,
-    5: 0.50
-  }
-  return map[profile] ?? 0.70
+function vramCoefficientForTier(vramTier) {
+  return vramTier === 'tight' || vramTier === 'none' ? 0.70 : 0.80
 }
 
 /** Wan2GP's official profile labels from wgp.py memory_profile_choices. */
@@ -300,9 +326,24 @@ function appliedKeys() {
  *                   _recommendation_label and _recommendation_reason.
  */
 function recommend(hw) {
-  const vramTier = hw.vram_tier || 'low'
-  const ramTier = hw.ram_tier || 'low'
-  const vramGb = hw.gpu_vram_gb || 0
+  // No CUDA — conservative fallback, clearly labeled. Never silently pick
+  // P5: the user needs to know auto-tune can't help their hardware.
+  if (hw && hw.cuda_available === false) {
+    return {
+      video_profile: 4.5,
+      image_profile: 4.5,
+      audio_profile: 4.5,
+      transformer_quantization: 'int8',
+      vae_config: 3,
+      vram_safety_coefficient: 0.70,
+      _recommendation_label: 'Auto-tune unavailable on this hardware',
+      _recommendation_reason: 'No CUDA-capable GPU detected. Conservative profile applied — generation may be limited.'
+    }
+  }
+
+  const vramTier = hw && hw.vram_tier ? hw.vram_tier : 'low'
+  const ramTier = hw && hw.ram_tier ? hw.ram_tier : 'low'
+  const vramGb = hw && hw.gpu_vram_gb ? hw.gpu_vram_gb : 0
 
   // Lookup base profile from matrix
   const ramRow = PROFILE_MATRIX[vramTier] || PROFILE_MATRIX.low
@@ -311,16 +352,16 @@ function recommend(hw) {
 
   const videoProfile = profile
   const imageProfile = profile
-  const audioProf = audioProfile(vramGb, videoProfile)
+  const audioProfileValue = audioProfile(vramGb, videoProfile)
 
   const quant = quantForProfile(videoProfile)
-  const vaeCfg = vaeConfigForProfile(videoProfile)
-  const coeff = vramCoefficientForProfile(videoProfile)
+  const vaeCfg = vaeConfigForTier(vramTier)
+  const coeff = vramCoefficientForTier(vramTier)
 
   return {
     video_profile: videoProfile,
     image_profile: imageProfile,
-    audio_profile: audioProf,
+    audio_profile: audioProfileValue,
     vram_safety_coefficient: coeff,
     vae_config: vaeCfg,
     transformer_quantization: quant,
@@ -336,10 +377,12 @@ function recommend(hw) {
 /**
  * Find Wan2GP's wgp_config.json.
  *
- * Strategy:
- *   1. CWD (where desktop is launched)
- *   2. Repo dir (cloned Wan2GP)
- *   3. User data dir
+ * Strategy — repo dir FIRST, never process.cwd() (a packaged exe's cwd can
+ * hold a stray wgp_config.json; writing there would be invisible to Wan2GP,
+ * which reads the repo dir):
+ *   1. Repo dir (cloned Wan2GP)
+ *   2. User data dir
+ *   3. CWD (last resort)
  *
  * @param {string} repoDir - Wan2GP repo directory (from main.js)
  * @param {string} dataDir - User data directory
@@ -347,10 +390,10 @@ function recommend(hw) {
  */
 function findWgpConfig(repoDir, dataDir) {
   const candidates = [
-    path.join(process.cwd(), 'wgp_config.json'),
     path.join(repoDir || '', 'wgp_config.json'),
     path.join(dataDir || '', 'wgp_config.json'),
-    path.join(dataDir || '', 'Wan2GP', 'wgp_config.json')
+    path.join(dataDir || '', 'Wan2GP', 'wgp_config.json'),
+    path.join(process.cwd(), 'wgp_config.json')
   ]
   for (const p of candidates) {
     if (p && fs.existsSync(p)) return p
@@ -414,14 +457,14 @@ function apply(settings, repoDir, dataDir) {
 }
 
 /**
- * Full auto-tune pipeline: detect → recommend → apply.
+ * Full auto-tune pipeline: detect → recommend → apply. (async detect)
  *
  * @param {string} repoDir - Wan2GP repo directory
  * @param {string} dataDir - User data directory
- * @returns {{ hardware: object, recommendation: object, applyResult: object }}
+ * @returns {Promise<{ hardware: object, recommendation: object, applyResult: object }>}
  */
-function fullTune(repoDir, dataDir) {
-  const hw = detect(repoDir)
+async function fullTune(repoDir, dataDir) {
+  const hw = await detect(repoDir)
   const rec = recommend(hw)
   const app = apply(rec, repoDir, dataDir)
   return { hardware: hw, recommendation: rec, applyResult: app }
@@ -451,18 +494,10 @@ function getPythonForEnv(env) {
   return fs.existsSync(py) ? py : null
 }
 
-function checkPythonImport(py, moduleName) {
+async function checkPythonImport(py, moduleName) {
   if (!py) return false
-  try {
-    execSync(`"${py}" -c "import ${moduleName}"`, {
-      stdio: 'pipe',
-      timeout: 5000,
-      windowsHide: true
-    })
-    return true
-  } catch {
-    return false
-  }
+  const out = await run(py, ['-c', `import ${moduleName}`], 4000)
+  return out !== null
 }
 
 // ──────────────────────────────────────────────
@@ -477,5 +512,10 @@ module.exports = {
   findWgpConfig,
   readWgpConfig,
   appliedKeys,
-  computePerJobCoefficient
+  computePerJobCoefficient,
+  // exposed for tests
+  audioProfile,
+  vramCoefficientForTier,
+  vaeConfigForTier,
+  PROFILE_MATRIX
 }
