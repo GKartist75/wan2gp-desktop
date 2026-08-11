@@ -1925,7 +1925,15 @@ $('autotuneApplyBtn').addEventListener('click', async () => {
 // ── Auto-Tune: failsafe toggle → re-render recommendation live ──
 $('autotuneFailsafeChk').addEventListener('change', async () => {
   const status = $('autotuneStatus')
-  if (!_autotuneHardware) return // nothing detected yet — next Detect will honor it
+  if (!_autotuneHardware) {
+    // Nothing detected yet — tell the user Detect will honor it.
+    status.className = ''
+    status.style.background = 'var(--bg-tertiary)'
+    status.innerHTML = $('autotuneFailsafeChk').checked
+      ? '⚠️ Failsafe enabled — run <strong>Detect</strong> to see the P5 recommendation.'
+      : 'Failsafe off — run <strong>Detect</strong> when ready.'
+    return
+  }
   try {
     const rec = await window.w2gp.autoTuneRecommend(_autotuneHardware, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
