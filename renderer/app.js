@@ -1872,7 +1872,7 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
     // Detect + recommend only — nothing is written until Apply is clicked.
     const hw = await window.w2gp.autoTuneDetect()
     _autotuneHardware = hw
-    const rec = await window.w2gp.autoTuneRecommend(hw)
+    const rec = await window.w2gp.autoTuneRecommend(hw, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
 
     renderAutoTuneHardware(_autotuneHardware)
@@ -1919,6 +1919,26 @@ $('autotuneApplyBtn').addEventListener('click', async () => {
   } finally {
     btn.disabled = false
     btn.textContent = 'Apply to Wan2GP'
+  }
+})
+
+// ── Auto-Tune: failsafe toggle → re-render recommendation live ──
+$('autotuneFailsafeChk').addEventListener('change', async () => {
+  const status = $('autotuneStatus')
+  if (!_autotuneHardware) return // nothing detected yet — next Detect will honor it
+  try {
+    const rec = await window.w2gp.autoTuneRecommend(_autotuneHardware, { failsafe: $('autotuneFailsafeChk').checked })
+    _autotuneRecommendation = rec
+    renderAutoTuneRecommendation(rec)
+    status.className = ''
+    status.style.background = 'var(--bg-tertiary)'
+    status.innerHTML = $('autotuneFailsafeChk').checked
+      ? '⚠️ Failsafe mode active — P5 (maximum compatibility) selected. Apply to write it.'
+      : 'ℹ️ Failsafe mode off — standard matrix recommendation restored.'
+  } catch (e) {
+    status.className = ''
+    status.style.background = '#3A1E1E'
+    status.innerHTML = '❌ Failsafe toggle failed: ' + escHtml(e.message)
   }
 })
 

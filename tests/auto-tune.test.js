@@ -41,6 +41,32 @@ test('recommend() falls back to profile 4 on unknown tiers', () => {
   assert.strictEqual(r.video_profile, 4)
 })
 
+// ── Failsafe preference (P5 forced regardless of tier) ──
+test('failsafe forces P5 + 0.60 coeff + VAE-3 on any hardware', () => {
+  // A high-end machine that still wants max compatibility
+  const r = recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true })
+  assert.strictEqual(r.video_profile, 5)
+  assert.strictEqual(r.image_profile, 5)
+  assert.strictEqual(r.vram_safety_coefficient, 0.60)
+  assert.strictEqual(r.vae_config, 3)
+  assert.strictEqual(r.transformer_quantization, 'int8')
+  assert.match(r._recommendation_label, /Failsafe/)
+  // Audio still honors the ≥12GB LM-decoder rule, not the failsafe profile
+  assert.strictEqual(r.audio_profile, 3)
+})
+
+test('failsafe on a tight card keeps audio inheriting video (P5)', () => {
+  const r = recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 10 }, { failsafe: true })
+  assert.strictEqual(r.video_profile, 5)
+  assert.strictEqual(r.audio_profile, 5)
+})
+
+test('no failsafe flag → unchanged matrix behavior', () => {
+  const r = recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 10 })
+  assert.strictEqual(r.video_profile, 4.5)
+  assert.strictEqual(r.vram_safety_coefficient, 0.70)
+})
+
 // ── Audio profile rule (Maestro parity — wan2gp fast LM decoder gate) ──
 test('audio_profile is 3 for ≥12GB cards whose video profile is not 1 or 3', () => {
   // 12–23GB video P4/P4.5/P5 → audio must be 3 (engages vllm/cg LM decoders)

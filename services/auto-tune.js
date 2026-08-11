@@ -321,11 +321,14 @@ function appliedKeys() {
 /**
  * Recommend optimal settings based on hardware detection result.
  *
- * @param {object} hw - Output from detect()
+ * @param {object} hw     - Output from detect()
+ * @param {object} [opts] - Options: { failsafe: boolean } forces the P5
+ *                          max-compatibility profile regardless of the matrix
+ *                          (for users who prefer stability over speed).
  * @returns {object} Settings dict with keys matching appliedKeys() plus
  *                   _recommendation_label and _recommendation_reason.
  */
-function recommend(hw) {
+function recommend(hw, opts) {
   // No CUDA — conservative fallback, clearly labeled. Never silently pick
   // P5: the user needs to know auto-tune can't help their hardware.
   if (hw && hw.cuda_available === false) {
@@ -345,18 +348,28 @@ function recommend(hw) {
   const ramTier = hw && hw.ram_tier ? hw.ram_tier : 'low'
   const vramGb = hw && hw.gpu_vram_gb ? hw.gpu_vram_gb : 0
 
-  // Lookup base profile from matrix
-  const ramRow = PROFILE_MATRIX[vramTier] || PROFILE_MATRIX.low
-  let profile = ramRow[ramTier]
-  if (profile === undefined) profile = 4
+  // Failsafe preference: ignore the matrix, force the P5 minimum-compatibility
+  // profile (Wan2GP: "won't be fast but may work") plus the lowest VRAM ceiling.
+  const failsafe = !!(opts && opts.failsafe)
+  let profile, coeff, vaeCfg
+  if (failsafe) {
+    profile = 5
+    coeff = 0.60 // deliberately below the calibrated 0.70/0.80 — max headroom
+    vaeCfg = 3   // aggressive tiling everywhere
+  } else {
+    // Lookup base profile from matrix
+    const ramRow = PROFILE_MATRIX[vramTier] || PROFILE_MATRIX.low
+    profile = ramRow[ramTier]
+    if (profile === undefined) profile = 4
+    coeff = vramCoefficientForTier(vramTier)
+    vaeCfg = vaeConfigForTier(vramTier)
+  }
 
   const videoProfile = profile
   const imageProfile = profile
   const audioProfileValue = audioProfile(vramGb, videoProfile)
 
   const quant = quantForProfile(videoProfile)
-  const vaeCfg = vaeConfigForTier(vramTier)
-  const coeff = vramCoefficientForTier(vramTier)
 
   return {
     video_profile: videoProfile,
@@ -365,8 +378,12 @@ function recommend(hw) {
     vram_safety_coefficient: coeff,
     vae_config: vaeCfg,
     transformer_quantization: quant,
-    _recommendation_label: PROFILE_LABELS[videoProfile] || 'Custom',
-    _recommendation_reason: PROFILE_REASONS[videoProfile] || 'Custom configuration'
+    _recommendation_label: failsafe
+      ? 'Failsafe · P5 (maximum compatibility)'
+      : (PROFILE_LABELS[videoProfile] || 'Custom'),
+    _recommendation_reason: failsafe
+      ? 'Failsafe preference: P5 (VerylowRAM_LowVRAM) — minimum compatibility profile, won\'t be fast but maximizes the chance that generation works.'
+      : (PROFILE_REASONS[videoProfile] || 'Custom configuration')
   }
 }
 

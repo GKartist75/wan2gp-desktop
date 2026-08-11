@@ -38,6 +38,13 @@
 - **VAE config labels corrected** to what the core actually implements
   (1 = full/untiled, 2 = tiling 256, 3 = aggressive tiling 128) and chosen per
   VRAM tier (1 for ≥24GB, auto for 12–23GB, 3 for <12GB).
+- **Failsafe preference.** A checkbox in the Auto-Tune tab forces the P5
+  maximum-compatibility profile (with a 0.60 safety coefficient and aggressive
+  VAE tiling) regardless of the tier matrix — for hardware where the recommended
+  profile still crashes. Toggling re-renders the recommendation live.
+- **Fixed a crash in the recommendation card** where Detect threw
+  "profileSelect is not defined" — the dropdown helper functions were lost in
+  the UI rework and are restored.
 - **Config writes always go to the repo dir** — `wgp_config.json` discovery
   now prefers the Wan2GP install dir over the launcher's working directory, so
   a stray config in the packaged app's folder can't swallow your tuning.

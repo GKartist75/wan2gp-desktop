@@ -3152,10 +3152,10 @@ ipcMain.handle('auto-tune:detect', async () => {
   return autoTune.detect(getRepoDir())
 })
 
-ipcMain.handle('auto-tune:recommend', async (_, hw) => {
+ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
   // If caller passes hardware data, use it; otherwise detect first
   const data = hw || await autoTune.detect(getRepoDir())
-  return autoTune.recommend(data)
+  return autoTune.recommend(data, opts)
 })
 
 ipcMain.handle('auto-tune:apply', (_, settings) => {
