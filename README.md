@@ -74,31 +74,40 @@ VRAM and system RAM:
 
 | Profile | mmgp name | pinnedMemory | Budgets | Encoder Quant | Best for |
 |---------|-----------|-------------|---------|---------------|----------|
-| **P1** | HighRAM_HighVRAM | All modules | None | No | ≥24GB VRAM or 16GB+VRAM + 64GB+ RAM |
-| **P2** | HighRAM_LowVRAM | All modules | `{"*": 3000}` | No | 16GB+ VRAM with ≤32GB RAM |
-| **P3** | LowRAM_HighVRAM | Transformer only | None | Yes | 10–16GB VRAM with 64GB+ RAM (CPU offload) |
+| **P1** | HighRAM_HighVRAM | All modules | None | No | ≥24GB VRAM + 64GB+ RAM (max performance) |
+| **P2** | HighRAM_LowVRAM | All modules | `{"*": 3000}` | No | 12–23GB VRAM with 64GB+ RAM |
+| **P3** | LowRAM_HighVRAM | Transformer only | None | Yes | ≥24GB VRAM with 32–63GB RAM |
 | **P3+** | VeryLowRAM_HighVRAM | Transformer only | No reserved mem | Yes | ≥24GB VRAM with <32GB RAM (RAM saver) |
-| **P4** | LowRAM_LowVRAM | Transformer only | `{"*": 3000}` | Yes | ≥16GB VRAM with ≥32GB RAM (balanced) |
-| **P4+** | LowRAM_LowVRAM+ | Transformer only | Tighter budgets | Yes | ≥16GB VRAM with <32GB RAM (VRAM saver) |
-| **P5** | VerylowRAM_LowVRAM | None | `{"*": 3000, "transformer": 400}` | Yes | <10GB VRAM (max compatibility) |
+| **P4** | LowRAM_LowVRAM | Transformer only | `{"*": 3000}` | Yes | 12–23GB VRAM with ≥32GB RAM (balanced, recommended) |
+| **P4+** | LowRAM_LowVRAM+ | Transformer only | Tighter budgets | Yes | <12GB VRAM with ≥32GB RAM (VRAM saver) |
+| **P5** | VerylowRAM_LowVRAM | None | `{"*": 3000, "transformer": 400}` | Yes | <12GB VRAM with <32GB RAM, or failsafe (max compatibility) |
 
 **Profile matrix** (how VRAM × RAM tiers map to profiles):
 
-| VRAM ↓ \ RAM → | high (≥64GB) | mid (≥32GB) | low (<32GB) |
-|----------------|-------------|-------------|------------|
-| **very_high** (≥24GB) | P1 | P3 | P3+ |
-| **high** (≥16GB) | P2 | P4 | P4+ |
-| **mid** (≥10GB) | P4 | P5 | P5 |
-| **low** (<10GB) | P5 | P5 | P5 |
+| VRAM ↓ \ RAM → | high (≥64GB) | low (≥32GB) | very low (<32GB) |
+|----------------|-------------|-------------|------------------|
+| **high** (≥24GB) | P1 | P3 | P3+ |
+| **low** (12–23GB) | P2 | P4 | P5 |
+| **tight** (<12GB) | P4 | P4+ | P5 |
 
 **Settings written** — The auto-tune writes these keys to `wgp_config.json`:
 - `video_profile`, `image_profile`, `audio_profile` — profile (1, 2, 3, 3.5, 4, 4.5, 5)
 - `transformer_quantization` — Scaled Int8 (recommended), FP8, NVFP4, or None
-- `vae_config` — Auto (recommended), Tiling, Split-Tiling, or No Encode
-- `vram_safety_coefficient` — 0.50–0.80 depending on profile
+- `vae_config` — Auto (recommended), Full/untiled (≥24GB), Tiling 256, or Aggressive tiling 128 (<12GB)
+- `vram_safety_coefficient` — 0.80 (≥12GB), 0.70 (<12GB), 0.60 (failsafe)
 
 All three profile dropdowns (video/image/audio) are **editable** before applying,
 so you can override the recommendation.
+
+**Failsafe preference** — tick *"Prefer failsafe (P5 — maximum compatibility)"* in
+the recommendation card to force the P5 profile (with a 0.60 safety coefficient
+and aggressive VAE tiling) regardless of the matrix — for hardware where the
+recommended profile still crashes. Toggling re-renders live; Apply writes
+whatever is shown.
+
+**The tuned coefficient is real** — on every launch the launcher forwards the
+tuned value as `--vram-safety-coefficient`, so what Auto-Tune writes is what
+generation uses. Explicit values in Extra Launch Args always win.
 
 ### 🚀 Launch modes
 
@@ -116,6 +125,17 @@ so you can override the recommendation.
 - **System tray** — minimize to tray, auto-start with Windows, notifications on server ready/stop.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
+
+> **New in v2.5.0** — **Auto-Tune overhaul**. The tuned VRAM safety
+> coefficient is now actually forwarded to Wan2GP on every launch (it was
+> previously written but silently ignored — generation always ran at 0.8).
+> Detection is async (no more ~30s UI freeze), a **failsafe preference** forces
+> the max-compatibility P5 profile on demand, audio no longer crawls on
+> 12–23GB cards (profile 3 engages the fast LM decoders), 12GB/32GB machines
+> keep P4 instead of being downgraded to P5, RTX 30 gets the right attention
+> backend, fresh installs auto-tune once at setup, and Detect scans without
+> writing (Apply applies, and tells you to restart).
+> [Full changelog →](changelogs/CHANGELOG-v2.5.0.md)
 
 > **New in v2.4.5** — **Wan2GP update checks, now periodic + manual**, plus
 > **update-flow hardening and a driver pre-check**. The dashboard re-checks the

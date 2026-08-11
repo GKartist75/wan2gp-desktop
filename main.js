@@ -8,6 +8,23 @@ const { spawn, exec, execSync } = require('child_process')
 const net = require('net')
 const http = require('http')
 const https = require('https')
+const autoTune = require('./services/auto-tune.js')
+
+// Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
+// as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
+// written to config by Auto-Tune is otherwise dead (always 0.8). CLI wins by design.
+function pushAutoTunedCoefficient(extraArgs) {
+  if (extraArgs.some(a => a === '--vram-safety-coefficient')) return // explicit user arg wins
+  try {
+    const cfgPath = autoTune.findWgpConfig(getRepoDir(), getDataDir())
+    if (!cfgPath) return
+    const wgpConfig = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    const coeff = parseFloat(wgpConfig.vram_safety_coefficient)
+    if (Number.isFinite(coeff) && coeff > 0 && coeff <= 1) {
+      extraArgs.push('--vram-safety-coefficient', String(coeff))
+    }
+  } catch (e) { console.warn('[launch] failed to read auto-tuned coefficient:', e.message) }
+}
 
 // ── GPU info cache (TTL 30s, avoids redundant nvidia-smi calls across handlers) ──
 // Does NOT cache empty/error results — only caches when non-NVIDIA data is available.
@@ -43,7 +60,7 @@ function getGpuInfo() {
   return result
 }
 
-// ── NVIDIA driver pre-check (Pinokio parity) ──
+// ── NVIDIA driver pre-check (upstream parity) ──
 // cu130 wheels (torch 2.10) need driver R580+; GTX 10/16 series fall back to
 // cu128 (torch 2.7.1) so they're exempt. Returns a warning string or ''.
 // Upstream setup.py has no such gate — the launcher adds it so users don't
@@ -695,7 +712,7 @@ ipcMain.handle('detect-gpus', () => {
 
 ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
-  // NVIDIA driver pre-check (Pinokio parity) — warn before a long install if the
+  // NVIDIA driver pre-check (upstream parity) — warn before a long install if the
   // driver can't run the cu130 stack Wan2GP's profile will install.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('setup-output', _drvWarn)
@@ -821,10 +838,10 @@ ipcMain.handle('install', async (_, envType) => {
   // UI's "Installation complete" only shows after everything finishes.
   // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
   send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
-  // AMD/Windows numpy pin (Pinokio parity): upstream requirements.txt pins
+  // AMD/Windows numpy pin (upstream parity): upstream requirements.txt pins
   // numpy==2.1.2, but the ROCm "TheRock" torch 2.7.0a0 wheels Wan2GP installs
   // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
-  // Pinokio's install.js forces numpy==1.26.4 on win32+AMD for the same reason.
+  // The upstream install scripts force numpy==1.26.4 on win32+AMD for the same reason.
   try {
     const _gpuPost = getGpuInfo()
     if (IS_WIN && _gpuPost.vendor === 'AMD') {
@@ -1168,13 +1185,14 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
-  // First Block Cache / advanced UI (Pinokio parity): --advanced exposes the
+  // First Block Cache / advanced UI (upstream parity): --advanced exposes the
   // "Steps skipping" tab where First Block Cache lives; --multiple-images enables
   // multi-image I2V input. Both are wgp.py CLI flags (shared/cli_args.py) that
-  // Pinokio's start.js passes by default — without them the post's headline
+  // the upstream start scripts pass by default — without them the post's headline
   // speed feature is invisible. Respect explicit user args (no duplication).
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
+  pushAutoTunedCoefficient(extraArgs)
 
   const port = preferredPort
   _currentPort = port
@@ -1468,9 +1486,10 @@ ipcMain.handle('launch-webview', async () => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
-  // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+  // First Block Cache / advanced UI (upstream parity) — see launch handler.
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
+  pushAutoTunedCoefficient(extraArgs)
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
@@ -1706,7 +1725,7 @@ ipcMain.handle('bv-set-zoom', (_, factor) => {
 })
 
 ipcMain.handle('update', async () => {
-  // NVIDIA driver pre-check (Pinokio parity) — same gate as install; cu130 wheels
+  // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
   // need R580+, and setup.py's own pull/install won't warn about it.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('launch-log', _drvWarn)
@@ -1820,7 +1839,7 @@ ipcMain.handle('update', async () => {
   } catch (e) {
     send('launch-log', `[!] requirements reinstall check failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
-  // AMD/Windows numpy pin (Pinokio parity) — re-applied after any requirements
+  // AMD/Windows numpy pin (upstream parity) — re-applied after any requirements
   // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
   // the ROCm "TheRock" torch wheels on Windows/AMD.
   try {
@@ -2377,8 +2396,13 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
 })
 
 // ── Hardware-tuned default settings for wgp_config.json ──
+// Single source of truth: delegates profile/vae/coefficient/audio decisions to
+// services/auto-tune.js (same engine as the Settings → Auto-Tune tab), so the
+// install-time defaults and the in-app tuner can never disagree (fixes the old
+// P4-install → P5-downgrade on 12GB/32GB machines). Attention/compile stay
+// generation-based here (sage2 is sm90+; Ampere and older get sage).
 function getHardwareDefaults() {
-  const out = { attention: 'auto', compile: '', profile: 5, hierarchy: 1 }
+  const out = { attention: 'auto', compile: '', profile: 5, hierarchy: 1, audio_profile: 5, vram_safety_coefficient: 0.8, vae_config: 0 }
   try {
     const gpu = getGpuInfo()
     const gpuName = gpu.name || ''
@@ -2413,8 +2437,8 @@ function getHardwareDefaults() {
         out.compile = 'transformer'
       }
       else if (/30\s*\d0|RTX 30|3090|3080|3070|3060/.test(upper)) {
-        out.attention = 'sage2'
-        out.compile = 'transformer'
+        // sage2 is sm90+ only — Ampere must use sage v1 (shared/attention.py)
+        out.attention = 'sage'
       }
       else if (/20\s*\d0|RTX 20|2080|2070|2060/.test(upper)) {
         out.attention = 'sage'
@@ -2422,22 +2446,21 @@ function getHardwareDefaults() {
       else {
         out.attention = 'auto'
       }
-    } else if (upper.includes('APPLE') || upper.includes('MPS')) {
-      out.attention = 'auto'
     } else {
       out.attention = 'auto'
     }
 
-    // Profile 1-5 based on RAM+VRAM (same algorithm as WanGP setup.py)
-    const hasHighRam = ramGB > 60
-    const hasMidRam = ramGB > 30
-    const hasHugeVram = vramMB > 22 * 1024  // >22 GB
-    const hasHighVram = vramMB > 11 * 1024  // >11 GB
-    if (hasHighRam && hasHugeVram) out.profile = 1
-    else if (hasHighRam) out.profile = 2
-    else if (hasMidRam && hasHugeVram) out.profile = 3
-    else if (hasMidRam && hasHighVram) out.profile = 4
-    else out.profile = 5
+    // Profiles / VAE / coefficient: same engine as the Auto-Tune tab.
+    const rec = autoTune.recommend({
+      cuda_available: gpu.vendor === 'NVIDIA',
+      vram_tier: vramMB >= 24 * 1024 ? 'high' : (vramMB >= 12 * 1024 ? 'low' : 'tight'),
+      ram_tier: ramGB >= 64 ? 'high' : (ramGB >= 32 ? 'low' : 'very_low'),
+      gpu_vram_gb: vramMB / 1024
+    })
+    out.profile = rec.video_profile
+    out.audio_profile = rec.audio_profile
+    out.vram_safety_coefficient = rec.vram_safety_coefficient
+    out.vae_config = rec.vae_config
 
     // Hierarchy: 2 (expert) if >16GB VRAM, else 1 (standard)
     out.hierarchy = vramMB > 16 * 1024 ? 2 : 1
@@ -2445,9 +2468,10 @@ function getHardwareDefaults() {
   return out
 }
 
-ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }) => {
+ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, savePath }) => {
   const hw = getHardwareDefaults()
   const configPath = path.join(getRepoDir(), 'wgp_config.json')
+  const existed = fs.existsSync(configPath)
   let cfg = {}
   try {
     if (fs.existsSync(configPath)) {
@@ -2464,10 +2488,11 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
   // Hardware-tuned defaults — only fill missing
   // Attention defaults to AUTO (gradio UI can override)
   if (cfg.attention_mode === undefined) cfg.attention_mode = 'auto'
-  // Profile 1-5 based on RAM/VRAM (same as WanGP setup.py)
+  // Profile 1-5 from the shared auto-tune engine (video/image/audio decoupled:
+  // audio must follow Wan2GP's fast-decoder gate — int(profile) in (1, 3), wgp.py)
   if (cfg.video_profile === undefined) cfg.video_profile = hw.profile
   if (cfg.image_profile === undefined) cfg.image_profile = hw.profile
-  if (cfg.audio_profile === undefined) cfg.audio_profile = hw.profile
+  if (cfg.audio_profile === undefined) cfg.audio_profile = hw.audio_profile
   // Compile mode: 'transformer' for RTX 40+ with sage2 attn, else ''
   if (cfg.compile === undefined) cfg.compile = hw.compile
   if (cfg.transformer_quantization === undefined) cfg.transformer_quantization = 'int8'
@@ -2480,7 +2505,10 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
   if (cfg.keep_resolution_on_model_switch === undefined) cfg.keep_resolution_on_model_switch = true
   if (cfg.enable_4k_resolutions === undefined) cfg.enable_4k_resolutions = 0
   if (cfg.max_reserved_loras === undefined) cfg.max_reserved_loras = -1
-  if (cfg.vae_config === undefined) cfg.vae_config = 0
+  if (cfg.vae_config === undefined) cfg.vae_config = hw.vae_config
+  // Auto-tuned VRAM safety coefficient — written to config AND forwarded as a CLI
+  // arg at launch (pushAutoTunedCoefficient), which is the only way wgp.py reads it.
+  if (cfg.vram_safety_coefficient === undefined) cfg.vram_safety_coefficient = hw.vram_safety_coefficient
   if (cfg.preload_model_policy === undefined) cfg.preload_model_policy = []
   if (cfg.UI_theme === undefined) cfg.UI_theme = 'default'
   if (cfg.save_queue_if_crash === undefined) cfg.save_queue_if_crash = 1
@@ -2512,6 +2540,18 @@ ipcMain.handle('write-wgp-config', (_, { checkpointsPaths, lorasRoot, savePath }
     if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice)) cfg.device = gpuDevice
   } catch {}
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
+  // First-boot auto-tune (one-shot): a brand-new install gets one full
+  // detect → recommend → apply pass so users who never open Settings still run
+  // tuned. Existing configs are never touched here — manual tuning wins.
+  if (!existed) {
+    try {
+      const tuner = await autoTune.fullTune(getRepoDir(), getDataDir())
+      const label = tuner && tuner.recommendation && tuner.recommendation._recommendation_label
+      console.log(`[auto-tune] first-boot applied${label ? ` (${label})` : ''}`)
+    } catch (e) {
+      console.error('[auto-tune] first-boot tune failed:', e.message)
+    }
+  }
   return true
 })
 
@@ -2624,7 +2664,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
       const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
       const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
       const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
-      // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+      // First Block Cache / advanced UI (upstream parity) — see launch handler.
       const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
       const advancedArg = hasAdvanced ? '' : ' --advanced'
       const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
@@ -2708,7 +2748,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
     const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
     const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
     const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
-    // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+    // First Block Cache / advanced UI (upstream parity) — see launch handler.
     const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
     const advancedArg = hasAdvanced ? '' : ' --advanced'
     const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
@@ -3105,23 +3145,24 @@ ipcMain.handle('detect-hardware', () => {
 })
 
 // ── Auto-Tune (detect → recommend → apply to wgp_config.json) ──
-const autoTune = require('./services/auto-tune.js')
+// autoTune (require above, top of file) runs detect asynchronously with bounded
+// subprocess timeouts so the Electron main process never blocks.
 
-ipcMain.handle('auto-tune:detect', () => {
+ipcMain.handle('auto-tune:detect', async () => {
   return autoTune.detect(getRepoDir())
 })
 
-ipcMain.handle('auto-tune:recommend', (_, hw) => {
+ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
   // If caller passes hardware data, use it; otherwise detect first
-  const data = hw || autoTune.detect(getRepoDir())
-  return autoTune.recommend(data)
+  const data = hw || await autoTune.detect(getRepoDir())
+  return autoTune.recommend(data, opts)
 })
 
 ipcMain.handle('auto-tune:apply', (_, settings) => {
   return autoTune.apply(settings, getRepoDir(), getDataDir())
 })
 
-ipcMain.handle('auto-tune:full-tune', () => {
+ipcMain.handle('auto-tune:full-tune', async () => {
   return autoTune.fullTune(getRepoDir(), getDataDir())
 })
 
