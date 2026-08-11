@@ -1813,6 +1813,53 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
 
+function profileSelect(name, selectedVal) {
+  var opts = ''
+  var items = [
+    { v: 1,   l: 'HighRAM · HighVRAM' },
+    { v: 2,   l: 'HighRAM · LowVRAM' },
+    { v: 3,   l: 'LowRAM · HighVRAM' },
+    { v: 3.5, l: 'VeryLowRAM · HighVRAM' },
+    { v: 4,   l: 'LowRAM · LowVRAM' },
+    { v: 4.5, l: 'LowRAM · LowVRAM+' },
+    { v: 5,   l: 'VerylowRAM · LowVRAM' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v == selectedVal ? ' selected' : ''
+    var label = items[i].v === 3.5 ? 'P3+' : items[i].v === 4.5 ? 'P4+' : 'P' + items[i].v
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + label + ' — ' + items[i].l + '</option>'
+  }
+  return '<select class="profile-select" data-profile-key="' + name + '">' + opts + '</select>'
+}
+function quantSelect(selectedVal) {
+  var opts = ''
+  var items = [
+    { v: 'int8',     l: 'Scaled Int8 ✅ recommended' },
+    { v: 'fp8',      l: 'FP8' },
+    { v: 'nvfp4',    l: 'NVFP4' },
+    { v: 'no_quant', l: 'None (no quantization)' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v === selectedVal ? ' selected' : ''
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
+  }
+  return '<select class="quant-select" data-quant-key="transformer_quantization">' + opts + '</select>'
+}
+function vaeSelect(selectedVal) {
+  var opts = ''
+  var items = [
+    { v: 0, l: 'Auto ✅ recommended' },
+    { v: 1, l: 'Full (untiled) · high VRAM' },
+    { v: 2, l: 'Tiling 256px' },
+    { v: 3, l: 'Aggressive tiling 128px' }
+  ]
+  for (var i = 0; i < items.length; i++) {
+    var sel = items[i].v == selectedVal ? ' selected' : ''
+    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
+  }
+  return '<select class="vae-select" data-vae-key="vae_config">' + opts + '</select>'
+}
+
 // ── Auto-Tune: Detect ──
 $('autotuneDetectBtn').addEventListener('click', async () => {
   const btn = $('autotuneDetectBtn')
