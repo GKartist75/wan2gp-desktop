@@ -4,10 +4,9 @@
  * Detect hardware → recommend optimal settings → apply to wgp_config.json.
  *
  * Reworked 2026-08: tiers/coefficient/audio-profile aligned with Wan2GP's own
- * calibrations (Maestro's perf_recommend.py / hardware_detect.py verified
- * against wgp.py thresholds and the vae2_2 VAE tiling table). Detection is
- * fully async — nothing blocks the Electron main process (previously up to
- * ~30s of frozen UI from execSync probes).
+ * calibrations, verified against wgp.py thresholds and the vae2_2 VAE tiling
+ * table. Detection is fully async — nothing blocks the Electron main process
+ * (previously up to ~30s of frozen UI from execSync probes).
  *
  * Pure functions — no side effects in detect()/recommend(). apply() writes
  * to Wan2GP's wgp_config.json on disk.
@@ -125,7 +124,7 @@ async function detect(repoDir) {
   const ramGb = Math.round(os.totalmem() / 1073741824)
   const cpuCount = os.cpus().length
 
-  // ── Tiers (match Wan2GP's own thresholds — see maestro perf_recommend.py) ──
+  // ── Tiers (match Wan2GP's own thresholds) ──
   // VRAM tier
   let vramTier = 'none'
   if (cudaAvailable) {
@@ -191,7 +190,7 @@ async function detect(repoDir) {
  *   4.5 = LowRAM_LowVRAM+        — 32-63GB RAM + <12GB VRAM (slightly slower, less VRAM)
  *   5   = VerylowRAM_LowVRAM     — <32GB RAM + <12GB VRAM (Fail safe)
  *
- * Thresholds (aligned with Wan2GP's memory profile table + Maestro):
+ * Thresholds (aligned with Wan2GP's memory profile table):
  *   VRAM tiers: high ≥ 24 GB | low 12-23 GB | tight < 12 GB | none (no CUDA)
  *   RAM  tiers: high ≥ 64 GB | low 32-63 GB | very_low < 32 GB
  */
@@ -203,7 +202,7 @@ const PROFILE_MATRIX = {
 }
 
 /**
- * Audio profile — port of Maestro's fix (perf_recommend._pick_profile audio rule).
+ * Audio profile — the fast-LM-decoder rule.
  *
  * Wan2GP only engages the fast LM decoders (vllm / cg) when the memory profile
  * loads the main models fully in VRAM (wgp.py: int(profile) in (1, 3)); any
@@ -220,7 +219,7 @@ function audioProfile(vramGb, videoProfile) {
 /**
  * Quantization — recommends Scaled Int8 ("int8") for best balance.
  * This is Wan2GP's own recommended default and the mmgp offloader's
- * quantizeTransformer=True uses int8 by default (Maestro A/B tested:
+ * quantizeTransformer=True uses int8 by default (A/B tested:
  * no meaningful quality gain from BF16, slower loads).
  */
 function quantForProfile(profile) {
@@ -236,7 +235,7 @@ const QUANT_OPTIONS = [
 ]
 
 /**
- * VAE config — port of Maestro's picker, labels verified against
+ * VAE config — per-tier picker, labels verified against
  * models/wan/modules/vae2_2.py get_VAE_tile_size():
  *   0 = Auto (runtime: ≥24GB → 1, ≥8GB → 2, else 3)
  *   1 = No tiling (fast, high VRAM)
@@ -258,7 +257,7 @@ const VAE_OPTIONS = [
 ]
 
 /**
- * VRAM safety coefficient — Maestro's calibrated flat policy:
+ * VRAM safety coefficient — calibrated flat policy:
  *   0.80 for ≥12 GB VRAM, 0.70 for <12 GB.
  * Real-world data shows even 24 GB cards OOM at 0.80 on heavy workloads;
  * anything above 0.80 is actively harmful, per-tier tables under-reserve.

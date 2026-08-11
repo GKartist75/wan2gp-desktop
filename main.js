@@ -60,7 +60,7 @@ function getGpuInfo() {
   return result
 }
 
-// ── NVIDIA driver pre-check (Pinokio parity) ──
+// ── NVIDIA driver pre-check (upstream parity) ──
 // cu130 wheels (torch 2.10) need driver R580+; GTX 10/16 series fall back to
 // cu128 (torch 2.7.1) so they're exempt. Returns a warning string or ''.
 // Upstream setup.py has no such gate — the launcher adds it so users don't
@@ -712,7 +712,7 @@ ipcMain.handle('detect-gpus', () => {
 
 ipcMain.handle('install', async (_, envType) => {
   const env = envType || 'venv'
-  // NVIDIA driver pre-check (Pinokio parity) — warn before a long install if the
+  // NVIDIA driver pre-check (upstream parity) — warn before a long install if the
   // driver can't run the cu130 stack Wan2GP's profile will install.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('setup-output', _drvWarn)
@@ -838,10 +838,10 @@ ipcMain.handle('install', async (_, envType) => {
   // UI's "Installation complete" only shows after everything finishes.
   // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
   send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
-  // AMD/Windows numpy pin (Pinokio parity): upstream requirements.txt pins
+  // AMD/Windows numpy pin (upstream parity): upstream requirements.txt pins
   // numpy==2.1.2, but the ROCm "TheRock" torch 2.7.0a0 wheels Wan2GP installs
   // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
-  // Pinokio's install.js forces numpy==1.26.4 on win32+AMD for the same reason.
+  // The upstream install scripts force numpy==1.26.4 on win32+AMD for the same reason.
   try {
     const _gpuPost = getGpuInfo()
     if (IS_WIN && _gpuPost.vendor === 'AMD') {
@@ -1185,10 +1185,10 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
-  // First Block Cache / advanced UI (Pinokio parity): --advanced exposes the
+  // First Block Cache / advanced UI (upstream parity): --advanced exposes the
   // "Steps skipping" tab where First Block Cache lives; --multiple-images enables
   // multi-image I2V input. Both are wgp.py CLI flags (shared/cli_args.py) that
-  // Pinokio's start.js passes by default — without them the post's headline
+  // the upstream start scripts pass by default — without them the post's headline
   // speed feature is invisible. Respect explicit user args (no duplication).
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
@@ -1486,7 +1486,7 @@ ipcMain.handle('launch-webview', async () => {
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
     extraArgs.push('--gpu', gpuDevice)
   }
-  // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+  // First Block Cache / advanced UI (upstream parity) — see launch handler.
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
   pushAutoTunedCoefficient(extraArgs)
@@ -1725,7 +1725,7 @@ ipcMain.handle('bv-set-zoom', (_, factor) => {
 })
 
 ipcMain.handle('update', async () => {
-  // NVIDIA driver pre-check (Pinokio parity) — same gate as install; cu130 wheels
+  // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
   // need R580+, and setup.py's own pull/install won't warn about it.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('launch-log', _drvWarn)
@@ -1839,7 +1839,7 @@ ipcMain.handle('update', async () => {
   } catch (e) {
     send('launch-log', `[!] requirements reinstall check failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
-  // AMD/Windows numpy pin (Pinokio parity) — re-applied after any requirements
+  // AMD/Windows numpy pin (upstream parity) — re-applied after any requirements
   // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
   // the ROCm "TheRock" torch wheels on Windows/AMD.
   try {
@@ -2540,7 +2540,7 @@ ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, save
     if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice)) cfg.device = gpuDevice
   } catch {}
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4))
-  // First-boot auto-tune (Maestro parity): a brand-new install gets one full
+  // First-boot auto-tune (one-shot): a brand-new install gets one full
   // detect → recommend → apply pass so users who never open Settings still run
   // tuned. Existing configs are never touched here — manual tuning wins.
   if (!existed) {
@@ -2664,7 +2664,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
       const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
       const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
       const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
-      // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+      // First Block Cache / advanced UI (upstream parity) — see launch handler.
       const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
       const advancedArg = hasAdvanced ? '' : ' --advanced'
       const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
@@ -2748,7 +2748,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
     const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
     const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
     const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
-    // First Block Cache / advanced UI (Pinokio parity) — see launch handler.
+    // First Block Cache / advanced UI (upstream parity) — see launch handler.
     const hasAdvanced = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--advanced')
     const advancedArg = hasAdvanced ? '' : ' --advanced'
     const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')

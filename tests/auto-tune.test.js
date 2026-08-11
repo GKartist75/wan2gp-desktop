@@ -2,7 +2,7 @@
  * Tests for the auto-tune recommendation engine (2026-08 rework).
  * Run: npm test  (node --test tests/)
  *
- * Covers the Wan2GP-aligned tier matrix, the Maestro audio-profile rule,
+ * Covers the Wan2GP-aligned tier matrix, the audio-profile rule,
  * calibrated vram_safety_coefficient, VAE config tiers and the no-CUDA
  * fallback. detect() is async and requires a GPU — kept out of unit tests.
  */
@@ -12,7 +12,7 @@ const { recommend, computePerJobCoefficient, audioProfile, findWgpConfig } = req
 
 // ── Profile matrix: VRAM tier × RAM tier → profile ──
 // Realigned to Wan2GP's own profile table (wgp.py memory_profile_choices) and
-// Maestro's tiers: high ≥24GB / low 12–23GB / tight <12GB VRAM;
+// Wan2GP's tiers: high ≥24GB / low 12–23GB / tight <12GB VRAM;
 // high ≥64GB / low ≥32GB / very_low <32GB RAM.
 const MATRIX = {
   high:  { high: 1, low: 3, very_low: 3.5 }, // ≥24GB VRAM
@@ -67,7 +67,7 @@ test('no failsafe flag → unchanged matrix behavior', () => {
   assert.strictEqual(r.vram_safety_coefficient, 0.70)
 })
 
-// ── Audio profile rule (Maestro parity — wan2gp fast LM decoder gate) ──
+// ── Audio profile rule (wan2gp fast LM decoder gate) ──
 test('audio_profile is 3 for ≥12GB cards whose video profile is not 1 or 3', () => {
   // 12–23GB video P4/P4.5/P5 → audio must be 3 (engages vllm/cg LM decoders)
   assert.strictEqual(audioProfile(12, 4), 3)
