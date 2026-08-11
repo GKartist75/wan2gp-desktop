@@ -12,7 +12,7 @@
   12–23GB VRAM were getting their *video* profile reused as the audio profile
   (P4/P5), which bypasses Wan2GP's fast LM decoders (`int(profile) in (1, 3)`,
   wgp.py) and falls back to a legacy decoder that makes audio look hung for
-  10–15 minutes. Audio profile now follows Maestro's rule: **profile 3 on any
+  10–15 minutes. Audio profile now follows the fast-decoder rule: **profile 3 on any
   ≥12GB card** whose video profile isn't 1 or 3.
 - **12GB/32GB machines are no longer downgraded to P5.** The install-time
   defaults and the Auto-Tune tab used two different tier tables; a 12GB +
@@ -33,7 +33,7 @@
   unavailable on this hardware" and disables Apply instead of silently
   assigning P5.
 - **First-boot auto-tune.** A brand-new install now gets one automatic
-  detect → recommend → apply pass at install time (Maestro parity). Existing
+  detect → recommend → apply pass at install time. Existing
   installs are never touched automatically — manual tuning always wins.
 - **VAE config labels corrected** to what the core actually implements
   (1 = full/untiled, 2 = tiling 256, 3 = aggressive tiling 128) and chosen per
