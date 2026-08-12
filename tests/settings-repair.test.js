@@ -7,7 +7,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles } = require('../services/settings-repair')
+const { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles, repairNestedModelPaths } = require('../services/settings-repair')
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'wan2gp-repair-test-'))
@@ -113,5 +113,83 @@ test('collectSettingsFiles returns [] for a repo with no settings', () => {
   const dir = tmpdir()
   fs.mkdirSync(path.join(dir, 'models'), { recursive: true })
   assert.deepStrictEqual(collectSettingsFiles(dir), [])
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+// ── repairNestedModelPaths (issue #18) ──
+
+function repoWithConfig(cfg) {
+  const dir = tmpdir()
+  fs.mkdirSync(path.join(dir, 'Wan2GP', 'ckpts'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'wgp_config.json'), JSON.stringify(cfg, null, 2))
+  return dir
+}
+
+test('repairs checkpoints_paths entries that resolve inside the repo (issue #18)', () => {
+  const dir = repoWithConfig({})
+  // relative ./Wan2GP/ckpts + absolute <repo>\Wan2GP\Wan2GP\ckpts are both
+  // nested; a sibling C:\Models\ckpt is healthy and must survive untouched.
+  fs.writeFileSync(path.join(dir, 'wgp_config.json'), JSON.stringify({
+    checkpoints_paths: ['./Wan2GP/ckpts', path.join(dir, 'Wan2GP', 'Wan2GP', 'ckpts'), path.join('C:', 'Models', 'ckpt')],
+    loras_root: './Wan2GP/lora'
+  }, null, 2))
+  const r = repairNestedModelPaths(dir, path.join('C:', 'data'))
+  assert.strictEqual(r.fixed, true)
+  assert.strictEqual(r.replacements.length, 3) // 2 ckpts + 1 loras
+  assert.ok(r.backup && r.backup.endsWith('.bak-repair'))
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'wgp_config.json'), 'utf8'))
+  assert.deepStrictEqual(after.checkpoints_paths, [path.join('C:', 'data', 'ckpt'), path.join('C:', 'data', 'ckpt'), path.join('C:', 'Models', 'ckpt')])
+  assert.strictEqual(after.loras_root, path.join('C:', 'data', 'lora'))
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('repairs absolute paths nested under <repo>\\Wan2GP', () => {
+  const dir = tmpdir()
+  fs.mkdirSync(path.join(dir, 'Wan2GP', 'Wan2GP'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'wgp_config.json'), JSON.stringify({ checkpoints_paths: [path.join(dir, 'Wan2GP', 'Wan2GP', 'ckpts')] }))
+  const r = repairNestedModelPaths(dir, path.join(dir, 'data'))
+  assert.strictEqual(r.fixed, true)
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'wgp_config.json'), 'utf8'))
+  assert.strictEqual(after.checkpoints_paths[0], path.join(dir, 'data', 'ckpt'))
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('leaves healthy configs untouched (fixed: false, no backup)', () => {
+  const dir = repoWithConfig({
+    checkpoints_paths: [path.join('C:', 'data', 'ckpt')],
+    loras_root: path.join('C:', 'data', 'lora'),
+    save_path: path.join('C:', 'data', 'outputs')
+  })
+  const r = repairNestedModelPaths(dir, path.join('C:', 'data'))
+  assert.strictEqual(r.fixed, false)
+  assert.deepStrictEqual(r.replacements, [])
+  assert.ok(!fs.existsSync(path.join(dir, 'wgp_config.json.bak-repair')))
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('missing or invalid wgp_config.json is a no-op', () => {
+  const dir = tmpdir()
+  assert.deepStrictEqual(repairNestedModelPaths(dir, dir), { fixed: false, replacements: [] })
+  fs.writeFileSync(path.join(dir, 'wgp_config.json'), 'not json')
+  assert.deepStrictEqual(repairNestedModelPaths(dir, dir), { fixed: false, replacements: [] })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('save_path family (save/image/audio) is repaired too', () => {
+  const dir = repoWithConfig({})
+  fs.writeFileSync(path.join(dir, 'wgp_config.json'), JSON.stringify({
+    save_path: './Wan2GP/outputs',
+    image_save_path: './Wan2GP/images',
+    audio_save_path: path.join(dir, 'Wan2GP', 'Wan2GP', 'audio'),
+    checkpoints_paths: [path.join('C:', 'Models', 'ckpt')]
+  }, null, 2))
+  const r = repairNestedModelPaths(dir, path.join('C:', 'data'))
+  assert.strictEqual(r.fixed, true)
+  assert.strictEqual(r.replacements.length, 3)
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'wgp_config.json'), 'utf8'))
+  assert.strictEqual(after.save_path, path.join('C:', 'data', 'outputs'))
+  assert.strictEqual(after.image_save_path, path.join('C:', 'data', 'outputs'))
+  assert.strictEqual(after.audio_save_path, path.join('C:', 'data', 'outputs'))
+  assert.strictEqual(after.checkpoints_paths[0], path.join('C:', 'Models', 'ckpt')) // non-nested entry untouched
   fs.rmSync(dir, { recursive: true, force: true })
 })

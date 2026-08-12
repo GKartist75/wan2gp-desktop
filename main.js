@@ -640,41 +640,16 @@ ipcMain.handle('check-installed', () => ({
   env: getActiveEnv() !== null
 }))
 
-ipcMain.handle('detect-gpu', () => {
-  // Primary path: getGpuInfo() covers both NVIDIA (via nvidia-smi) and non-NVIDIA (via WMI) on Windows.
-  // On non-Windows it avoids redundant nvidia-smi since getGpuInfo already ran it.
+ipcMain.handle('detect-gpu', async () => {
+  // Async, bounded — never blocks the main process (previously execSync with
+  // up to 8-10s WMI/nvidia-smi freezes). Falls back to the sync getGpuInfo()
+  // cache for the vendor-only quick path used by the installer.
   try {
+    const info = await autoTune.detectGpuInfo()
+    if (info && info.name && info.name !== 'Unknown') return info
     const cached = getGpuInfo()
-    if (cached.name && cached.vendor) {
-      return { vendor: cached.vendor, name: cached.name }
-    }
-    // Platform-specific fallback when cache is empty (non-NVIDIA on macOS/Linux, or first call)
-    let name = '', vendor = 'UNKNOWN'
-    if (IS_WIN) {
-      try {
-        const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
-        if (wmi) { name = wmi; vendor = /radeon|amd/i.test(wmi) ? 'AMD' : 'INTEL' }
-      } catch { logError('detect-gpu-wmi', 'WMI query failed') }
-    } else if (PLATFORM === 'darwin') {
-      try {
-        const m = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model"', { encoding: 'utf8', timeout: 10000 }).trim()
-        if (m) { name = m.replace('Chipset Model:', '').trim(); vendor = 'APPLE' }
-      } catch { logError('detect-gpu-mac', 'system_profiler failed') }
-    } else {
-      try {
-        const nv = execSync('nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null', { encoding: 'utf8', timeout: 10000, shell: true }).trim().split('\n')[0].trim()
-        if (nv) { name = nv; vendor = 'NVIDIA' }
-      } catch { logError('detect-gpu-linux-nv', 'nvidia-smi failed') }
-      if (!name) {
-        try {
-          const l = execSync('lspci | grep -i "vga\\|3d" | head -1', { encoding: 'utf8', timeout: 10000, shell: true }).trim()
-          if (/nvidia/i.test(l)) { name = l; vendor = 'NVIDIA' }
-          else if (/amd|radeon/i.test(l)) { name = l; vendor = 'AMD' }
-        } catch { logError('detect-gpu-lspci', 'lspci failed') }
-      }
-    }
-    if (!name) return { vendor: 'UNKNOWN', name: 'Unknown' }
-    return { vendor, name }
+    if (cached.name && cached.vendor) return { vendor: cached.vendor, name: cached.name }
+    return info
   } catch (e) { logError('detect-gpu', e); return { vendor: 'UNKNOWN', name: 'Unknown' } }
 })
 
@@ -682,32 +657,13 @@ ipcMain.handle('detect-gpu', () => {
 // Lists EVERY GPU so users on multi-GPU machines (iGPU + dGPU, dual NVIDIA) can
 // choose which device Wan2GP runs on. nvidia-smi enumerates all NVIDIA GPUs with
 // index + VRAM; WMI fallback lists all video controllers (not just the first).
-ipcMain.handle('detect-gpus', () => {
-  const gpus = []
+ipcMain.handle('detect-gpus', async () => {
+  // Async, bounded — nvidia-smi/WMI/system_profiler probes never block the
+  // main process (previously up to 10s execSync on the device-picker path).
   try {
-    const ns = execSync('nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim()
-    if (ns) {
-      for (const line of ns.split('\n')) {
-        const [idx, name, mem] = line.split(',').map(s => s.trim())
-        const mi = parseInt(idx)
-        if (!Number.isNaN(mi)) {
-          gpus.push({ index: mi, name, vramMB: parseFloat(mem) || 0, vendor: 'NVIDIA' })
-        }
-      }
-    }
-  } catch {}
-  if (!gpus.length) {
-    try {
-      const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + \'|\' + $_.AdapterRAM }"', { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim()
-      if (wmi) {
-        wmi.split('\n').forEach((line, i) => {
-          const [name, ram] = line.split('|').map(s => s.trim())
-          if (name) gpus.push({ index: i, name, vramMB: Math.round((parseInt(ram) || 0) / (1024 * 1024)), vendor: /radeon|amd/i.test(name) ? 'AMD' : 'INTEL' })
-        })
-      }
-    } catch {}
-  }
-  return gpus.length ? gpus : [{ index: 0, name: 'Unknown', vramMB: 0, vendor: 'UNKNOWN' }]
+    const gpus = await autoTune.queryGpuList()
+    return gpus.length ? gpus : [{ index: 0, name: 'Unknown', vramMB: 0, vendor: 'UNKNOWN' }]
+  } catch { return [{ index: 0, name: 'Unknown', vramMB: 0, vendor: 'UNKNOWN' }] }
 })
 
 ipcMain.handle('install', async (_, envType) => {
@@ -1788,6 +1744,26 @@ ipcMain.handle('update', async () => {
         cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8',
         env: gitEnv, stdio: 'pipe'
       })
+      // Dirty-repo guard: any local edit (e.g. a user-patched wgp.py) would be
+      // silently destroyed by the hard reset below — back it up first.
+      try {
+        const dirty = execSync('git status --porcelain', {
+          cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+        }).trim()
+        if (dirty) {
+          const patchDir = path.join(getDataDir(), 'patches')
+          fs.mkdirSync(patchDir, { recursive: true })
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const patchFile = path.join(patchDir, `pre-update-${stamp}.patch`)
+          try {
+            const diff = execSync('git diff', { cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true })
+            fs.writeFileSync(patchFile, diff)
+            send('launch-log', `[!] Local changes in the Wan2GP repo will be overwritten — backup saved: ${patchFile}\n`)
+          } catch (e) {
+            send('launch-log', `[!] Local changes detected but could not be backed up: ${e.message}\n`)
+          }
+        }
+      } catch {}
       // Force the local branch to match origin's branch.
       // git merge --ff-only was unreliable (says up-to-date even when behind),
       // so we reset the branch ref directly ensuring HEAD always matches origin.
@@ -2601,7 +2577,7 @@ ipcMain.handle('detect-model-folders', () => {
 // save — this is the launcher-side fix for the core-side dropdown bug (upstream PR
 // #2088 was withdrawn). Each file is backed up as <name>.bak-repair before editing.
 // Pure logic lives in services/settings-repair.js (shared with the test suite).
-const { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles } = require('./services/settings-repair')
+const { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles, repairNestedModelPaths } = require('./services/settings-repair')
 
 ipcMain.handle('repair-settings', async () => {
   const repo = getRepoDir()
@@ -2619,12 +2595,16 @@ ipcMain.handle('repair-settings', async () => {
     results.push(r)
   }
   const problems = results.filter(r => r.error)
+  // Model-path sanity check (issue #18): nested <repo>\Wan2GP\... entries in
+  // wgp_config.json get redirected to the launcher's data-dir model home.
+  const modelPaths = repairNestedModelPaths(repo, getDataDir())
   return {
     success: true,
     scanned: files.length,
     fixed: totalFixed,
     results,
-    problems: problems.length ? problems : null
+    problems: problems.length ? problems : null,
+    modelPaths
   }
 })
 
@@ -3047,101 +3027,12 @@ ipcMain.handle('restore-requirements', async () => {
 })
 
 // ── Hardware detection ──
-ipcMain.handle('detect-hardware', () => {
-  const info = { cpu: '—', ram: '—', gpu: '—', vram: '—' }
-  try {
-    if (IS_WIN) {
-      try {
-        // CPU name — node os (instant, no subprocess). Model string is one line.
-        const model = os.cpus()[0]?.model
-        if (model) {
-          info.cpu = model.trim()
-          if (info.cpu.length > 45) info.cpu = info.cpu.substring(0, 42) + '...'
-        }
-      } catch {}
-      // RAM — node os (instant, no subprocess)
-      try {
-        const ramGb = Math.round(os.totalmem() / 1073741824)
-        if (ramGb > 0) info.ram = ramGb + ' GB'
-      } catch {}
-      // Try nvidia-smi first (most accurate for NVIDIA GPUs)
-      try {
-        const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader', { encoding: 'utf8', timeout: 10000, windowsHide: true })
-        const lines = nvOut.trim().split('\n').map(l => l.trim()).filter(l => l)
-        const gpuNames = [], vramVals = []
-        for (const line of lines) {
-          const [name, mem] = line.split(', ')
-          if (name) gpuNames.push(name.trim())
-          if (mem) {
-            const mb = parseFloat(mem)
-            vramVals.push(mb >= 1024 ? Math.round(mb / 1024) + ' GB' : Math.round(mb) + ' MB')
-          }
-        }
-        if (gpuNames.length) info.gpu = gpuNames.join(' + ')
-        if (vramVals.length) info.vram = vramVals.join(' + ')
-      } catch {
-        // Fallback to WMI for non-NVIDIA GPUs
-        try {
-          const gpuOut = execSync(`powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ForEach-Object {$_.Name + '|' + ($_.AdapterRAM -or '0')}"`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
-          const lines = gpuOut.split('\n').map(l => l.trim()).filter(l => l)
-          const gpuList = []
-          const vramList = []
-          for (const line of lines) {
-            const [name, vramStr] = line.split('|')
-            if (name && name.trim() && name !== 'Name') {
-              gpuList.push(name.trim())
-              const vramBytes = parseInt(vramStr?.trim())
-              if (!isNaN(vramBytes) && vramBytes > 0) {
-                vramList.push((vramBytes / (1024**3)) >= 1 ? Math.round(vramBytes / (1024**3)) + ' GB' : Math.round(vramBytes / (1024**2)) + ' MB')
-              }
-            }
-          }
-          if (gpuList.length > 0) {
-            info.gpu = gpuList.join(' + ')
-            if (vramList.length > 0) info.vram = vramList.join(' + ')
-          }
-        } catch {}
-      }
-    } else if (PLATFORM === 'darwin') {
-      try {
-        const cpuOut = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 5000 }).trim()
-        info.cpu = cpuOut
-      } catch {}
-      try {
-        const ramOut = execSync('sysctl -n hw.memsize', { encoding: 'utf8', timeout: 5000 }).trim()
-        info.ram = Math.round(Number(ramOut) / (1024**3)) + ' GB'
-      } catch {}
-      try {
-        const gpuOut = execSync('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model|VRAM"', { encoding: 'utf8', timeout: 10000 })
-        const lines = gpuOut.trim().split('\n')
-        if (lines.length > 0) info.gpu = lines[0].replace('Chipset Model:', '').trim()
-        if (lines.length > 1) info.vram = lines[1].replace('VRAM (Dynamic, Max):', '').replace('VRAM (Total):', '').trim()
-      } catch {}
-    } else {
-      try {
-        const cpuOut = execSync('cat /proc/cpuinfo | grep "model name" | head -1', { encoding: 'utf8', timeout: 5000, shell: true })
-        info.cpu = cpuOut.split(':')[1]?.trim() || '—'
-      } catch {}
-      try {
-        const ramOut = execSync('free -h | grep Mem', { encoding: 'utf8', timeout: 5000, shell: true })
-        info.ram = ramOut.split(/\s+/)[1] || '—'
-      } catch {}
-      try {
-        const gpuOut = execSync('lspci | grep -i "vga\\|3d" | head -1', { encoding: 'utf8', timeout: 5000, shell: true })
-        info.gpu = gpuOut.split(':')[2]?.trim() || gpuOut.trim() || '—'
-      } catch {}
-      try {
-        const nvOut = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null', { encoding: 'utf8', timeout: 10000, shell: true })
-        const [nvName, memStr] = nvOut.trim().split(', ')
-        if (nvName) info.gpu = nvName
-        if (memStr) {
-          const mem = parseFloat(memStr)
-          if (!isNaN(mem)) info.vram = mem >= 1024 ? Math.round(mem / 1024) + ' GB' : Math.round(mem) + ' MB'
-        }
-      } catch {}
-    }
-  } catch {}
-  return info
+ipcMain.handle('detect-hardware', async () => {
+  // Async, bounded — CPU/RAM come from node os (instant), GPU/VRAM from the
+  // shared async probe engine. Previously this was execSync with up to 10s
+  // per probe and a WMI fallback cascade: ~15-20s of frozen main process on
+  // machines where nvidia-smi is slow or absent (installer + dashboard cards).
+  return autoTune.hardwareInfo()
 })
 
 // ── Auto-Tune (detect → recommend → apply to wgp_config.json) ──
@@ -3559,8 +3450,10 @@ function createWindow() {
   // Restore maximized state after load
   if (savedState.maximized) mainWin.maximize()
 
-  // Save window state on changes
-  const saveWindowState = () => {
+  // Save window state on changes — debounced (a sync config write on every
+  // resize/move tick was jank; 400ms coalescing keeps the last position).
+  let _wsDebounce = null
+  const persistWindowState = () => {
     if (!mainWin || app.isQuitting) return
     const cfg = loadConfig()
     const state = { maximized: mainWin.isMaximized() }
@@ -3571,8 +3464,15 @@ function createWindow() {
     cfg.windowState = state
     saveConfig(cfg)
   }
+  const saveWindowState = () => {
+    if (!mainWin || app.isQuitting) return
+    clearTimeout(_wsDebounce)
+    _wsDebounce = setTimeout(persistWindowState, 400)
+  }
   mainWin.on('resize', saveWindowState)
   mainWin.on('move', saveWindowState)
+  // Flush the pending write on close so the final position is never lost.
+  mainWin.on('close', () => { if (_wsDebounce) { clearTimeout(_wsDebounce); persistWindowState() } })
 
   // Close → quit app so tray is always cleaned up in before-quit
   mainWin.on('close', (e) => {

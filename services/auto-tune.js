@@ -191,6 +191,114 @@ async function detect(repoDir) {
   }
 }
 
+/**
+ * Run a shell pipeline with a hard timeout (bounded, async — pipes are needed
+ * for the few lspci/grep style probes). Returns trimmed stdout or null.
+ */
+async function runShell(cmd, timeoutMs = 10000) {
+  try {
+    const { stdout } = await execFileP(cmd, {
+      timeout: timeoutMs,
+      windowsHide: true,
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+      shell: true
+    })
+    return stdout.trim()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Async, bounded GPU enumeration — never blocks the main process.
+ * nvidia-smi lists every NVIDIA GPU (index + VRAM); WMI/system_profiler/lspci
+ * fall back for AMD/Intel/Apple hardware. Same output shape as the old sync
+ * 'detect-gpus' IPC so the multi-GPU device picker keeps working unchanged.
+ *
+ * @returns {Promise<Array<{index:number, name:string, vramMB:number, vendor:string}>>}
+ */
+async function queryGpuList() {
+  const gpus = []
+  const ns = await run('nvidia-smi', ['--query-gpu=index,name,memory.total', '--format=csv,noheader'], 10000)
+  if (ns) {
+    for (const line of ns.split('\n')) {
+      const [idx, name, mem] = line.split(',').map(s => s.trim())
+      const mi = parseInt(idx)
+      if (!Number.isNaN(mi) && name) gpus.push({ index: mi, name, vramMB: parseFloat(mem) || 0, vendor: 'NVIDIA' })
+    }
+  }
+  if (gpus.length) return gpus
+  if (process.platform === 'win32') {
+    const wmi = await run('powershell', ['-NoProfile', '-Command', "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + '|' + $_.AdapterRAM }"], 8000)
+    if (wmi) {
+      wmi.split('\n').forEach((line, i) => {
+        const [name, ram] = line.split('|').map(s => s.trim())
+        if (name) gpus.push({ index: i, name, vramMB: Math.round((parseInt(ram) || 0) / (1024 * 1024)), vendor: /radeon|amd/i.test(name) ? 'AMD' : 'INTEL' })
+      })
+    }
+  } else if (process.platform === 'darwin') {
+    const sp = await run('system_profiler', ['SPDisplaysDataType'], 10000)
+    if (sp) {
+      const names = sp.split('\n').filter(l => /Chipset Model/.test(l)).map(l => l.replace('Chipset Model:', '').trim()).filter(Boolean)
+      const vramLine = sp.split('\n').find(l => /VRAM \(Dynamic, Max\)|VRAM \(Total\)/.test(l))
+      const vramMb = vramLine ? (parseFloat(vramLine.split(':')[1]) || 0) * 1024 : 0
+      names.forEach((name, i) => gpus.push({ index: i, name, vramMB: Math.round(vramMb), vendor: 'APPLE' }))
+    }
+  } else if (process.platform === 'linux') {
+    const l = await runShell('lspci | grep -iE "vga|3d" | head -1', 10000)
+    if (l) {
+      const name = l.split(':')[2]?.trim() || l.trim()
+      let vendor = 'UNKNOWN'
+      if (/nvidia/i.test(l)) vendor = 'NVIDIA'
+      else if (/amd|radeon/i.test(l)) vendor = 'AMD'
+      gpus.push({ index: 0, name, vramMB: 0, vendor })
+    }
+  }
+  return gpus
+}
+
+/**
+ * Async, bounded single-GPU summary — same {vendor, name} shape as the old
+ * sync 'detect-gpu' IPC.
+ *
+ * @returns {Promise<{vendor:string, name:string}>}
+ */
+async function detectGpuInfo() {
+  const gpus = await queryGpuList()
+  if (gpus.length) return { vendor: gpus[0].vendor, name: gpus[0].name }
+  return { vendor: 'UNKNOWN', name: 'Unknown' }
+}
+
+/**
+ * Async hardware summary for the dashboard/installer spec cards — same
+ * {cpu, ram, gpu, vram} display-string shape as the old sync 'detect-hardware'
+ * IPC. CPU/RAM come from node os (instant, no subprocess); GPU/VRAM come from
+ * bounded async probes, so the main process never blocks.
+ *
+ * @returns {Promise<{cpu:string, ram:string, gpu:string, vram:string}>}
+ */
+async function hardwareInfo() {
+  const info = { cpu: '—', ram: '—', gpu: '—', vram: '—' }
+  try {
+    const model = (os.cpus()[0]?.model || '').trim()
+    if (model) info.cpu = model.length > 45 ? model.substring(0, 42) + '...' : model
+  } catch {}
+  try {
+    const ramGb = Math.round(os.totalmem() / 1073741824)
+    if (ramGb > 0) info.ram = ramGb + ' GB'
+  } catch {}
+  try {
+    const gpus = await queryGpuList()
+    if (gpus.length) {
+      info.gpu = gpus.map(g => g.name).join(' + ')
+      const vram = gpus.map(g => g.vramMB).filter(Boolean)
+      if (vram.length) info.vram = vram.map(mb => (mb >= 1024 ? Math.round(mb / 1024) + ' GB' : Math.round(mb) + ' MB')).join(' + ')
+    }
+  } catch {}
+  return info
+}
+
 // ──────────────────────────────────────────────
 //  Recommendation Engine
 // ──────────────────────────────────────────────
@@ -545,6 +653,10 @@ module.exports = {
   readWgpConfig,
   appliedKeys,
   computePerJobCoefficient,
+  // async hardware probes (non-blocking IPC backends)
+  queryGpuList,
+  detectGpuInfo,
+  hardwareInfo,
   // exposed for tests
   audioProfile,
   vramCoefficientForTier,

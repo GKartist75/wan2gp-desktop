@@ -119,4 +119,78 @@ function collectSettingsFiles(repo) {
   return files
 }
 
-module.exports = { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles }
+/**
+ * Detect and repair model paths that resolve INSIDE the Wan2GP repo itself
+ * (issue #18 — "error in getting the location": a stale entry like
+ * "./Wan2GP/ckpts" or an absolute path under <repo>\Wan2GP\ makes models land
+ * in a doubly-nested folder and the HF downloader then fails with
+ * [WinError 3] The system cannot find the path specified).
+ *
+ * Wan2GP resolves relative entries against the repo root, so any configured
+ * path that resolves under <repo>/Wan2GP is almost certainly wrong — it gets
+ * replaced with the launcher's standard data-dir location. Only clearly
+ * nested entries are touched; everything else is left alone. Config is backed
+ * up as wgp_config.json.bak-repair before the first rewrite.
+ *
+ * @param {string} repo    Wan2GP repo root
+ * @param {string} dataDir Launcher data dir (default model home)
+ * @returns {{ fixed: boolean, replacements: Array<{key:string, from:string, to:string}>, error?: string }}
+ */
+function repairNestedModelPaths(repo, dataDir) {
+  if (!repo) return { fixed: false, replacements: [] }
+  const cfgPath = path.join(repo, 'wgp_config.json')
+  if (!fs.existsSync(cfgPath)) return { fixed: false, replacements: [] }
+  let cfg
+  try {
+    cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+  } catch {
+    return { fixed: false, replacements: [] }
+  }
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return { fixed: false, replacements: [] }
+
+  const nestedRoot = path.join(repo, 'Wan2GP')
+  const home = dataDir || repo
+  const MAP = {
+    checkpoints_paths: { default: path.join(home, 'ckpt'), isList: true },
+    loras_root: { default: path.join(home, 'lora'), isList: false },
+    save_path: { default: path.join(home, 'outputs'), isList: false },
+    image_save_path: { default: path.join(home, 'outputs'), isList: false },
+    audio_save_path: { default: path.join(home, 'outputs'), isList: false }
+  }
+  const isNested = (p) => {
+    if (typeof p !== 'string' || !p) return false
+    const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(repo, p)
+    return abs === nestedRoot || abs.startsWith(nestedRoot + path.sep) || abs.startsWith(nestedRoot + '/')
+  }
+
+  const replacements = []
+  for (const [key, spec] of Object.entries(MAP)) {
+    if (!(key in cfg)) continue
+    if (spec.isList) {
+      if (!Array.isArray(cfg[key])) continue
+      cfg[key] = cfg[key].map(p => {
+        if (!isNested(p)) return p
+        replacements.push({ key, from: p, to: spec.default })
+        return spec.default
+      })
+    } else {
+      if (!isNested(cfg[key])) continue
+      replacements.push({ key, from: cfg[key], to: spec.default })
+      cfg[key] = spec.default
+    }
+  }
+  if (!replacements.length) return { fixed: false, replacements: [] }
+
+  try {
+    const raw = fs.readFileSync(cfgPath, 'utf8')
+    const backupPath = cfgPath + '.bak-repair'
+    if (!fs.existsSync(backupPath)) fs.copyFileSync(cfgPath, backupPath)
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n'
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2).replace(/\n/g, eol), 'utf8')
+    return { fixed: true, replacements, backup: backupPath }
+  } catch (e) {
+    return { fixed: false, replacements, error: e.message }
+  }
+}
+
+module.exports = { DROPDOWN_CLAMPS, clampSettingsFile, collectSettingsFiles, repairNestedModelPaths }

@@ -5,6 +5,15 @@ const logBuffer = []
 const MAX_LOG = 5000
 let lastLine = ''
 let _carriageReturn = false  // next text part replaces lastLine instead of appending (tqdm progress bars)
+let _renderScheduled = false
+// Coalesce terminal rewrites onto one animation frame: a pip/log flood can emit
+// dozens of chunks per second, and each one used to rebuild up to 3 full
+// 5k-line textContent blobs synchronously. Now renders at most once per frame.
+function scheduleTerminalRender() {
+  if (_renderScheduled) return
+  _renderScheduled = true
+  requestAnimationFrame(() => { _renderScheduled = false; renderTerminals() })
+}
 function appendLog(text) {
   if (!text) return
   // Normalize Windows \r\n to \n first (avoids \r clearing lastLine before \n pushes it)
@@ -28,11 +37,12 @@ function appendLog(text) {
     }
   }
   while (logBuffer.length > MAX_LOG) logBuffer.shift()
-  renderTerminals()
+  scheduleTerminalRender()
 }
 
 const termFollow = { termBody: true, ftTermBody: true, installTermBody: true }
 const termAutoScroll = {}
+const termDirty = {}
 
 function renderTerminals() {
   // Include the in-progress (carriage-return-updated) line so progress bars are visible
@@ -41,6 +51,12 @@ function renderTerminals() {
   ;['termBody','ftTermBody','installTermBody'].forEach(id => {
     const el = document.getElementById(id)
     if (!el) return
+    // Skip offscreen consoles (webview mode hides the dashboard console, the
+    // floating overlay hides the DOM console) — writing 5k lines to a hidden
+    // element is pure waste. They are flagged dirty and flushed on next show
+    // (showTerminal/toggleFloatingTerm call renderTerminals() explicitly).
+    if (el.offsetParent === null) { termDirty[id] = true; return }
+    termDirty[id] = false
     el.textContent = text
     if (termFollow[id]) setTimeout(() => { el.scrollTop = el.scrollHeight }, 10)
   })
@@ -336,6 +352,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Launch-time check alone misses updates released mid-session; the
     // renderer-side timer re-polls and re-flags the green dot + changelog.
     startWangpPolling()
+    // D1: silent settings auto-scan (issue #7 class) — out-of-range dropdown
+    // values make Wan2GP reject the whole settings form on save; repair them
+    // in the background so the user never hits the "can't save" wall. Writes
+    // only when a fix is actually found (console log + toast otherwise quiet).
+    silentSettingsRepair()
   } else {
     $('splashStatus').textContent = 'First-time setup...'
     const hw = await window.w2gp.detectHardware()
@@ -364,7 +385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       var header = $('installPkgsProfile')
       if (!list || !hp || !hp.packages || !hp.packages.length) return
       if (header) header.textContent = '(' + hp.profile.replace(/_/g,' ') + ')'
-      list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + p + '</span>' }).join('')
+      list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + escHtml(p) + '</span>' }).join('')
       $('installPkgs').style.display = ''
     })
   }
@@ -413,6 +434,11 @@ function pushMetric(key, val) {
 
 function startMetricsPolling() {
   const tick = async () => {
+    // Skip sampling while the dashboard is hidden (webview/embed open): the
+    // IPC + nvidia-smi query every 2s was running even when nothing displayed
+    // it. The next shown-state tick resumes automatically.
+    const dash = $('dashBody')
+    if (dash && dash.style.display === 'none') return
     let m
     try { m = await window.w2gp.getSystemMetrics() } catch { return }
     if (!m) return
@@ -665,11 +691,17 @@ $('settingsOverlay').addEventListener('click', closeSettings)
 
 // ── Dashboard ──
 async function refreshDashboard(){
-  const status = await window.w2gp.getStatus()
+  // status / checkInstalled / manageList are independent — run them in one
+  // batch instead of 3 sequential IPC round-trips (~2-6ms saved each, more
+  // when the machine is under load from a running install).
+  const [status, instRes, envs] = await Promise.all([
+    window.w2gp.getStatus(),
+    window.w2gp.checkInstalled().catch(() => null),
+    window.w2gp.manageList().catch(() => [])
+  ])
   // Launch buttons only make sense when Wan2GP is actually installed
   try {
-    const inst = await window.w2gp.checkInstalled()
-    setLaunchButtonsInstalled(!!(inst && inst.repo))
+    setLaunchButtonsInstalled(!!(instRes && instRes.repo))
   } catch {}
   if(status.error||!status.env){
     $('envName').textContent='No active environment'
@@ -731,12 +763,11 @@ async function refreshDashboard(){
     setSpec('specNumpy','dotNumpy', status.versions?.numpy)
     setSpec('specTokenizers','dotTokenizers', status.versions?.tokenizers)
   }
-  const envs = await window.w2gp.manageList()
   const list=$('envList'); list.innerHTML=''
   envs.forEach(e=>{
     const div=document.createElement('div')
     div.className='env-list-item'+(e.active?' active':'')
-    div.innerHTML=`<span class="env-dot"></span><span class="env-list-name">${e.name}</span><span style="font-size:0.65rem;color:#666;flex-shrink:0">${e.type}</span>`
+    div.innerHTML=`<span class="env-dot"></span><span class="env-list-name">${escHtml(e.name)}</span><span style="font-size:0.65rem;color:#666;flex-shrink:0">${escHtml(e.type)}</span>`
     if(!e.active) div.addEventListener('click',async()=>{ await window.w2gp.manageSetActive(e.name); refreshDashboard() })
     list.appendChild(div)
   })
@@ -1006,8 +1037,8 @@ async function loadWangpChangelog(showLoading) {
     listEl.innerHTML = upstream.commits.map(c =>
       `<div class="cl-item">
         <span class="cl-date">${fmtDate(c.date)}</span>
-        <span class="cl-msg">${c.message}</span>
-        <span class="cl-author">${c.author}</span>
+        <span class="cl-msg">${escHtml(c.message)}</span>
+        <span class="cl-author">${escHtml(c.author)}</span>
       </div>`
     ).join('')
   } finally {
@@ -1335,6 +1366,13 @@ async function checkAutoTuneInstalled() {
   } else {
     notInstalledEl.classList.add('hidden')
     contentEl.classList.remove('hidden')
+    // D3: first visit to the tab — auto-run detection so the panel shows a live
+    // recommendation instead of an empty "Run detection first" state. Only once
+    // per session; a failed detect leaves the button enabled for a manual retry.
+    if (!_autotuneHardware && !_autotuneAutoDetectDone) {
+      _autotuneAutoDetectDone = true
+      setTimeout(() => $('autotuneDetectBtn')?.click(), 150)
+    }
   }
 }
 
@@ -1718,6 +1756,7 @@ window.w2gp.onUpdateStatus((status) => {
 
 let _autotuneHardware = null
 let _autotuneRecommendation = null
+let _autotuneAutoDetectDone = false  // D3: auto-run Detect once per session on first tab open
 
 /** Render hardware info into the card. */
 function renderAutoTuneHardware(hw) {
@@ -1808,10 +1847,8 @@ function renderAutoTuneRecommendation(rec) {
   })
 }
 
-function escHtml(s) {
-  if (typeof s !== 'string') return String(s)
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-}
+// escHtml now comes from services/escape.js (loaded before app.js) so the
+// module's escaping logic is shared with the node --test suite.
 
 function profileSelect(name, selectedVal) {
   var opts = ''
@@ -1998,6 +2035,30 @@ $('xetInstallBtn')?.addEventListener('click', async function() {
   }
 })
 
+// ── Silent settings auto-scan (D1) — runs once at dashboard load ──
+async function silentSettingsRepair() {
+  try {
+    const r = await window.w2gp.repairSettings()
+    if (!r || !r.success) {
+      if (r && r.error) appendLog('[i] Settings auto-scan skipped: ' + r.error)
+      return
+    }
+    const modelFixed = r.modelPaths && r.modelPaths.fixed && r.modelPaths.replacements.length
+    if (r.fixed > 0 || modelFixed) {
+      if (r.fixed > 0) {
+        appendLog(`[✓] Auto-repaired ${r.fixed} out-of-range setting value(s) (${r.scanned} file(s) scanned).`)
+        showToast('✓ Auto-repaired ' + r.fixed + ' setting value(s)')
+      }
+      if (modelFixed) {
+        appendLog(`[✓] Fixed ${r.modelPaths.replacements.length} nested model path(s) in wgp_config.json (issue #18 class).`)
+        r.modelPaths.replacements.forEach(x => appendLog('[✓]   ' + x.key + ': ' + x.from + ' → ' + x.to))
+        if (r.fixed === 0) showToast('✓ Fixed nested model paths')
+      }
+    }
+    // Quiet when nothing was wrong — auto-scan must never nag.
+  } catch {}
+}
+
 // ── Repair Settings (Manage → General) — fixes "Value: N is not in the list of choices" ──
 $('repairSettingsBtn')?.addEventListener('click', async function() {
   this.disabled = true
@@ -2017,6 +2078,11 @@ $('repairSettingsBtn')?.addEventListener('click', async function() {
       if (r.problems && r.problems.length) {
         appendLog('[!] Could not read some files (skipped):')
         r.problems.forEach(p => appendLog('[!]   ' + p.file + ' — ' + p.error))
+      }
+      if (r.modelPaths && r.modelPaths.fixed && r.modelPaths.replacements.length) {
+        appendLog(`[✓] Fixed ${r.modelPaths.replacements.length} nested model path(s) in wgp_config.json:`)
+        r.modelPaths.replacements.forEach(x => appendLog('[✓]   ' + x.key + ': ' + x.from + ' → ' + x.to))
+        showToast('✓ Model paths repaired')
       }
     } else {
       appendLog('[!] ' + ((r && r.error) || 'Repair failed'))

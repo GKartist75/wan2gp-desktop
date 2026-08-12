@@ -635,6 +635,11 @@
     <div class="floating-term-resize" id="ftResize"></div>
   </div>
 
+  <!-- escape.js first: defines window.escHtml used by app.js. Loaded as a plain
+       script tag (NOT via preload require — the window is sandboxed, and
+       sandboxed preloads can only require whitelisted modules). Same module the
+       node --test suite requires, so escaping logic lives in one place. -->
+  <script src="../services/escape.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
