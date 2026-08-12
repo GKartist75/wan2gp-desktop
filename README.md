@@ -137,6 +137,17 @@ generation uses. Explicit values in Extra Launch Args always win.
 > writing (Apply applies, and tells you to restart).
 > [Full changelog →](changelogs/CHANGELOG-v2.5.0.md)
 
+> **New in v2.5.2** — **No frozen startup, no "can't save" walls, no lost
+> edits.** Hardware detection is fully async — probing your GPU no longer locks
+> up the window. Model paths in `wgp_config.json` that point *inside* the repo
+> are auto-repaired, fixing "Error in getting the location" model downloads
+> (issue #18). Updates back up any local edits before resetting the repo.
+> Everything rendered from repository content (commit messages, authors, env
+> names) is now HTML-escaped through one tested helper. Auto-Tune self-detects
+> on first visit, console rendering is coalesced to one paint per frame, and
+> 11 new tests bring the suite to 46.
+> [Full changelog →](changelogs/CHANGELOG-v2.5.2.md)
+
 > **New in v2.4.5** — **Wan2GP update checks, now periodic + manual**, plus
 > **update-flow hardening and a driver pre-check**. The dashboard re-checks the
 > upstream Wan2GP repo every 30 minutes while open (silent, skipped while the
@@ -222,6 +233,9 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.5.2** — **Async hardware detection, model-path repair, update safety, injection hardening** — GPU/RAM/VRAM probing never blocks the app anymore (previously up to 15–20s of frozen window); Repair Settings + a silent background scan fix `wgp_config.json` entries pointing inside the repo — the fix for "error in getting the location" model downloads (issue #18); updates back up local repo edits (`pre-update-*.patch`) before resetting; Auto-Tune auto-runs detection on first tab visit; dashboard refresh batches its IPC and metric/update polling pauses while hidden; console rendering coalesced to one paint per frame; all repo-sourced content (commit messages, authors, env names, package lists) HTML-escaped through one unit-tested helper; 46 tests. See [CHANGELOG-v2.5.2.md](changelogs/CHANGELOG-v2.5.2.md).
+- **v2.5.1** — **RAM tier boundary fix** — 32GB kits reporting 31.4–31.9 GiB are no longer demoted to the wrong profile; the detection card shows the true reported RAM. See [CHANGELOG-v2.5.1.md](changelogs/CHANGELOG-v2.5.1.md).
+- **v2.5.0** — **Auto-Tune overhaul** — the tuned VRAM safety coefficient is actually forwarded on every launch, detection is async (no ~30s freeze), a failsafe preference forces P5 on demand, audio on 12–23GB cards engages the fast LM decoders, 12GB/32GB machines keep P4 instead of P5, RTX 30 gets the right attention backend, fresh installs auto-tune once, and Detect scans without writing. See [CHANGELOG-v2.5.0.md](changelogs/CHANGELOG-v2.5.0.md).
 - **v2.4.5** — **Update checks (periodic + manual), update-flow hardening, driver pre-check** — the dashboard re-checks the upstream Wan2GP repo every 30 minutes while open (silent, skips while hidden) plus a **↻ Check for updates** link in the Wan2GP Updates card; updates no longer skip requirement bumps (changed `requirements.txt` pins are force-installed after the update — fixes the silently-skipped `mmgp` bump, and AMD/Windows installs pin `numpy==1.26.4` for ROCm wheel compat); NVIDIA driver pre-check warns below R580 (GTX 10/16 exempt); all launch paths now enable `--advanced --multiple-images`. See [CHANGELOG-v2.4.5.md](changelogs/CHANGELOG-v2.4.5.md).
 - **v2.4.0** — **Auto-update control** — new **Auto-update** toggle (Manage → Desktop): turn off automatic update checks, downloads, and the surprise install-on-quit; updates then only happen through the explicit Check for updates → Download → Install & Restart flow, and the setting takes effect without restarting. See [CHANGELOG-v2.4.0.md](changelogs/CHANGELOG-v2.4.0.md).
 - **v2.3.0** — **Settings repair + multi-GPU + issue reporting + tests** — **Repair Settings** (one-click fix for the "Value: N is not in the list of choices" save error — scans and clamps `*_settings.json` files with `*.bak-repair` backups), **GPU Device picker** (choose which GPU Wan2GP runs on, `--gpu cuda:N` in both launch modes), **🐞 Report an issue** (system info + launch log + error queue bundled into a zip with a pre-filled GitHub issue), first **test suite** (18 tests) + **CI**, release script auto-reads the version from package.json. See [CHANGELOG-v2.3.0.md](changelogs/CHANGELOG-v2.3.0.md).
