@@ -1793,26 +1793,27 @@ ipcMain.handle('update', async () => {
         cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8',
         env: gitEnv, stdio: 'pipe'
       })
-      // Dirty-repo guard: any local edit (e.g. a user-patched wgp.py) would be
-      // silently destroyed by the hard reset below — back it up first.
+      // Dirty-repo guard: any tracked-file edit (e.g. a user-patched wgp.py)
+      // would be silently destroyed by the hard reset below — back it up first.
+      // Untracked files (envs.json, models/, ...) are NOT touched by
+      // `git reset --hard`, so they need no backup and must not warn.
       try {
-        const dirty = execSync('git status --porcelain', {
-          cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-        }).trim()
-        if (dirty) {
+        const diff = execSync('git diff', { cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true })
+        if (diff) {
           const patchDir = path.join(getDataDir(), 'patches')
           fs.mkdirSync(patchDir, { recursive: true })
           const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
           const patchFile = path.join(patchDir, `pre-update-${stamp}.patch`)
           try {
-            const diff = execSync('git diff', { cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true })
             fs.writeFileSync(patchFile, diff)
             send('launch-log', `[!] Local changes in the Wan2GP repo will be overwritten — backup saved: ${patchFile}\n`)
           } catch (e) {
             send('launch-log', `[!] Local changes detected but could not be backed up: ${e.message}\n`)
           }
         }
-      } catch {}
+      } catch (e) {
+        send('launch-log', `[!] Local changes detected but could not be backed up: ${e.message}\n`)
+      }
       // Force the local branch to match origin's branch.
       // git merge --ff-only was unreliable (says up-to-date even when behind),
       // so we reset the branch ref directly ensuring HEAD always matches origin.
