@@ -517,6 +517,30 @@ function getLocalWangpHead() {
   } catch { return null }
 }
 
+/**
+ * Classify the state of getRepoDir()'s git repository.
+ * A present-but-broken `.git` (empty folder, stray .git file, AV-quarantined
+ * internals, interrupted init) makes every git command die with
+ * "fatal: not a git repository" — and upstream setup.py's repair_git_repo()
+ * only re-inits when `.git` is ABSENT, so that state is never healed and every
+ * update fails identically forever (issue #27). The launcher pre-flights this
+ * and moves the broken .git aside so setup.py's repair path can rebuild it.
+ * Returns 'ok' | 'broken' | 'nogit' | 'unknown' (unknown = git itself failed,
+ * e.g. git not on PATH — leave the folder alone and let setup.py report it).
+ */
+function repoGitHealth() {
+  if (!fs.existsSync(path.join(getRepoDir(), '.git'))) return 'nogit'
+  try {
+    execSync('git rev-parse --is-inside-work-tree 2>&1', {
+      cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
+    })
+    return 'ok'
+  } catch (e) {
+    const msg = (e.stdout || e.stderr || e.message || '').toString()
+    return msg.includes('not a git repository') ? 'broken' : 'unknown'
+  }
+}
+
 function fetchUrl(url, opts = {}) {
   const { method, body, headers, timeout } = opts
   return new Promise((resolve, reject) => {
@@ -1685,6 +1709,24 @@ ipcMain.handle('update', async () => {
   // need R580+, and setup.py's own pull/install won't warn about it.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('launch-log', _drvWarn)
+  // Pre-flight: a present-but-broken .git (empty folder, stray .git file,
+  // AV-quarantined internals — see repoGitHealth) makes EVERY git command fail
+  // with "fatal: not a git repository" AND bypasses setup.py's repair path, which
+  // only re-inits when .git is absent. Move the broken .git aside so setup.py's
+  // built-in repair (git init → fetch origin → reset --hard origin/main) can
+  // rebuild the repository. Models, plugins, finetunes and config all live
+  // outside .git, so nothing user-visible is lost. (issue #27)
+  if (repoGitHealth() === 'broken') {
+    const brokenGit = path.join(getRepoDir(), '.git')
+    const backupGit = brokenGit + '.broken-' + Date.now()
+    try {
+      fs.renameSync(brokenGit, backupGit)
+      invalidateGitCache()
+      send('launch-log', `[!] Wan2GP's .git folder is corrupted or incomplete (not a valid git repository). Moving it to ${backupGit} so the repository can be rebuilt automatically. Your models, plugins, finetunes and settings are untouched.\n`)
+    } catch (e) {
+      send('launch-log', `[!] Could not move the broken .git aside: ${e.message}. Delete ${brokenGit} manually (it contains no user data) and retry Update.\n`)
+    }
+  }
   // Snapshot the pre-update HEAD so we can detect requirements.txt changes after the
   // reliable git reset below. setup.py update only installs requirements when ITS OWN
   // git pull moved HEAD — if that pull no-ops or fails while the launcher's reset still
@@ -1695,8 +1737,15 @@ ipcMain.handle('update', async () => {
       cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
     }).trim()
   } catch {}
-  // Run setup.py update (pip packages, etc.)
-  await runSetup(['update'])
+  // Run setup.py update (pip packages, etc.). A failure here must NOT abort the
+  // whole update: the launcher's own git fetch/reset below is authoritative for
+  // code, and a transient setup.py error (dep install hiccup, missing torch at
+  // bootstrap) shouldn't leave the repo stuck on old code with no recovery.
+  try {
+    await runSetup(['update'])
+  } catch (e) {
+    send('launch-log', `[!] setup.py update failed: ${(e.stderr || e.message || String(e)).toString().trim()} — continuing with launcher-side git update...\n`)
+  }
   // Also pull the latest git code — setup.py update alone may only upgrade deps.
   // First, check which branch we're on so we pull the right one.
   let branch = ''
