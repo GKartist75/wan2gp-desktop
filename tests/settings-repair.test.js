@@ -190,6 +190,6 @@ test('save_path family (save/image/audio) is repaired too', () => {
   assert.strictEqual(after.save_path, path.join('C:', 'data', 'outputs'))
   assert.strictEqual(after.image_save_path, path.join('C:', 'data', 'outputs'))
   assert.strictEqual(after.audio_save_path, path.join('C:', 'data', 'outputs'))
-  assert.strictEqual(after.checkpoints_paths[0], 'C:\\Models\\ckpt') // non-nested entry untouched
+  assert.strictEqual(after.checkpoints_paths[0], path.join('C:', 'Models', 'ckpt')) // non-nested entry untouched
   fs.rmSync(dir, { recursive: true, force: true })
 })
