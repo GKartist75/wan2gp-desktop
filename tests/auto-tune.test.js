@@ -8,7 +8,7 @@
  */
 const { test } = require('node:test')
 const assert = require('node:assert')
-const { recommend, computePerJobCoefficient, audioProfile, findWgpConfig } = require('../services/auto-tune')
+const { recommend, computePerJobCoefficient, audioProfile, findWgpConfig, ramTierFor } = require('../services/auto-tune')
 
 // ── Profile matrix: VRAM tier × RAM tier → profile ──
 // Realigned to Wan2GP's own profile table (wgp.py memory_profile_choices) and
@@ -34,6 +34,35 @@ test('recommend() maps every VRAM×RAM tier to the Wan2GP-aligned profile', () =
 test('12GB VRAM + 32GB RAM lands on P4, not P5 (the old downgrade bug)', () => {
   const r = recommend({ vram_tier: 'low', ram_tier: 'low', gpu_vram_gb: 12 })
   assert.strictEqual(r.video_profile, 4)
+})
+
+// ── RAM tier boundary tolerance ──
+// Real "32GB"/"64GB" kits report 31.4-31.9 / 63.5-63.9 GiB to the OS
+// (BIOS/GFX reservations). They must not be demoted to a worse tier —
+// that's what produced "recommends P5 on a 5080 + 32GB" reports.
+test('ramTierFor() treats real-world 32GB kits as low tier', () => {
+  assert.strictEqual(ramTierFor(31.9), 'low')
+  assert.strictEqual(ramTierFor(31.5), 'low')
+  assert.strictEqual(ramTierFor(32), 'low')
+  assert.strictEqual(ramTierFor(34), 'low')
+})
+
+test('ramTierFor() treats real-world 64GB kits as high tier', () => {
+  assert.strictEqual(ramTierFor(63.9), 'high')
+  assert.strictEqual(ramTierFor(63.5), 'high')
+  assert.strictEqual(ramTierFor(64), 'high')
+})
+
+test('ramTierFor() only demotes genuinely small RAM', () => {
+  assert.strictEqual(ramTierFor(31.4), 'very_low')
+  assert.strictEqual(ramTierFor(16), 'very_low')
+  assert.strictEqual(ramTierFor(63.4), 'low')
+})
+
+test('32GB RAM detected a hair under the line still lands on P4, not P5', () => {
+  const r = recommend({ vram_tier: 'low', ram_tier: ramTierFor(31.8), gpu_vram_gb: 16 })
+  assert.strictEqual(r.video_profile, 4)
+  assert.strictEqual(r.audio_profile, 3)
 })
 
 test('recommend() falls back to profile 4 on unknown tiers', () => {
