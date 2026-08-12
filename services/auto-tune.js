@@ -90,6 +90,21 @@ async function queryCudaVersion() {
 }
 
 /**
+ * RAM tier from GiB, with tolerance for what the OS actually reports.
+ * A "32GB" kit frequently shows 31.4-31.9 GiB and a "64GB" kit 63.5-63.9
+ * (BIOS/GFX reservations eat the difference) — those still count as the
+ * advertised tier so hardware isn't demoted. Pure, testable.
+ *
+ * @param {number} ramGb - GiB as reported by the OS (may be fractional)
+ * @returns {'high'|'low'|'very_low'}
+ */
+function ramTierFor(ramGb) {
+  if (ramGb >= 63.5) return 'high'
+  if (ramGb >= 31.5) return 'low'
+  return 'very_low'
+}
+
+/**
  * Full hardware detection (async — never blocks the main process).
  *
  * @param {string} [repoDir] - Wan2GP repo directory (needed for Python import checks).
@@ -120,8 +135,9 @@ async function detect(repoDir) {
   const gpuVramGb = gpu ? gpu.vram_gb : 0
   const gpuCap = gpu ? gpu.capability : ''
 
-  // System RAM
-  const ramGb = Math.round(os.totalmem() / 1073741824)
+  // System RAM — keep one decimal so a 32GB kit that reports 31.8 GiB to the
+  // OS is still recognizably 32GB ("low"), instead of rounding away the truth.
+  const ramGb = Math.round((os.totalmem() / 1073741824) * 10) / 10
   const cpuCount = os.cpus().length
 
   // ── Tiers (match Wan2GP's own thresholds) ──
@@ -134,10 +150,10 @@ async function detect(repoDir) {
   }
 
   // RAM tier (system memory)
-  let ramTier = 'low'
-  if (ramGb >= 64) ramTier = 'high'
-  else if (ramGb >= 32) ramTier = 'low'
-  else ramTier = 'very_low'
+  // Boundary tolerance: a "32GB" kit often reports 31.4-31.9 GiB to the OS
+  // (BIOS/GFX reservations), and a "64GB" kit 63.5-63.9 — treat those as the
+  // advertised size so real-world kits don't get demoted to a worse tier.
+  const ramTier = ramTierFor(ramGb)
 
   // ── Capability-based flags ──
   const capMajor = parseFloat(gpuCap) || 0
@@ -533,5 +549,6 @@ module.exports = {
   audioProfile,
   vramCoefficientForTier,
   vaeConfigForTier,
+  ramTierFor,
   PROFILE_MATRIX
 }
