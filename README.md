@@ -126,16 +126,13 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.5.0** — **Auto-Tune overhaul**. The tuned VRAM safety
-> coefficient is now actually forwarded to Wan2GP on every launch (it was
-> previously written but silently ignored — generation always ran at 0.8).
-> Detection is async (no more ~30s UI freeze), a **failsafe preference** forces
-> the max-compatibility P5 profile on demand, audio no longer crawls on
-> 12–23GB cards (profile 3 engages the fast LM decoders), 12GB/32GB machines
-> keep P4 instead of being downgraded to P5, RTX 30 gets the right attention
-> backend, fresh installs auto-tune once at setup, and Detect scans without
-> writing (Apply applies, and tells you to restart).
-> [Full changelog →](changelogs/CHANGELOG-v2.5.0.md)
+> **New in v2.5.4** — **No more phantom "local changes" backups.** That
+> `[!] Local changes... backup saved` warning on update used to fire for
+> any untracked file (like `envs.json`) and saved an empty 0-byte patch —
+> `git reset --hard` never touches untracked files, so nothing was ever at
+> risk. The warning (and real backup) now only triggers for actual edits to
+> tracked files.
+> [Full changelog →](changelogs/CHANGELOG-v2.5.4.md)
 
 > **New in v2.5.3** — **Self-healing updates.** Updates used to fail forever
 > with `fatal: not a git repository` when the install's `.git` was broken
@@ -154,6 +151,17 @@ generation uses. Explicit values in Extra Launch Args always win.
 > on first visit, console rendering is coalesced to one paint per frame, and
 > 11 new tests bring the suite to 46.
 > [Full changelog →](changelogs/CHANGELOG-v2.5.2.md)
+
+> **New in v2.5.0** — **Auto-Tune overhaul**. The tuned VRAM safety
+> coefficient is now actually forwarded to Wan2GP on every launch (it was
+> previously written but silently ignored — generation always ran at 0.8).
+> Detection is async (no more ~30s UI freeze), a **failsafe preference** forces
+> the max-compatibility P5 profile on demand, audio no longer crawls on
+> 12–23GB cards (profile 3 engages the fast LM decoders), 12GB/32GB machines
+> keep P4 instead of being downgraded to P5, RTX 30 gets the right attention
+> backend, fresh installs auto-tune once at setup, and Detect scans without
+> writing (Apply applies, and tells you to restart).
+> [Full changelog →](changelogs/CHANGELOG-v2.5.0.md)
 
 > **New in v2.4.5** — **Wan2GP update checks, now periodic + manual**, plus
 > **update-flow hardening and a driver pre-check**. The dashboard re-checks the
@@ -240,6 +248,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.5.4** — **No more phantom "local changes" backups** — the `[!] Local changes... backup saved` warning used to fire for any untracked file (like `envs.json`) and saved an empty 0-byte patch, even though `git reset --hard` never touches untracked files; updates now warn and back up only for real edits to tracked files. See [CHANGELOG-v2.5.4.md](changelogs/CHANGELOG-v2.5.4.md).
 - **v2.5.3** — **Self-healing updates for broken git repos** — updates that died with `fatal: not a git repository` (AV quarantine / interrupted clone leaving `.git` unusable) now detect the broken state before updating and rebuild the repository automatically (issue #27); a failed `setup.py update` no longer strands the update — the launcher-side git fetch/reset continues; NVIDIA driver pre-check added to updates (parity with install). 46 tests. See [CHANGELOG-v2.5.3.md](changelogs/CHANGELOG-v2.5.3.md).
 - **v2.5.2** — **Async hardware detection, model-path repair, update safety, injection hardening** — GPU/RAM/VRAM probing never blocks the app anymore (previously up to 15–20s of frozen window); Repair Settings + a silent background scan fix `wgp_config.json` entries pointing inside the repo — the fix for "error in getting the location" model downloads (issue #18); updates back up local repo edits (`pre-update-*.patch`) before resetting; Auto-Tune auto-runs detection on first tab visit; dashboard refresh batches its IPC and metric/update polling pauses while hidden; console rendering coalesced to one paint per frame; all repo-sourced content (commit messages, authors, env names, package lists) HTML-escaped through one unit-tested helper; 46 tests. See [CHANGELOG-v2.5.2.md](changelogs/CHANGELOG-v2.5.2.md).
 - **v2.5.1** — **RAM tier boundary fix** — 32GB kits reporting 31.4–31.9 GiB are no longer demoted to the wrong profile; the detection card shows the true reported RAM. See [CHANGELOG-v2.5.1.md](changelogs/CHANGELOG-v2.5.1.md).
