@@ -137,6 +137,13 @@ generation uses. Explicit values in Extra Launch Args always win.
 > writing (Apply applies, and tells you to restart).
 > [Full changelog →](changelogs/CHANGELOG-v2.5.0.md)
 
+> **New in v2.5.3** — **Self-healing updates.** Updates used to fail forever
+> with `fatal: not a git repository` when the install's `.git` was broken
+> (antivirus quarantine / interrupted clone — I had it myself). The launcher
+> now detects that state before every update and rebuilds the repository
+> automatically; a failed `setup.py` no longer strands the update either.
+> [Full changelog →](changelogs/CHANGELOG-v2.5.3.md)
+
 > **New in v2.5.2** — **No frozen startup, no "can't save" walls, no lost
 > edits.** Hardware detection is fully async — probing your GPU no longer locks
 > up the window. Model paths in `wgp_config.json` that point *inside* the repo
@@ -233,6 +240,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.5.3** — **Self-healing updates for broken git repos** — updates that died with `fatal: not a git repository` (AV quarantine / interrupted clone leaving `.git` unusable) now detect the broken state before updating and rebuild the repository automatically (issue #27); a failed `setup.py update` no longer strands the update — the launcher-side git fetch/reset continues; NVIDIA driver pre-check added to updates (parity with install). 46 tests. See [CHANGELOG-v2.5.3.md](changelogs/CHANGELOG-v2.5.3.md).
 - **v2.5.2** — **Async hardware detection, model-path repair, update safety, injection hardening** — GPU/RAM/VRAM probing never blocks the app anymore (previously up to 15–20s of frozen window); Repair Settings + a silent background scan fix `wgp_config.json` entries pointing inside the repo — the fix for "error in getting the location" model downloads (issue #18); updates back up local repo edits (`pre-update-*.patch`) before resetting; Auto-Tune auto-runs detection on first tab visit; dashboard refresh batches its IPC and metric/update polling pauses while hidden; console rendering coalesced to one paint per frame; all repo-sourced content (commit messages, authors, env names, package lists) HTML-escaped through one unit-tested helper; 46 tests. See [CHANGELOG-v2.5.2.md](changelogs/CHANGELOG-v2.5.2.md).
 - **v2.5.1** — **RAM tier boundary fix** — 32GB kits reporting 31.4–31.9 GiB are no longer demoted to the wrong profile; the detection card shows the true reported RAM. See [CHANGELOG-v2.5.1.md](changelogs/CHANGELOG-v2.5.1.md).
 - **v2.5.0** — **Auto-Tune overhaul** — the tuned VRAM safety coefficient is actually forwarded on every launch, detection is async (no ~30s freeze), a failsafe preference forces P5 on demand, audio on 12–23GB cards engages the fast LM decoders, 12GB/32GB machines keep P4 instead of P5, RTX 30 gets the right attention backend, fresh installs auto-tune once, and Detect scans without writing. See [CHANGELOG-v2.5.0.md](changelogs/CHANGELOG-v2.5.0.md).
