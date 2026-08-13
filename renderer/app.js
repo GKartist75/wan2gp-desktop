@@ -2065,8 +2065,78 @@ $('autotuneApplyBtn').addEventListener('click', async () => {
   }
 })
 
-// ── Auto-Tune: failsafe toggle → re-render recommendation live ──
-$('autotuneFailsafeChk').addEventListener('change', async () => {
+// ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
+function memProfileCollect() {
+  // Only include fields the user actually set (non-empty) — unset = leave existing config.
+  const s = {}
+  const vp = $('memVideoProfile').value
+  const ip = $('memImageProfile').value
+  const ap = $('memAudioProfile').value
+  const co = $('memCoeff').value
+  const ve = $('memVae').value
+  const q = $('memQuant').value
+  if (vp) s.video_profile = Number(vp)
+  if (ip) s.image_profile = Number(ip)
+  if (ap) s.audio_profile = Number(ap)
+  if (co) {
+    const n = Number(co)
+    if (!(n > 0 && n <= 1)) { setMemStatus('VRAM Safety Coeff must be between 0.1 and 1', true); return null }
+    s.vram_safety_coefficient = n
+  }
+  if (ve !== '') s.vae_config = Number(ve)
+  if (q) s.transformer_quantization = q
+  return s
+}
+
+function setMemStatus(msg, isError) {
+  const el = $('memProfileStatus')
+  if (!el) return
+  el.textContent = msg || ''
+  el.style.color = isError ? 'var(--signal-red)' : 'var(--text-secondary)'
+}
+
+function memProfilePopulate(settings) {
+  if (!settings) return
+  $('memVideoProfile').value = settings.video_profile != null ? String(settings.video_profile) : ''
+  $('memImageProfile').value = settings.image_profile != null ? String(settings.image_profile) : ''
+  $('memAudioProfile').value = settings.audio_profile != null ? String(settings.audio_profile) : ''
+  $('memCoeff').value = settings.vram_safety_coefficient != null ? String(settings.vram_safety_coefficient) : ''
+  $('memVae').value = settings.vae_config != null ? String(settings.vae_config) : ''
+  $('memQuant').value = settings.transformer_quantization != null ? String(settings.transformer_quantization) : ''
+}
+
+async function memProfileLoad() {
+  try {
+    const res = await window.w2gp.memoryProfileRead()
+    if (res && res.ok) memProfilePopulate(res.settings)
+    else setMemStatus((res && res.error) || 'Failed to read memory settings', true)
+  } catch (e) { setMemStatus(e.message, true) }
+}
+
+$('memProfileApplyBtn')?.addEventListener('click', async () => {
+  const btn = $('memProfileApplyBtn')
+  const s = memProfileCollect()
+  if (!s) return
+  if (Object.keys(s).length === 0) { setMemStatus('Set at least one field before applying.', true); return }
+  btn.disabled = true; btn.textContent = 'Applying…'; setMemStatus('')
+  try {
+    const res = await window.w2gp.memoryProfileApply(s)
+    if (res && res.ok) setMemStatus('✓ Applied: ' + res.applied.join(', ') + ' — restart Wan2GP to take effect.', false)
+    else setMemStatus('✗ ' + ((res && res.error) || 'apply failed'), true)
+  } catch (e) { setMemStatus('✗ ' + e.message, true) }
+  finally { btn.disabled = false; btn.textContent = 'Apply Overrides' }
+})
+
+// Load current memory settings whenever the Auto-Tune tab is opened.
+const _origSettingsSwitch = window.__settingsSwitch
+document.querySelectorAll('.settings-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.getAttribute('data-tab') === 'autotune') setTimeout(memProfileLoad, 120)
+  })
+})
+
+  // ── Auto-Tune: failsafe toggle → re-render recommendation live ──
+  $('autotuneFailsafeChk').addEventListener('change', async () => {
   const status = $('autotuneStatus')
   if (!_autotuneHardware) {
     // Nothing detected yet — tell the user Detect will honor it.

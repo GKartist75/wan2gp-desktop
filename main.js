@@ -9,6 +9,8 @@ const net = require('net')
 const http = require('http')
 const https = require('https')
 const autoTune = require('./services/auto-tune.js')
+const catalog = require('./services/catalog.js')
+const memoryProfile = require('./services/memory-profile.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -3359,6 +3361,102 @@ autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date')
 autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
 autoUpdater.on('error', (err) => { console.log('[DEBUG] Update error:', err.message); send('update-status', { status: 'error', message: err.message || err.toString() }) })
+
+// ── Plugin Catalog (community plugins: install / update / remove / enable) ──
+// All operations are scoped to the launcher-managed Wan2GP at getRepoDir().
+// The original user Wan2GP install is never touched.
+function loadCatalogManifest() {
+  // Manifest is vendored under resources/ (works from both dev and asar build).
+  const prod = path.join(__dirname, 'resources', 'plugin-catalog.json')
+  const dev = path.join(__dirname, '..', 'resources', 'plugin-catalog.json')
+  const p = fs.existsSync(prod) ? prod : dev
+  return catalog.parseManifest(fs.readFileSync(p, 'utf8'))
+}
+
+function findCatalogEntry(manifest, id) {
+  const e = manifest.plugins.find((p) => p.id === id)
+  if (!e) throw new Error(`Plugin '${id}' not found in catalog`)
+  return e
+}
+
+ipcMain.handle('catalog-list', async () => {
+  try {
+    const manifest = loadCatalogManifest()
+    return { ok: true, plugins: catalog.listCatalog(manifest, getRepoDir()) }
+  } catch (e) {
+    logError('catalog-list', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('catalog-install', async (_, id, verifyOk) => {
+  try {
+    const manifest = loadCatalogManifest()
+    const entry = findCatalogEntry(manifest, id)
+    const res = catalog.install(entry, getRepoDir(), { verifyOk: !!verifyOk })
+    return { ok: true, ...res }
+  } catch (e) {
+    logError('catalog-install', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('catalog-update', async (_, id, verifyOk) => {
+  try {
+    const manifest = loadCatalogManifest()
+    const entry = findCatalogEntry(manifest, id)
+    const res = catalog.update(entry, getRepoDir(), { verifyOk: !!verifyOk })
+    return { ok: true, ...res }
+  } catch (e) {
+    logError('catalog-update', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('catalog-remove', async (_, id) => {
+  try {
+    const manifest = loadCatalogManifest()
+    const entry = findCatalogEntry(manifest, id)
+    const res = catalog.remove(entry, getRepoDir())
+    return { ok: true, ...res }
+  } catch (e) {
+    logError('catalog-remove', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('catalog-toggle', async (_, id, on) => {
+  try {
+    const manifest = loadCatalogManifest()
+    const entry = findCatalogEntry(manifest, id)
+    const res = catalog.setEnabled(entry, getRepoDir(), !!on)
+    return { ok: true, ...res }
+  } catch (e) {
+    logError('catalog-toggle', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+// ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
+ipcMain.handle('memory-profile:read', async () => {
+  try {
+    return { ok: true, settings: memoryProfile.readMemorySettings(getRepoDir(), getDataDir()) }
+  } catch (e) {
+    logError('memory-profile:read', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('memory-profile:apply', async (_, settings) => {
+  try {
+    const r = memoryProfile.applyMemorySettings(settings, getRepoDir(), getDataDir())
+    if (!r.success) return { ok: false, error: r.error }
+    return { ok: true, applied: r.applied, path: r.path }
+  } catch (e) {
+    logError('memory-profile:apply', e)
+    return { ok: false, error: e.message }
+  }
+})
 
 ipcMain.handle('check-update', async (_, opts) => {
   if (opts?.local) {

@@ -138,6 +138,10 @@ contextBridge.exposeInMainWorld('w2gp', {
   catalogUpdate: (id, verifyOk) => ipcRenderer.invoke('catalog-update', id, verifyOk),
   catalogRemove: (id) => ipcRenderer.invoke('catalog-remove', id),
   catalogToggle: (id, on) => ipcRenderer.invoke('catalog-toggle', id, on),
+
+  // VRAM / RAM Adjuster
+  memoryProfileRead: () => ipcRenderer.invoke('memory-profile:read'),
+  memoryProfileApply: (settings) => ipcRenderer.invoke('memory-profile:apply', settings),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
   quitApp: () => ipcRenderer.invoke('quit-app'),
