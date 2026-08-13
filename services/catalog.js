@@ -109,6 +109,29 @@ function cloneInto(entry, repoDir, tempDir, gitExec) {
   return tmp
 }
 
+/**
+ * Verify a catalog entry's repo URL + tag exist WITHOUT cloning (read-only
+ * `git ls-remote`). Used to flip `verified` before any install. Safe: no files
+ * are written, no plugin code is executed.
+ * @param {object} entry
+ * @param {object} [opts] { gitExec }
+ * @returns {{ ok:boolean, error?:string, tagExists?:boolean, defaultBranch?:string }}
+ */
+function verifyRepo(entry, opts = {}) {
+  const git = opts.gitExec || defaultGitExec()
+  try {
+    // Confirm the remote exists at all.
+    const head = git(['ls-remote', '--heads', entry.repo], null)
+    if (!head || !head.trim()) return { ok: false, error: 'Repository not found or not accessible: ' + entry.repo }
+    // Confirm the pinned tag/branch exists.
+    const tagRef = 'refs/heads/' + entry.tag + '\nrefs/tags/' + entry.tag
+    const hasTag = head.split('\n').some((l) => l.includes('refs/heads/' + entry.tag) || l.includes('refs/tags/' + entry.tag))
+    return { ok: true, tagExists: hasTag, defaultBranch: (head.split('\n')[0] || '').split('\t')[1] || '' }
+  } catch (e) {
+    return { ok: false, error: (e && e.message ? e.message : String(e)).split('\n')[0] }
+  }
+}
+
 function removeRecursively(target) {
   if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true })
 }
@@ -233,5 +256,6 @@ module.exports = {
   enabledDirName,
   disabledDirName,
   resolveInstallBase,
-  cloneInto
+  cloneInto,
+  verifyRepo
 }

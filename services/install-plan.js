@@ -84,16 +84,35 @@ function buildPlan(hw = {}) {
     numpyPin = 'numpy==1.26.4 (ROCm torch compatibility on Windows)'
     attention = ['SageAttention (ROCm)', 'FlashAttention (ROCm)']
     notes.push('AMD detected — ROCm torch build; Windows needs the numpy 1.26.4 pin.')
+    // #5 ROCm driver minimum pre-check (upstream parity gap): ROCm 6.x needs an
+    // Adrenalin/Pro driver >= ~24.5 (or the matching TheRock runtime). If we can
+    // read a numeric driver version, warn when it's below the floor.
+    const adv = parseFloat(hw.driverVersion)
+    if (adv && adv < 24.5) {
+      driverWarning = `AMD driver ${hw.driverVersion} may be too old for ROCm 6.x. Wan2GP installs TheRock torch which needs a recent ROCm-capable driver (Adrenalin/Pro >= 24.5). Update the driver before installing, or generation may fail to use the GPU.`
+    }
   } else if (vendor === 'APPLE') {
     cuda = 'MPS (Metal)'
     torch = 'PyTorch (MPS)'
     attention = ['(MPS path — kernels limited)']
     notes.push('Apple Silicon → MPS backend (no CUDA).')
   } else if (vendor === 'INTEL') {
+    const isArc = /arc\s*(a\d{3}|b\d{3})/i.test(name) || /intel.*arc/i.test(name)
     cuda = 'Intel XPU'
     torch = 'PyTorch (XPU)'
     attention = []
-    notes.push('Intel GPU detected — XPU backend.')
+    // #6 explicit Intel Arc XPU path (upstream parity gap): Arc needs the Intel
+    // XPU (IPEX) runtime + oneAPI; flag when it's an Arc but no dedicated runtime
+    // is guaranteed. We surface it as a note (and a soft warning if very old driver).
+    if (isArc) {
+      notes.push('Intel Arc detected → XPU backend (needs Intel oneAPI / IPEX runtime).')
+      const idv = parseFloat(hw.driverVersion)
+      if (idv && idv < 31.0) {
+        driverWarning = `Intel Arc driver ${hw.driverVersion} looks outdated. The XPU backend needs a recent Arc driver (>= 31.x). Update before installing.`
+      }
+    } else {
+      notes.push('Intel GPU detected — XPU backend.')
+    }
   } else {
     cuda = 'CPU'
     torch = 'PyTorch (CPU)'

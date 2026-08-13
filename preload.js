@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   catalogUpdate: (id, verifyOk) => ipcRenderer.invoke('catalog-update', id, verifyOk),
   catalogRemove: (id) => ipcRenderer.invoke('catalog-remove', id),
   catalogToggle: (id, on) => ipcRenderer.invoke('catalog-toggle', id, on),
+  catalogVerify: (id) => ipcRenderer.invoke('catalog-verify', id),
 
   // VRAM / RAM Adjuster
   memoryProfileRead: () => ipcRenderer.invoke('memory-profile:read'),

@@ -39,11 +39,28 @@ test('AMD Windows → ROCm + numpy pin', () => {
   assert.ok(plan.numpyPin.includes('1.26.4'), 'numpy pin present')
 })
 
+test('#5 AMD ROCm driver-minimum pre-check warns on old driver', () => {
+  const plan = p.buildPlan({ vendor: 'AMD', name: 'AMD Radeon RX 7900 XTX', vramGb: 24, ramGb: 64, driverVersion: '22.5.1' })
+  assert.ok(plan.driverWarning.includes('ROCm') || plan.driverWarning.includes('24.5'), 'warns about ROCm driver floor')
+  // Recent driver → no warning
+  const ok = p.buildPlan({ vendor: 'AMD', name: 'AMD RX 7900', vramGb: 24, ramGb: 64, driverVersion: '24.7.1' })
+  assert.strictEqual(ok.driverWarning, '', 'recent driver no warning')
+})
+
 test('Apple → MPS, Intel → XPU', () => {
   const a = p.buildPlan({ vendor: 'APPLE', name: 'Apple M2', vramGb: 0, ramGb: 16 })
   assert.strictEqual(a.cuda, 'MPS (Metal)')
   const i = p.buildPlan({ vendor: 'INTEL', name: 'Arc A770', vramGb: 16, ramGb: 32 })
   assert.strictEqual(i.cuda, 'Intel XPU')
+})
+
+test('#6 Intel Arc detected explicitly → XPU note + driver floor', () => {
+  const arc = p.buildPlan({ vendor: 'INTEL', name: 'Intel Arc A770', vramGb: 16, ramGb: 32, driverVersion: '31.0.101.5186' })
+  assert.strictEqual(arc.cuda, 'Intel XPU')
+  assert.ok(arc.notes.some((n) => n.includes('Arc')), 'Arc-specific note present')
+  // Old Arc driver → soft warning
+  const old = p.buildPlan({ vendor: 'INTEL', name: 'Intel Arc A750', vramGb: 8, ramGb: 16, driverVersion: '30.0.101.1335' })
+  assert.ok(old.driverWarning.includes('Arc'), 'warns about outdated Arc driver')
 })
 
 test('no GPU → CPU-only note', () => {

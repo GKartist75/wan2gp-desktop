@@ -927,6 +927,8 @@ body {
 .cat-btn:hover { background: var(--surface-hover); border-color: var(--border-hover); }
 .cat-install { background: var(--accent); color: #fff; border-color: var(--accent); }
 .cat-install:hover { background: var(--accent-hover); }
+.cat-verify { background: var(--signal-blue); color: #fff; border-color: var(--signal-blue); }
+.cat-verify:hover { filter: brightness(1.1); }
 .cat-link { font-size: 0.62rem; color: var(--signal-blue); margin-left: auto; text-decoration: none; }
 .cat-status-line { font-size: 0.62rem; color: var(--text-tertiary); min-height: 0.8em; }
 .cat-status-error { color: var(--signal-red); }
@@ -940,6 +942,7 @@ body {
 .istack-warn { margin-top: 8px; }
 .istack-w { color: var(--signal-amber); font-size: 0.68rem; line-height: 1.45; margin-top: 4px; }
 .istack-ok { color: var(--signal-green); font-size: 0.68rem; margin-top: 4px; }
+.istack-hint { color: var(--text-tertiary); font-size: 0.62rem; margin-top: 4px; line-height: 1.4; }
 
 /* ── Gallery screen ── */
 #gallery.screen { display: none; }

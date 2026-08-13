@@ -181,3 +181,29 @@ test('listCatalog augments entries with install state', () => {
   fs.rmSync(repo, { recursive: true, force: true })
   fs.rmSync(tmp, { recursive: true, force: true })
 })
+
+// verifyRepo: read-only ls-remote — confirms repo + tag without cloning.
+test('verifyRepo confirms repo + tag via ls-remote (no clone)', () => {
+  const calls = []
+  const exec = (args) => {
+    calls.push(args)
+    if (args[0] === 'ls-remote') {
+      return 'abc123\trefs/heads/main\n' + 'def456\trefs/heads/v2.0.3\n' + 'fed789\trefs/tags/v2.0.3\n'
+    }
+    return ''
+  }
+  const good = cat.verifyRepo(MANIFEST.plugins[0], { gitExec: exec })
+  assert.strictEqual(good.ok, true)
+  assert.strictEqual(good.tagExists, true, 'tag v2.0.3 exists → verified')
+  assert.strictEqual(calls[0][0], 'ls-remote', 'used ls-remote, not clone')
+  const missing = cat.verifyRepo({ id: 'x', repo: 'https://example.com/a/b', tag: 'v9.9.9' }, { gitExec: exec })
+  assert.strictEqual(missing.ok, true)
+  assert.strictEqual(missing.tagExists, false)
+})
+
+test('verifyRepo fails when repo unreachable', () => {
+  const exec = () => { throw new Error('fatal: repository not found') }
+  const r = cat.verifyRepo({ id: 'x', repo: 'https://nope/x/y', tag: 'v1' }, { gitExec: exec })
+  assert.strictEqual(r.ok, false)
+  assert.ok(r.error.includes('not found'))
+})

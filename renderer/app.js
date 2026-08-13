@@ -464,9 +464,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const warns = []
       if (p.driverWarning) warns.push(p.driverWarning)
       if (r.disk && r.disk.warn) warns.push(r.disk.warn)
-      warn.innerHTML = warns.length ? warns.map(function(w) { return '<div class="istack-w">⚠ ' + escHtml(w) + '</div>' }).join('') : ''
+      let warnHtml = warns.length ? warns.map(function(w) { return '<div class="istack-w">⚠ ' + escHtml(w) + '</div>' }).join('') : ''
+      if (r.softWarn) warnHtml += '<div class="istack-hint">This is a compatibility warning, not a hard block — install can continue but generation may fall back to CPU.</div>'
+      warn.innerHTML = warnHtml
       stack.style.display = ''
-      // Block install when a hard gate trips (old driver on cu130, or no disk)
+      // Block install only when a hard gate trips (old NVIDIA cu130 driver, or no disk).
       const startBtn = $('installStartBtn')
       if (startBtn && r.blocked) {
         startBtn.disabled = true
@@ -1367,6 +1369,10 @@ function catalogCard(p) {
     actions += '<button class="cat-btn cat-update" data-id="' + p.id + '">Update</button>'
     actions += '<button class="cat-btn cat-remove" data-id="' + p.id + '">Remove</button>'
   }
+  // Verification gate: unverified repos must be confirmed before install is allowed.
+  if (p.verified === false) {
+    actions += '<button class="cat-btn cat-verify" data-id="' + p.id + '" title="Check repo URL + tag exist (git ls-remote)">Verify</button>'
+  }
   const home = p.homepage ? '<a class="cat-link" href="#" data-home="' + escHtml(p.homepage) + '">Homepage ↗</a>' : ''
   return '' +
     '<div class="cat-card" data-id="' + p.id + '">' +
@@ -1403,6 +1409,22 @@ function setCatStatus(id, msg, isError) {
   el.className = 'cat-status-line' + (isError ? ' cat-status-error' : '')
 }
 
+async function catalogVerifyAction(id) {
+  setCatStatus(id, 'Verifying repo…', false)
+  try {
+    const r = await window.w2gp.catalogVerify(id)
+    if (!r || !r.ok) throw new Error((r && r.error) || 'verify failed')
+    if (r.verified) setCatStatus(id, '✓ Repo + tag confirmed — safe to install.', false)
+    else setCatStatus(id, '✗ ' + ((r.error) || 'repo/tag not found'), true)
+    // Reload so the Unverified tag flips if it became verified (manifest is read-only
+    // for safety, so a verified result just means the user can proceed with install).
+    await loadCatalog()
+  } catch (e) {
+    setCatStatus(id, '✗ ' + e.message, true)
+  }
+}
+
+
 async function catalogAction(action, id, extra) {
   const fn = { install: window.w2gp.catalogInstall, update: window.w2gp.catalogUpdate, remove: window.w2gp.catalogRemove, toggle: window.w2gp.catalogToggle }[action]
   if (!fn) return
@@ -1435,6 +1457,7 @@ function wireCatalog() {
       else if (btn.classList.contains('cat-update')) catalogAction('update', id)
       else if (btn.classList.contains('cat-remove')) catalogAction('remove', id)
       else if (btn.classList.contains('cat-toggle')) catalogAction('toggle', id, btn.getAttribute('data-on') === '1')
+      else if (btn.classList.contains('cat-verify')) catalogVerifyAction(id)
       return
     }
     const link = ev.target.closest('a[data-home]')

@@ -3502,6 +3502,20 @@ ipcMain.handle('catalog-toggle', async (_, id, on) => {
   }
 })
 
+// Read-only verify of a plugin's repo URL + tag (git ls-remote). No clone, no files
+// written — used to flip `verified` before any install is allowed.
+ipcMain.handle('catalog-verify', async (_, id) => {
+  try {
+    const manifest = loadCatalogManifest()
+    const entry = findCatalogEntry(manifest, id)
+    const res = catalog.verifyRepo(entry)
+    return { ok: true, ...res, verified: res.ok && res.tagExists !== false }
+  } catch (e) {
+    logError('catalog-verify', e)
+    return { ok: false, error: e.message }
+  }
+})
+
 // ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
 ipcMain.handle('memory-profile:read', async () => {
   try {
@@ -3744,8 +3758,12 @@ ipcMain.handle('install-plan', async () => {
     const free = getFreeDiskBytes()
     const disk = { ...installPlan.diskCheck(Math.round(free / 1073741824)), freeGb: Math.round(free / 1073741824) }
     const gtxExempt = plan.driverWarning && / (10|16)\d{2}/.test(hw.name)
-    const blocked = (!disk.ok) || (!gtxExempt && !!plan.driverWarning)
-    return { ok: true, plan, disk, blocked }
+    const nvCu130Driver = !!plan.driverWarning && plan.vendor === 'NVIDIA' && !gtxExempt
+    // Hard block: NVIDIA cu130 driver too old (generation will fail) or no disk.
+    // AMD/Intel driver warnings are surfaced as soft warnings (may degrade, not fatal).
+    const blocked = (!disk.ok) || nvCu130Driver
+    const softWarn = !!plan.driverWarning && !nvCu130Driver
+    return { ok: true, plan, disk, blocked, softWarn }
   } catch (e) {
     logError('install-plan', e)
     return { ok: false, error: e.message }
