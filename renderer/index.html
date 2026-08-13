@@ -88,8 +88,33 @@
           <p class="token-hint">Automatically switch between dark and light themes based on your Windows setting. Disables manual theme toggle.</p>
           <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="notificationsToggle" checked> <span>Desktop notifications</span></label>
           <p class="token-hint">Show a notification when Wan2GP server is ready or stops.</p>
+          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="pulsebarToggle"> <span>Floating progress bar</span></label>
+          <p class="token-hint">Always-on-top mini bar showing live generation progress, driven by the launch log.</p>
           <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="autoUpdateToggle" checked> <span>Auto-update</span></label>
           <p class="token-hint">Automatically check for and install launcher updates. Turn off to update manually via "Check for updates" — nothing is downloaded or installed without your explicit action.</p>
+        </div>
+        <div class="settings-section">
+          <h3>Queue Notifier</h3>
+          <p class="token-hint">Send Wan2GP generation events to Telegram, Discord, WhatsApp, IFTTT or Google Chat via <a href="#" id="notifAppriseLink">Apprise</a> — fired from the live launch log (no extra plugin needed).</p>
+          <label class="toggle-row"><input type="checkbox" id="notifEnabled"> <span>Enable notifier</span></label>
+          <label class="toggle-row" style="margin-top:6px"><input type="checkbox" id="notifOnComplete" checked> <span>On completion</span></label>
+          <label class="toggle-row" style="margin-top:6px"><input type="checkbox" id="notifOnFail" checked> <span>On failure</span></label>
+          <label class="toggle-row" style="margin-top:6px"><input type="checkbox" id="notifOnProgress"> <span>On progress (every N%)</span></label>
+          <div class="field-row" style="margin-top:6px">
+            <label class="field-label">Progress step</label>
+            <input type="number" id="notifProgressStep" min="1" max="100" value="25" class="input-small">
+          </div>
+          <div class="field-row" style="margin-top:8px">
+            <label class="field-label">Apprise URL</label>
+            <input type="text" id="notifUrl" class="input-wide" placeholder="discord://token / tgram://token:chatid / etc.">
+          </div>
+          <p class="token-hint">Examples: <code>discord://webhook</code>, <code>tgram://token:chatid</code>, <code>wx://</code> (WhatsApp), <code>ifttt://key/event</code>, <code>gchat://webhook</code>.</p>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-primary small" id="notifSaveBtn">Save</button>
+            <button class="btn btn-ghost small" id="notifTestBtn">Send test</button>
+            <button class="btn btn-ghost small" id="notifEnsureBtn">Install Apprise</button>
+          </div>
+          <p class="token-hint" id="notifStatus" style="margin-top:8px"></p>
         </div>
         <div class="settings-section">
           <h3>Xet Storage (hf_xet)</h3>

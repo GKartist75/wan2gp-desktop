@@ -165,6 +165,14 @@ function initSettingsToggles() {
     await window.w2gp.setNotificationsEnabled(el.checked)
     showToast(el.checked ? 'Notifications enabled' : 'Notifications disabled')
   })
+  $('pulsebarToggle')?.addEventListener('change', async () => {
+    const el = $('pulsebarToggle')
+    const c = await window.w2gp.configLoad()
+    c.pulsebar = { enabled: el.checked }
+    await window.w2gp.configSave(c)
+    if (!el.checked) window.w2gp.pulsebarHide()
+    showToast(el.checked ? 'Floating progress bar enabled' : 'Floating progress bar disabled')
+  })
   $('autoUpdateToggle')?.addEventListener('change', async () => {
     const el = $('autoUpdateToggle')
     const c = await window.w2gp.configLoad()
@@ -179,6 +187,49 @@ function initSettingsToggles() {
     await window.w2gp.configSave(c)
     showToast(el.checked ? 'Share link enabled — Gradio will create a public tunnel on next launch' : 'Share link disabled')
   })
+
+  // ── Queue Notifier ──
+  const notifStatus = (msg, isErr) => {
+    const el = $('notifStatus')
+    if (!el) return
+    el.textContent = msg || ''
+    el.style.color = isErr ? 'var(--signal-red)' : 'var(--signal-green)'
+  }
+  const notifCollect = () => ({
+    enabled: $('notifEnabled')?.checked || false,
+    notifyOnComplete: $('notifOnComplete')?.checked || false,
+    notifyOnFail: $('notifOnFail')?.checked || false,
+    notifyOnProgress: $('notifOnProgress')?.checked || false,
+    progressStep: parseInt($('notifProgressStep')?.value || '25', 10) || 25,
+    url: ($('notifUrl')?.value || '').trim()
+  })
+  const notifApplyDom = (cfg) => {
+    if (!$('notifEnabled')) return
+    $('notifEnabled').checked = !!cfg.enabled
+    $('notifOnComplete').checked = cfg.notifyOnComplete !== false
+    $('notifOnFail').checked = cfg.notifyOnFail !== false
+    $('notifOnProgress').checked = !!cfg.notifyOnProgress
+    $('notifProgressStep').value = cfg.progressStep || 25
+    $('notifUrl').value = cfg.url || ''
+  }
+  window.w2gp.notifierConfig().then((r) => { if (r && r.ok) notifApplyDom(r.config) }).catch(() => {})
+  $('notifSaveBtn')?.addEventListener('click', async () => {
+    const r = await window.w2gp.notifierSet(notifCollect())
+    if (r && r.ok) { notifStatus('✓ Saved', false); if (r.config.enabled && r.config.url) window.w2gp.notifierEnsure().catch(() => {}) }
+    else notifStatus('✗ ' + ((r && r.error) || 'save failed'), true)
+  })
+  $('notifTestBtn')?.addEventListener('click', async () => {
+    const r = await window.w2gp.notifierTest(notifCollect())
+    if (r && r.ok) notifStatus('✓ Test sent', false)
+    else notifStatus('✗ ' + ((r && r.error) || 'test failed'), true)
+  })
+  $('notifEnsureBtn')?.addEventListener('click', async () => {
+    notifStatus('Installing Apprise…', false)
+    const r = await window.w2gp.notifierEnsure()
+    if (r && r.ok) notifStatus(r.already ? 'Apprise already present' : '✓ Apprise installed', false)
+    else notifStatus('✗ ' + ((r && r.error) || 'install failed'), true)
+  })
+  $('notifAppriseLink')?.addEventListener('click', (e) => { e.preventDefault(); window.w2gp.openExternal('https://github.com/caronc/apprise') })
 }
 
 function openSettings() {
@@ -208,6 +259,8 @@ function openSettings() {
     if (followTheme) followTheme.checked = cfg.themeFollowSystem === true
     const notifications = $('notificationsToggle')
     if (notifications) notifications.checked = cfg.notificationsEnabled !== false
+    const pulsebar = $('pulsebarToggle')
+    if (pulsebar) pulsebar.checked = !!(cfg.pulsebar && cfg.pulsebar.enabled)
     const autoUpdate = $('autoUpdateToggle')
     if (autoUpdate) autoUpdate.checked = cfg.autoUpdateEnabled !== false
     const share = $('shareToggle')

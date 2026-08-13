@@ -146,6 +146,17 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Gallery
   galleryScan: () => ipcRenderer.invoke('gallery-scan'),
   galleryJoin: (opts) => ipcRenderer.invoke('gallery-join', opts),
+
+  // Queue Notifier
+  notifierConfig: () => ipcRenderer.invoke('notifier-config'),
+  notifierSet: (cfg) => ipcRenderer.invoke('notifier-set', cfg),
+  notifierTest: (cfg) => ipcRenderer.invoke('notifier-test', cfg),
+  notifierEnsure: () => ipcRenderer.invoke('notifier-ensure'),
+
+  // Pulsebar overlay
+  pulsebarShow: (opts) => ipcRenderer.invoke('pulsebar-show', opts),
+  pulsebarHide: () => ipcRenderer.invoke('pulsebar-hide'),
+  pulsebarUpdate: (opts) => ipcRenderer.invoke('pulsebar-update', opts),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
   quitApp: () => ipcRenderer.invoke('quit-app'),

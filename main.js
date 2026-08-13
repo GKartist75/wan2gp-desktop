@@ -12,6 +12,7 @@ const autoTune = require('./services/auto-tune.js')
 const catalog = require('./services/catalog.js')
 const memoryProfile = require('./services/memory-profile.js')
 const gallery = require('./services/gallery.js')
+const queueNotifier = require('./services/queue-notifier.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -1376,11 +1377,12 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
       }
     })
     _wangpProc = child
-    child.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+    child.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s); notifyFromLog(s) } })
     child.stderr.on('data', d => { 
       const s = d.toString();
       if (s) {
         send('launch-log', s)
+        notifyFromLog(s)
         if (s.includes('localhost is not accessible') || s.includes('shareable link must be created')) {
           send('launch-log', '[!] Gradio localhost check failed. If this persists, enable "Share Link" in Settings (Manage → Launch tab) or add --share to Extra Launch Args.\n')
         }
@@ -3306,6 +3308,67 @@ ipcMain.handle('report-issue', async () => {
   }
 })
 
+// ── Pulsebar (floating always-on-top progress) ──
+// A tiny frameless, always-on-top window showing generation progress. It is driven
+// by the same launch-log events the Queue Notifier parses, so it lights up the
+// moment Wan2GP starts a generation and clears on completion/failure.
+let _pulseWin = null
+
+function pulseHtml() {
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:rgba(20,20,28,0.92);font-family:sans-serif;overflow:hidden;}
+  #w{height:6px;background:#2a2a36;}
+  #f{height:100%;width:0;background:linear-gradient(90deg,#6c5ce7,#00b894);transition:width .3s;}
+  #p{position:absolute;top:10px;left:12px;color:#cfd2dc;font-size:12px;}
+  #x{position:absolute;top:8px;right:10px;color:#888;font-size:12px;cursor:pointer;}
+</style></head><body>
+<div id="w"><div id="f"></div></div>
+<div id="p">Wan2GP</div><div id="x">×</div>
+<script>
+  const { ipcRenderer } = require('electron')
+  document.getElementById('x').onclick = () => ipcRenderer.invoke('pulsebar-hide')
+  ipcRenderer.on('pulse-update', (_, d) => {
+    const f = document.getElementById('f'); const p = document.getElementById('p')
+    f.style.width = (d.percent||0) + '%'
+    p.textContent = (d.status||'Wan2GP') + (d.percent!=null ? ' · ' + d.percent + '%' : '')
+  })
+</script></body></html>`
+}
+
+function pulseShow(status, percent) {
+  if (!_pulseWin) {
+    const { screen } = require('electron')
+    const s = screen.getPrimaryDisplay().workAreaSize
+    _pulseWin = new BrowserWindow({
+      width: 320, height: 32,
+      x: Math.round((s.width - 320) / 2), y: s.height - 60,
+      frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
+      resizable: false, hasShadow: false, show: false
+    })
+    _pulseWin.loadURL('data:text/html,' + encodeURIComponent(pulseHtml()))
+    _pulseWin.on('closed', () => { _pulseWin = null })
+  }
+  _pulseWin.webContents.once('did-finish-load', () => {
+    _pulseWin.webContents.send('pulse-update', { status, percent })
+    if (!_pulseWin.isVisible()) _pulseWin.show()
+  })
+  if (_pulseWin.webContents.isLoading?.()) return
+  _pulseWin.webContents.send('pulse-update', { status, percent })
+  if (!_pulseWin.isVisible()) _pulseWin.show()
+}
+
+function pulseHide() {
+  if (_pulseWin) { try { _pulseWin.close() } catch {} _pulseWin = null }
+}
+
+ipcMain.handle('pulsebar-show', (_, { status, percent } = {}) => { pulseShow(status || 'Wan2GP', percent); return { ok: true } })
+ipcMain.handle('pulsebar-hide', () => { pulseHide(); return { ok: true } })
+ipcMain.handle('pulsebar-update', (_, { status, percent } = {}) => {
+  if (_pulseWin) { _pulseWin.webContents.send('pulse-update', { status, percent }); return { ok: true } }
+  return { ok: false }
+})
+
 // ── Desktop experience IPC handlers (tray, auto-start, notifications, theme) ──
 ipcMain.handle('set-auto-start', (_, enabled) => {
   try {
@@ -3522,6 +3585,115 @@ ipcMain.handle('gallery-join', async (_, { folder, outName, fps, crf }) => {
     logError('gallery-join', e)
     return { ok: false, error: e.message }
   }
+})
+
+// ── Queue Notifier (external delivery via Apprise) ──
+const _notifierState = { lastPercent: null }
+const _pulseState = { lastPercent: null }
+
+function getNotifierConfig() {
+  const cfg = loadConfig().notifier || {}
+  // ensure shape; defaults applied by the pure module on set too
+  const norm = queueNotifier.normalizeConfig(cfg)
+  return norm.ok ? norm.config : { enabled: false, url: '', notifyOnComplete: true, notifyOnFail: true, notifyOnProgress: false, attachMedia: false, progressStep: 25 }
+}
+
+function saveNotifierConfig(cfg) {
+  const norm = queueNotifier.normalizeConfig(cfg)
+  if (!norm.ok) return { ok: false, error: norm.error }
+  const c = loadConfig()
+  c.notifier = norm.config
+  saveConfig(c)
+  return { ok: true, config: norm.config }
+}
+
+// Resolve the env's `apprise` CLI (apprise is pip-installable into the Wan2GP env).
+function resolveApprise() {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (py) {
+    for (const exe of ['apprise', 'apprise.exe']) {
+      const p = path.join(path.dirname(py), exe)
+      if (fs.existsSync(p)) return p
+    }
+    // fall back to python -m apprise
+    return py
+  }
+  return 'apprise'
+}
+
+// Fire notifications for notable Wan2GP log events (called from the launch-log stream).
+function notifyFromLog(text) {
+  const cfg = getNotifierConfig()
+  if (cfg.enabled && cfg.url) {
+    const lines = String(text).split('\n')
+    const events = queueNotifier.detectEvents(lines, _notifierState)
+    for (const ev of events) {
+      if (!queueNotifier.shouldNotify(ev, cfg)) continue
+      const body = queueNotifier.buildMessage(ev, { jobName: cfg.jobName, includeLog: ev.kind === 'fail' })
+      deliverNotifier(cfg.url, body).catch((e) => logError('notifyFromLog', e))
+    }
+  }
+  // Pulsebar (independent of notifier) — driven by the same events.
+  const pc = loadConfig().pulsebar
+  if (pc && pc.enabled) {
+    const lines = String(text).split('\n')
+    const events = queueNotifier.detectEvents(lines, _pulseState)
+    for (const ev of events) {
+      if (ev.kind === 'progress') pulseShow('Generating', ev.percent)
+      else if (ev.kind === 'complete') { pulseShow('Done', 100); setTimeout(pulseHide, 2500) }
+      else if (ev.kind === 'fail') { pulseShow('Failed', null); setTimeout(pulseHide, 4000) }
+    }
+  }
+}
+
+// Deliver a message via Apprise. `py` arg means resolveApprise returned a python
+// interpreter → use `python -m apprise`.
+function deliverNotifier(url, body) {
+  const apprise = resolveApprise()
+  const args = ['-b', body, url]
+  if (apprise.endsWith('apprise') && !apprise.includes(path.sep)) {
+    // it's the literal `apprise`/python — if it's python, prepend -m
+    if (apprise.includes('python')) return spawnAsync(apprise, ['-m', 'apprise', ...args])
+    return spawnAsync(apprise, args)
+  }
+  return spawnAsync(apprise, args)
+}
+
+function spawnAsync(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { windowsHide: true, stdio: 'pipe' })
+    let stderr = ''
+    child.stderr.on('data', (d) => { stderr += d.toString() })
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error('apprise exited ' + code + ': ' + stderr.slice(-400))))
+    child.on('error', reject)
+  })
+}
+
+ipcMain.handle('notifier-config', async () => ({ ok: true, config: getNotifierConfig() }))
+ipcMain.handle('notifier-set', async (_, cfg) => saveNotifierConfig(cfg))
+ipcMain.handle('notifier-test', async (_, cfg) => {
+  const norm = queueNotifier.normalizeConfig(cfg || {})
+  if (!norm.ok) return { ok: false, error: norm.error }
+  try {
+    await deliverNotifier(norm.config.url, 'Wan2GP Desktop Launcher: ✅ notifier test message')
+    return { ok: true }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
+// Lazily ensure `apprise` is installed into the active env (one-time, on enable).
+ipcMain.handle('notifier-ensure', async () => {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (!py) return { ok: false, error: 'No active Wan2GP env — install Wan2GP first.' }
+  try {
+    // already resolvable?
+    if (fs.existsSync(path.join(path.dirname(py), 'apprise.exe')) || fs.existsSync(path.join(path.dirname(py), 'apprise'))) {
+      return { ok: true, already: true }
+    }
+    await spawnAsync(py, ['-m', 'pip', 'install', '--quiet', 'apprise'])
+    return { ok: true }
+  } catch (e) { return { ok: false, error: e.message } }
 })
 
 ipcMain.handle('check-update', async (_, opts) => {
