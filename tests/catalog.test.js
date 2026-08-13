@@ -34,13 +34,19 @@ const MANIFEST = {
   ]
 }
 
-function makeFakeGit() {
+function makeFakeGit({ hasTag = false } = {}) {
   const calls = []
   return {
     calls,
     // Materialize the cloned folder so install/update see real files.
+    // When hasTag is true, ls-remote reports the pinned tag as a real ref so
+    // cloneInto keeps the --branch <tag> path; otherwise it falls back to default.
     exec(args, cwd) {
       calls.push(args)
+      if (args[0] === 'ls-remote') {
+        if (hasTag) return 'abc\trefs/tags/v2.0.3\n' + 'abc\trefs/heads/v2.0.3\n'
+        return '' // no tag/branch refs → fallback to default branch
+      }
       const dest = args[args.length - 1]
       fs.mkdirSync(dest, { recursive: true })
       fs.writeFileSync(path.join(dest, 'plugin.py'), '# plugin\n')
@@ -92,7 +98,7 @@ test('parseManifest accepts a valid manifest', () => {
 
 test('install clones into plugins/<id> and reports installed', () => {
   const repo = freshRepo()
-  const git = makeFakeGit()
+  const git = makeFakeGit({ hasTag: true })
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w2gp-tmp-'))
   const res = cat.install(MANIFEST.plugins[0], repo, { tempDir: tmp, gitExec: git.exec, verifyOk: true })
   assert.strictEqual(res.installed, true)
@@ -100,6 +106,22 @@ test('install clones into plugins/<id> and reports installed', () => {
   const p = cat.resolveInstallBase(repo, 'plugins/file-gallery')
   assert.ok(fs.existsSync(path.join(p, 'plugin.py')))
   assert.ok(git.calls.some((c) => c.includes('clone') && c.includes('--branch') && c.includes('v2.0.3')))
+  fs.rmSync(repo, { recursive: true, force: true })
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
+
+test('install falls back to default branch when pinned tag is missing', () => {
+  // Most community plugins have no git tags; cloneInto must clone the default branch.
+  const repo = freshRepo()
+  const git = makeFakeGit({ hasTag: false })
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w2gp-tmp-'))
+  const entry = { ...MANIFEST.plugins[0], tag: 'v2.0.3' }
+  const res = cat.install(entry, repo, { tempDir: tmp, gitExec: git.exec, verifyOk: true })
+  assert.strictEqual(res.installed, true)
+  const cloneCall = git.calls.find((c) => c.includes('clone'))
+  assert.ok(cloneCall, 'a clone was issued')
+  assert.ok(!cloneCall.includes('--branch'), 'no --branch when tag is missing')
+  assert.ok(cloneCall.includes('https://example.com/Tophness/Wan2GP-File-Gallery'))
   fs.rmSync(repo, { recursive: true, force: true })
   fs.rmSync(tmp, { recursive: true, force: true })
 })

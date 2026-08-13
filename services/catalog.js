@@ -104,8 +104,24 @@ function defaultGitExec() {
 function cloneInto(entry, repoDir, tempDir, gitExec) {
   const git = gitExec || defaultGitExec()
   const tmp = path.join(tempDir, entry.id + '-' + Date.now())
-  // Clone the pinned tag shallowly so we pull exactly the catalogued version.
-  git(['clone', '--depth', '1', '--branch', entry.tag, '--single-branch', entry.repo, tmp], repoDir)
+  // Most community plugins have no git tags — clone the default branch unless the
+  // pinned tag is a real ref. We probe refs read-only first, then clone accordingly.
+  let branch = entry.tag
+  const wantsTag = entry.tag && entry.tag !== 'main' && entry.tag !== 'master'
+  if (wantsTag) {
+    try {
+      const refs = git(['ls-remote', '--heads', '--tags', entry.repo], null)
+      const hasRef = refs.split('\n').some((l) =>
+        l.endsWith('refs/heads/' + entry.tag) || l.endsWith('refs/tags/' + entry.tag))
+      if (!hasRef) branch = null // fall back to default branch
+    } catch (_) {
+      branch = null // cannot probe → let clone use default branch
+    }
+  }
+  const args = ['clone', '--depth', '1']
+  if (branch) args.push('--branch', branch, '--single-branch')
+  args.push(entry.repo, tmp)
+  git(args, repoDir)
   return tmp
 }
 
@@ -123,9 +139,16 @@ function verifyRepo(entry, opts = {}) {
     // Confirm the remote exists at all.
     const head = git(['ls-remote', '--heads', entry.repo], null)
     if (!head || !head.trim()) return { ok: false, error: 'Repository not found or not accessible: ' + entry.repo }
-    // Confirm the pinned tag/branch exists.
-    const tagRef = 'refs/heads/' + entry.tag + '\nrefs/tags/' + entry.tag
-    const hasTag = head.split('\n').some((l) => l.includes('refs/heads/' + entry.tag) || l.includes('refs/tags/' + entry.tag))
+    // For default-branch entries (main/master) the tag is the branch itself.
+    const isBranch = entry.tag === 'main' || entry.tag === 'master'
+    if (isBranch) {
+      const hasBranch = head.split('\n').some((l) => l.endsWith('refs/heads/' + entry.tag))
+      return { ok: true, tagExists: hasBranch, defaultBranch: (head.split('\n')[0] || '').split('\t')[1] || '' }
+    }
+    // For version tags, confirm the pinned tag/branch exists; otherwise note it.
+    const refs = git(['ls-remote', '--heads', '--tags', entry.repo], null)
+    const hasTag = refs.split('\n').some((l) =>
+      l.endsWith('refs/heads/' + entry.tag) || l.endsWith('refs/tags/' + entry.tag))
     return { ok: true, tagExists: hasTag, defaultBranch: (head.split('\n')[0] || '').split('\t')[1] || '' }
   } catch (e) {
     return { ok: false, error: (e && e.message ? e.message : String(e)).split('\n')[0] }
