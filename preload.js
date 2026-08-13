@@ -157,6 +157,10 @@ contextBridge.exposeInMainWorld('w2gp', {
   pulsebarShow: (opts) => ipcRenderer.invoke('pulsebar-show', opts),
   pulsebarHide: () => ipcRenderer.invoke('pulsebar-hide'),
   pulsebarUpdate: (opts) => ipcRenderer.invoke('pulsebar-update', opts),
+
+  // Install hardening
+  installPlan: () => ipcRenderer.invoke('install-plan'),
+  validateInstall: () => ipcRenderer.invoke('validate-install'),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
   quitApp: () => ipcRenderer.invoke('quit-app'),

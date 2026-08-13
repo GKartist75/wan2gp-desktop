@@ -441,6 +441,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + escHtml(p) + '</span>' }).join('')
       $('installPkgs').style.display = ''
     })
+    // Pre-flight resolved stack (CUDA build, driver/disk gates) — audit hardening
+    window.w2gp.installPlan().then(function(r) {
+      if (!r || !r.ok) return
+      const grid = $('installStackGrid')
+      const warn = $('installStackWarn')
+      const stack = $('installStack')
+      if (!grid) return
+      const p = r.plan
+      const rows = [
+        ['GPU', p.gpuName || p.vendor],
+        ['CUDA build', p.cuda],
+        ['PyTorch', p.torch],
+        ['Python', p.python],
+        ['Env', p.envType],
+        ['Attention kernels', (p.attention && p.attention.length) ? p.attention.join(', ') : '—'],
+        ['Free disk', r.disk.freeGb + ' GB']
+      ]
+      grid.innerHTML = rows.map(function(row) {
+        return '<div class="istack-row"><span class="istack-k">' + escHtml(row[0]) + '</span><span class="istack-v">' + escHtml(row[1]) + '</span></div>'
+      }).join('')
+      const warns = []
+      if (p.driverWarning) warns.push(p.driverWarning)
+      if (r.disk && r.disk.warn) warns.push(r.disk.warn)
+      warn.innerHTML = warns.length ? warns.map(function(w) { return '<div class="istack-w">⚠ ' + escHtml(w) + '</div>' }).join('') : ''
+      stack.style.display = ''
+      // Block install when a hard gate trips (old driver on cu130, or no disk)
+      const startBtn = $('installStartBtn')
+      if (startBtn && r.blocked) {
+        startBtn.disabled = true
+        startBtn.title = 'Resolve the warnings above before installing'
+        startBtn.textContent = 'Install blocked — see warnings'
+      }
+    }).catch(function() {})
   }
   } catch (e) {
     const el = $('splashError')
@@ -551,6 +584,27 @@ $('installStartBtn').addEventListener('click', startInstall)
 $('reinstallFreshBtn').addEventListener('click', () => doInstall(null, 'reinstall'))
 $('reinstallUpdateBtn').addEventListener('click', () => doInstall(null, 'update'))
 $('reinstallSkipBtn').addEventListener('click', () => doInstall(null, 'skip'))
+
+$('validateInstallBtn')?.addEventListener('click', async () => {
+  const btn = $('validateInstallBtn')
+  const warn = $('installStackWarn')
+  btn.disabled = true; btn.textContent = 'Validating…'
+  if (warn) warn.innerHTML = ''
+  try {
+    const r = await window.w2gp.validateInstall()
+    if (r && r.ok) {
+      const line = `✓ torch ${r.torch} · CUDA available: ${r.cudaAvailable} (${r.cudaVer})`
+      if (warn) warn.innerHTML = '<div class="istack-ok">⚡ ' + escHtml(line) + '</div>'
+      btn.textContent = 'Validated ✓'
+    } else {
+      if (warn) warn.innerHTML = '<div class="istack-w">✗ ' + escHtml((r && r.error) || 'validation failed') + '</div>'
+      btn.textContent = 'Validate failed'
+    }
+  } catch (e) {
+    if (warn) warn.innerHTML = '<div class="istack-w">✗ ' + escHtml(e.message) + '</div>'
+    btn.textContent = 'Validate failed'
+  }
+})
 
 $('browseAppDataPath')?.addEventListener('click', async () => {
   const folder = await window.w2gp.selectFolder()
@@ -736,6 +790,8 @@ async function doInstall(installed, mode) {
       appendLog(`[!] Failed to write model config: ${e.message}`)
     }
     taskComplete('done'); $('installSubtitle').textContent='Wan2GP is ready!'; appendLog('[*] Installation complete!')
+    const vb = $('validateInstallBtn')
+    if (vb) { vb.style.display = ''; vb.disabled = false; vb.textContent = 'Validate installation' }
     setTimeout(()=>{ show('dashboard'); refreshDashboard(); startMetricsPolling() }, 1200)
   } catch(e){ taskComplete('done',true); $('installSubtitle').textContent='Installation failed'; appendLog(`[ERROR] ${e.message}`) }
 }

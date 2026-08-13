@@ -678,6 +678,14 @@
         <div class="ipkgs-list" id="installPkgsList"></div>
       </div>
 
+      <!-- Resolved stack (pre-flight) -->
+      <div class="install-stack" id="installStack" style="display:none">
+        <div class="ipkgs-header">Resolved install stack</div>
+        <div class="istack-grid" id="installStackGrid"></div>
+        <div class="istack-warn" id="installStackWarn"></div>
+        <button class="btn btn-ghost small" id="validateInstallBtn" style="margin-top:8px;display:none">Validate installation</button>
+      </div>
+
       <!-- Reinstall choice (shown when Wan2GP already installed) -->
       <div id="reinstallChoice" class="reinstall-choice hidden">
         <p class="reinstall-prompt">Wan2GP is already installed. What do you want to do?</p>

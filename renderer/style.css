@@ -931,6 +931,16 @@ body {
 .cat-status-line { font-size: 0.62rem; color: var(--text-tertiary); min-height: 0.8em; }
 .cat-status-error { color: var(--signal-red); }
 
+/* ── Installer: resolved stack (pre-flight) ── */
+.install-stack { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.istack-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin-top: 6px; }
+.istack-row { display: contents; }
+.istack-k { color: var(--text-tertiary); font-size: 0.7rem; }
+.istack-v { color: var(--text-primary); font-size: 0.7rem; font-family: 'Geist Mono', monospace; }
+.istack-warn { margin-top: 8px; }
+.istack-w { color: var(--signal-amber); font-size: 0.68rem; line-height: 1.45; margin-top: 4px; }
+.istack-ok { color: var(--signal-green); font-size: 0.68rem; margin-top: 4px; }
+
 /* ── Gallery screen ── */
 #gallery.screen { display: none; }
 #gallery.screen.active { display: flex; flex-direction: column; }

@@ -13,6 +13,7 @@ const catalog = require('./services/catalog.js')
 const memoryProfile = require('./services/memory-profile.js')
 const gallery = require('./services/gallery.js')
 const queueNotifier = require('./services/queue-notifier.js')
+const installPlan = require('./services/install-plan.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -3694,6 +3695,78 @@ ipcMain.handle('notifier-ensure', async () => {
     await spawnAsync(py, ['-m', 'pip', 'install', '--quiet', 'apprise'])
     return { ok: true }
   } catch (e) { return { ok: false, error: e.message } }
+})
+
+// ── Install hardening: pre-flight plan + post-install validation ──
+function getFreeDiskBytes() {
+  try {
+    const p = getDataDir()
+    if (!p) return 0
+    const root = path.parse(p).root || p.substring(0, 2)
+    if (typeof fs.statfsSync === 'function') {
+      const s = fs.statfsSync(root)
+      return s.bsize * s.bfree
+    }
+  } catch {}
+  return 0
+}
+
+// Run a python one-liner and capture stdout+stderr (for install validation).
+function spawnAsyncCaptured(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { windowsHide: true, stdio: 'pipe' })
+    let stdout = '', stderr = ''
+    child.stdout.on('data', (d) => { stdout += d.toString() })
+    child.stderr.on('data', (d) => { stderr += d.toString() })
+    child.on('close', (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error('exit ' + code + ': ' + stderr.slice(-500))))
+    child.on('error', reject)
+  })
+}
+
+ipcMain.handle('install-plan', async () => {
+  try {
+    const gpus = await autoTune.queryGpuList()
+    const gpu = gpus[0] || null
+    const ramGb = Math.round(os.totalmem() / 1073741824)
+    // Compute capability best-effort from name (RTX 50 → 10.0, else let buildPlan
+    // decide kernels from vendor only). CUDA *version* is not compute capability,
+    // so we only special-case RTX 50 for the Nunchaku/LightX2V kernel list.
+    const cap = /RTX\s*50/i.test(gpu ? gpu.name : '') ? 10.0 : 0
+    const hw = {
+      vendor: gpu ? gpu.vendor : 'UNKNOWN',
+      name: gpu ? gpu.name : '',
+      vramGb: gpu ? Math.round((gpu.vramMB || 0) / 1024) : 0,
+      driverVersion: (getGpuInfo().driverVersion) || '',
+      capability: cap,
+      ramGb
+    }
+    const plan = installPlan.buildPlan(hw)
+    const free = getFreeDiskBytes()
+    const disk = { ...installPlan.diskCheck(Math.round(free / 1073741824)), freeGb: Math.round(free / 1073741824) }
+    const gtxExempt = plan.driverWarning && / (10|16)\d{2}/.test(hw.name)
+    const blocked = (!disk.ok) || (!gtxExempt && !!plan.driverWarning)
+    return { ok: true, plan, disk, blocked }
+  } catch (e) {
+    logError('install-plan', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+// Post-install validation: confirm torch + CUDA actually import in the built env.
+ipcMain.handle('validate-install', async () => {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (!py) return { ok: false, error: 'No active Wan2GP env' }
+  try {
+    const out = await spawnAsyncCaptured(py, ['-c',
+      'import torch; print("torch=" + torch.__version__); print("cuda=" + str(torch.cuda.is_available())); print("cudaver=" + (torch.version.cuda or "n/a"))'])
+    const cudaAvailable = /cuda=True/i.test(out.stdout)
+    const torchVer = (out.stdout.match(/torch=([^\n]+)/) || [])[1] || '?'
+    const cudaVer = (out.stdout.match(/cudaver=([^\n]+)/) || [])[1] || 'n/a'
+    return { ok: true, torch: torchVer, cudaAvailable, cudaVer, raw: out.stdout.trim() }
+  } catch (e) {
+    return { ok: false, error: (e.stderr || e.message || '').toString().slice(-400) }
+  }
 })
 
 ipcMain.handle('check-update', async (_, opts) => {
