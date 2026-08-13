@@ -1233,6 +1233,112 @@ async function closeWebview() {
 
 $('backToDashboardBtn').addEventListener('click', closeWebview)
 
+// ── Plugin Catalog ───────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+function catalogCard(p) {
+  const statusTag = p.installed
+    ? (p.enabled ? '<span class="cat-tag cat-installed">Installed</span>'
+                 : '<span class="cat-tag cat-disabled">Disabled</span>')
+    : '<span class="cat-tag cat-available">Available</span>'
+  const verifiedTag = p.verified === false
+    ? '<span class="cat-tag cat-unverified" title="Repo URL/tag not confirmed — flips to verified before install">Unverified</span>' : ''
+  const versionTag = '<span class="cat-version">v' + escHtml(p.version) + '</span>'
+  const typeTag = '<span class="cat-type">' + escHtml(p.type) + '</span>'
+  // Primary action depends on install state.
+  let actions = ''
+  if (!p.installed) {
+    actions += '<button class="cat-btn cat-install" data-id="' + p.id + '">Install</button>'
+  } else {
+    actions += '<button class="cat-btn cat-toggle" data-id="' + p.id + '" data-on="' + (p.enabled ? '0' : '1') + '">' + (p.enabled ? 'Disable' : 'Enable') + '</button>'
+    actions += '<button class="cat-btn cat-update" data-id="' + p.id + '">Update</button>'
+    actions += '<button class="cat-btn cat-remove" data-id="' + p.id + '">Remove</button>'
+  }
+  const home = p.homepage ? '<a class="cat-link" href="#" data-home="' + escHtml(p.homepage) + '">Homepage ↗</a>' : ''
+  return '' +
+    '<div class="cat-card" data-id="' + p.id + '">' +
+      '<div class="cat-card-head"><div class="cat-title">' + escHtml(p.name) + '</div>' + statusTag + verifiedTag + '</div>' +
+      '<div class="cat-meta">' + typeTag + versionTag + '<span class="cat-author">by ' + escHtml(p.author) + '</span></div>' +
+      '<div class="cat-summary">' + escHtml(p.summary || '') + '</div>' +
+      '<div class="cat-actions">' + actions + home + '</div>' +
+      '<div class="cat-status-line" id="cat-status-' + p.id + '"></div>' +
+    '</div>'
+}
+
+async function loadCatalog() {
+  const list = $('catalogList')
+  if (list) list.innerHTML = '<div class="catalog-loading">Loading catalog…</div>'
+  try {
+    const res = await window.w2gp.catalogList()
+    if (!res || !res.ok) throw new Error((res && res.error) || 'catalog error')
+    if (list) {
+      if (!res.plugins.length) {
+        list.innerHTML = '<div class="catalog-loading">No plugins in catalog.</div>'
+      } else {
+        list.innerHTML = res.plugins.map(catalogCard).join('')
+      }
+    }
+  } catch (e) {
+    if (list) list.innerHTML = '<div class="catalog-error">Failed to load catalog: ' + escHtml(e.message) + '</div>'
+  }
+}
+
+function setCatStatus(id, msg, isError) {
+  const el = document.getElementById('cat-status-' + id)
+  if (!el) return
+  el.textContent = msg
+  el.className = 'cat-status-line' + (isError ? ' cat-status-error' : '')
+}
+
+async function catalogAction(action, id, extra) {
+  const fn = { install: window.w2gp.catalogInstall, update: window.w2gp.catalogUpdate, remove: window.w2gp.catalogRemove, toggle: window.w2gp.catalogToggle }[action]
+  if (!fn) return
+  const args = action === 'toggle' ? [id, extra, true] : [id, true]
+  try {
+    const r = await fn.apply(null, args)
+    if (!r || !r.ok) throw new Error((r && r.error) || 'action failed')
+    setCatStatus(id, action === 'remove' ? 'Removed.' : (action === 'toggle' ? 'Toggled.' : 'Done.'), false)
+    await loadCatalog()
+  } catch (e) {
+    setCatStatus(id, e.message, true)
+  }
+}
+
+function wireCatalog() {
+  const pb = $('pluginsBtn')
+  if (pb) pb.addEventListener('click', () => { show('catalog'); loadCatalog() })
+  const back = $('catalogBackBtn')
+  if (back) back.addEventListener('click', () => show('dashboard'))
+  const refresh = $('catalogRefreshBtn')
+  if (refresh) refresh.addEventListener('click', loadCatalog)
+  // Event delegation for card buttons + homepage links.
+  const list = $('catalogList')
+  if (!list) return
+  list.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-id]')
+    if (btn) {
+      const id = btn.getAttribute('data-id')
+      if (btn.classList.contains('cat-install')) catalogAction('install', id)
+      else if (btn.classList.contains('cat-update')) catalogAction('update', id)
+      else if (btn.classList.contains('cat-remove')) catalogAction('remove', id)
+      else if (btn.classList.contains('cat-toggle')) catalogAction('toggle', id, btn.getAttribute('data-on') === '1')
+      return
+    }
+    const link = ev.target.closest('a[data-home]')
+    if (link) {
+      ev.preventDefault()
+      window.w2gp.openExternal(link.getAttribute('data-home'))
+    }
+  })
+}
+wireCatalog()
+
+
+
 // ── BrowserView navigation / zoom (relayed via main process) ──
 function updateNavButtons(state) {
   if ($('wvBackBtn')) $('wvBackBtn').disabled = !state.canGoBack

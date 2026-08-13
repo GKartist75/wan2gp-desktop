@@ -131,6 +131,13 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Desktop experience: tray, auto-start, notifications, theme
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
+
+  // Plugin Catalog (community plugins)
+  catalogList: () => ipcRenderer.invoke('catalog-list'),
+  catalogInstall: (id, verifyOk) => ipcRenderer.invoke('catalog-install', id, verifyOk),
+  catalogUpdate: (id, verifyOk) => ipcRenderer.invoke('catalog-update', id, verifyOk),
+  catalogRemove: (id) => ipcRenderer.invoke('catalog-remove', id),
+  catalogToggle: (id, on) => ipcRenderer.invoke('catalog-toggle', id, on),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
   quitApp: () => ipcRenderer.invoke('quit-app'),
