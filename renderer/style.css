@@ -880,7 +880,6 @@ body {
 .floating-term-resize:hover { background: var(--accent); }
 
 /* ── Plugin Catalog screen ── */
-#catalog.screen { display: none; }
 #catalog.screen.active { display: flex; flex-direction: column; }
 .catalog-topbar {
   display: flex; align-items: center; gap: 12px;
@@ -945,7 +944,6 @@ body {
 .istack-hint { color: var(--text-tertiary); font-size: 0.62rem; margin-top: 4px; line-height: 1.4; }
 
 /* ── Gallery screen ── */
-#gallery.screen { display: none; }
 #gallery.screen.active { display: flex; flex-direction: column; }
 .gallery-grid {
   flex: 1; overflow-y: auto; padding: 18px 20px;
