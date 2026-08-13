@@ -28,7 +28,9 @@ echo "==> 2. Stage, commit, tag, push"
 git add -A
 git commit -m "v$VERSION"
 git tag "v$VERSION"
-git push origin main --tags
+# Push to the CURRENT branch only — never force main. dev and main are kept
+# strictly separate; releases are cut from whatever branch you run this on.
+git push origin HEAD --tags
 
 echo "==> 3. Build Windows installer"
 npx electron-builder --win --config electron-builder.yml
