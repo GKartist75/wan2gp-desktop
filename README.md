@@ -126,17 +126,6 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.5.5** — **Data-dir hardening, setup-timeout guard, dead-code removal.**
-> `set-data-dir` now validates the path before persisting — relative paths,
-> `..` traversal, and non-writable directories are rejected and the handler
-> returns `false` instead of silently reporting success and breaking the next
-> launch. `runSetup` (install/update) now rejects after a 30-minute hard
-> timeout and kills the hung `setup.py` child tree, so a stuck build can no
-> longer wedge the UI. Also removed the empty, never-imported
-> `services/director/` directory. The validation guard is unit-tested (4 new
-> tests) — suite is now 50/50.
-> [Full changelog →](changelogs/CHANGELOG-v2.5.5.md)
-
 > **New in v2.5.4** — **No more phantom "local changes" backups.** That
 > `[!] Local changes... backup saved` warning on update used to fire for
 > any untracked file (like `envs.json`) and saved an empty 0-byte patch —
@@ -259,7 +248,6 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
-- **v2.5.5** — **Data-dir hardening, setup-timeout guard, dead-code removal** — `set-data-dir` now validates before persisting (rejects relative/`..`/non-writable paths and returns `false` on failure instead of silently succeeding and breaking the next launch); `runSetup` rejects after a 30-minute hard timeout and kills the hung `setup.py` child tree so a stuck build can't wedge the UI; removed the empty, never-imported `services/director/` directory; the data-dir guard is extracted into a pure tested module (4 new tests, suite now 50/50). See [CHANGELOG-v2.5.5.md](changelogs/CHANGELOG-v2.5.5.md).
 - **v2.5.4** — **No more phantom "local changes" backups** — the `[!] Local changes... backup saved` warning used to fire for any untracked file (like `envs.json`) and saved an empty 0-byte patch, even though `git reset --hard` never touches untracked files; updates now warn and back up only for real edits to tracked files. See [CHANGELOG-v2.5.4.md](changelogs/CHANGELOG-v2.5.4.md).
 - **v2.5.3** — **Self-healing updates for broken git repos** — updates that died with `fatal: not a git repository` (AV quarantine / interrupted clone leaving `.git` unusable) now detect the broken state before updating and rebuild the repository automatically (issue #27); a failed `setup.py update` no longer strands the update — the launcher-side git fetch/reset continues; NVIDIA driver pre-check added to updates (parity with install). 46 tests. See [CHANGELOG-v2.5.3.md](changelogs/CHANGELOG-v2.5.3.md).
 - **v2.5.2** — **Async hardware detection, model-path repair, update safety, injection hardening** — GPU/RAM/VRAM probing never blocks the app anymore (previously up to 15–20s of frozen window); Repair Settings + a silent background scan fix `wgp_config.json` entries pointing inside the repo — the fix for "error in getting the location" model downloads (issue #18); updates back up local repo edits (`pre-update-*.patch`) before resetting; Auto-Tune auto-runs detection on first tab visit; dashboard refresh batches its IPC and metric/update polling pauses while hidden; console rendering coalesced to one paint per frame; all repo-sourced content (commit messages, authors, env names, package lists) HTML-escaped through one unit-tested helper; 46 tests. See [CHANGELOG-v2.5.2.md](changelogs/CHANGELOG-v2.5.2.md).

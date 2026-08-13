@@ -9,7 +9,6 @@ const net = require('net')
 const http = require('http')
 const https = require('https')
 const autoTune = require('./services/auto-tune.js')
-const validateDataDir = require('./services/validate-data-dir.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -575,7 +574,7 @@ function fetchUrl(url, opts = {}) {
 }
 
 // ── Run setup.py with structured events ──
-function runSetup(args, extraPath, timeoutMs = 1800000) {
+function runSetup(args, extraPath) {
   return new Promise((resolve, reject) => {
     let py = installPython()
     if (!py) {
@@ -593,17 +592,6 @@ function runSetup(args, extraPath, timeoutMs = 1800000) {
       env: env
     })
     setupProc = proc
-    // Hard deadline: a hung setup.py would otherwise wedge the UI indefinitely.
-    // On timeout, kill the child tree and reject so the caller can surface a clear error.
-    let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      send('setup-output', `[!] setup.py timed out after ${Math.round(timeoutMs / 1000)}s — aborting.\n`)
-      try { if (proc.pid) killProcessTree(proc) } catch {}
-      try { proc.kill('SIGKILL') } catch {}
-      reject(new Error(`setup.py timed out after ${timeoutMs}ms`))
-    }, timeoutMs)
     let lineBuf = ''
     const emit = (text) => {
       send('setup-output', text)
@@ -621,18 +609,10 @@ function runSetup(args, extraPath, timeoutMs = 1800000) {
     proc.stderr.on('data', (d) => { const s = d.toString(); emit(s); process.stderr.write(s) })
     proc.on('close', (code) => {
       setupProc = null
-      clearTimeout(timer)
-      if (settled) return
-      settled = true
       if (code === 0) resolve()
       else reject(new Error(`setup.py exited code ${code}`))
     })
-    proc.on('error', (e) => {
-      clearTimeout(timer)
-      if (settled) return
-      settled = true
-      reject(e)
-    })
+    proc.on('error', reject)
   })
 }
 
@@ -2276,20 +2256,13 @@ ipcMain.handle('get-install-paths', () => ({
 }))
 ipcMain.handle('get-data-dir', () => getDataDir())
 ipcMain.handle('set-data-dir', (_, dir) => {
-  const resolved = validateDataDir(dir)
-  if (!resolved) { logError('set-data-dir', 'Invalid data dir path: ' + String(dir)); return false }
+  fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
   try {
-    fs.mkdirSync(resolved, { recursive: true })
-    fs.accessSync(resolved, fs.constants.W_OK)     // ensure it is actually writable
-    fs.writeFileSync(DATA_DIR_OVERRIDE, resolved)  // persist the canonical absolute path
-    const ed = path.join(resolved, '.electron')
+    const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
     app.setPath('userData', ed)
-    return true
-  } catch (e) {
-    logError('set-data-dir', e)
-    return false
-  }
+  } catch {}
+  return true
 })
 ipcMain.handle('open-folder', (_, dir) => {
   try { shell.openPath(dir) } catch {}
