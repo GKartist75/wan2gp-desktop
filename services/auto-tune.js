@@ -485,7 +485,10 @@ function recommend(hw, opts) {
     profile = ramRow[ramTier]
     if (profile === undefined) profile = 4
     coeff = vramCoefficientForTier(vramTier)
-    vaeCfg = vaeConfigForTier(vramTier)
+    // Detect leaves VAE on AUTO (0): the runtime picks tiling from actual VRAM
+    // (≥24GB → full, ≥8GB → 256, else 128). Avoids forcing a suboptimal fixed
+    // tiling that wastes VRAM or adds banding.
+    vaeCfg = 0
   }
 
   const videoProfile = profile

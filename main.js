@@ -3105,10 +3105,6 @@ ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
   return autoTune.recommend(data, opts)
 })
 
-ipcMain.handle('auto-tune:apply', (_, settings) => {
-  return autoTune.apply(settings, getRepoDir(), getDataDir())
-})
-
 ipcMain.handle('auto-tune:full-tune', async () => {
   return autoTune.fullTune(getRepoDir(), getDataDir())
 })

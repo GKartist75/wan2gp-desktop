@@ -96,6 +96,20 @@ test('no failsafe flag → unchanged matrix behavior', () => {
   assert.strictEqual(r.vram_safety_coefficient, 0.70)
 })
 
+test('Detect leaves VAE on AUTO (0) for every normal tier', () => {
+  // The runtime picks tiling from actual VRAM (≥24GB→full, ≥8GB→256, else 128);
+  // Detect must not force a fixed tiling that wastes VRAM or adds banding.
+  for (const vramTier of ['low', 'tight', 'high']) {
+    const r = recommend({ vram_tier: vramTier, ram_tier: 'high', gpu_vram_gb: 24 })
+    assert.strictEqual(r.vae_config, 0, `VAE should be AUTO (0) for tier ${vramTier}`)
+  }
+})
+
+test('failsafe still forces aggressive VAE tiling (3) for compatibility', () => {
+  const r = recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true })
+  assert.strictEqual(r.vae_config, 3)
+})
+
 // ── Audio profile rule (wan2gp fast LM decoder gate) ──
 test('audio_profile is 3 for ≥12GB cards whose video profile is not 1 or 3', () => {
   // 12–23GB video P4/P4.5/P5 → audio must be 3 (engages vllm/cg LM decoders)
@@ -126,11 +140,15 @@ test('vram_safety_coefficient: 0.80 for ≥12GB VRAM, 0.70 for <12GB', () => {
   assert.strictEqual(recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 8 }).vram_safety_coefficient, 0.70)
 })
 
-// ── VAE config tiers ──
-test('vae_config: 1 (untiled) for ≥24GB, 0 (auto) for 12–23GB, 3 (aggressive) for tight', () => {
-  assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }).vae_config, 1)
+// ── VAE config: Detect leaves AUTO (0) for every normal tier ──
+test('vae_config is AUTO (0) for high/low/tight on normal Detect', () => {
+  assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }).vae_config, 0)
   assert.strictEqual(recommend({ vram_tier: 'low', ram_tier: 'low', gpu_vram_gb: 16 }).vae_config, 0)
-  assert.strictEqual(recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 8 }).vae_config, 3)
+  assert.strictEqual(recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 8 }).vae_config, 0)
+})
+
+test('vae_config is still forced to 3 (aggressive) under failsafe', () => {
+  assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true }).vae_config, 3)
 })
 
 test('recommend() always returns int8 quantization', () => {

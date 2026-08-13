@@ -102,7 +102,6 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Auto-Tune
   autoTuneDetect: () => ipcRenderer.invoke('auto-tune:detect'),
   autoTuneRecommend: (hw, opts) => ipcRenderer.invoke('auto-tune:recommend', hw, opts),
-  autoTuneApply: (settings) => ipcRenderer.invoke('auto-tune:apply', settings),
   autoTuneFullTune: () => ipcRenderer.invoke('auto-tune:full-tune'),
 
   // Hardware
