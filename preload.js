@@ -142,6 +142,10 @@ contextBridge.exposeInMainWorld('w2gp', {
   // VRAM / RAM Adjuster
   memoryProfileRead: () => ipcRenderer.invoke('memory-profile:read'),
   memoryProfileApply: (settings) => ipcRenderer.invoke('memory-profile:apply', settings),
+
+  // Gallery
+  galleryScan: () => ipcRenderer.invoke('gallery-scan'),
+  galleryJoin: (opts) => ipcRenderer.invoke('gallery-join', opts),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
   quitApp: () => ipcRenderer.invoke('quit-app'),

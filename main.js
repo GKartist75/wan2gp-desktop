@@ -11,6 +11,7 @@ const https = require('https')
 const autoTune = require('./services/auto-tune.js')
 const catalog = require('./services/catalog.js')
 const memoryProfile = require('./services/memory-profile.js')
+const gallery = require('./services/gallery.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -3454,6 +3455,71 @@ ipcMain.handle('memory-profile:apply', async (_, settings) => {
     return { ok: true, applied: r.applied, path: r.path }
   } catch (e) {
     logError('memory-profile:apply', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+// ── Gallery (native output browser + frame join) ──
+function getWgpSavePath() {
+  try {
+    const cfgPath = path.join(getRepoDir(), 'wgp_config.json')
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+      return cfg.save_path || cfg.savePath || null
+    }
+  } catch {}
+  return null
+}
+
+// Resolve ffmpeg: prefer imageio-ffmpeg bundled with the env (imageio is installed),
+// then system ffmpeg on PATH. Returns absolute path or null.
+function resolveFfmpeg() {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (py) {
+    try {
+      const out = execSync(`"${py}" -c "import imageio_ffmpeg,sys; print(imageio_ffmpeg.get_ffmpeg_exe())"`,
+        { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: 'pipe' }).trim()
+      if (out && fs.existsSync(out)) return out
+    } catch {}
+  }
+  // system ffmpeg
+  try {
+    const which = IS_WIN ? 'where ffmpeg' : 'which ffmpeg'
+    const p = execSync(which, { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0]
+    if (p) return p
+  } catch {}
+  return null
+}
+
+ipcMain.handle('gallery-scan', async () => {
+  try {
+    const savePath = getWgpSavePath()
+    const items = gallery.scanOutputs({ repoDir: getRepoDir(), savePath })
+    return { ok: true, items, outputDirs: gallery.resolveOutputDirs({ repoDir: getRepoDir(), savePath }) }
+  } catch (e) {
+    logError('gallery-scan', e)
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('gallery-join', async (_, { folder, outName, fps, crf }) => {
+  try {
+    const ff = resolveFfmpeg()
+    if (!ff) return { ok: false, error: 'ffmpeg not found (imageio-ffmpeg nor system ffmpeg)' }
+    const built = gallery.buildJoinCommand({ folder, outName: outName || 'joined.mp4', fps: fps || 24, ffmpegPath: ff, crf: crf || 18 })
+    if (built.error) return { ok: false, error: built.error }
+    // Run ffmpeg (frames are local; this is a quick, bounded join).
+    await new Promise((resolve, reject) => {
+      const child = spawn(ff, built.args, { cwd: folder, windowsHide: true, stdio: 'pipe' })
+      let stderr = ''
+      child.stderr.on('data', (d) => { stderr += d.toString() })
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error('ffmpeg exited ' + code + ': ' + stderr.slice(-500))))
+      child.on('error', reject)
+    })
+    return { ok: true, outPath: built.outPath }
+  } catch (e) {
+    logError('gallery-join', e)
     return { ok: false, error: e.message }
   }
 })

@@ -1337,6 +1337,85 @@ function wireCatalog() {
 }
 wireCatalog()
 
+// ── Gallery (native output browser) ────────────────────────────────────────────
+function escHtmlGallery(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+function galleryCard(it) {
+  const isImg = it.type === 'image'
+  const thumb = isImg ? `<img class="g-thumb" src="file:///${encodeURI(it.path)}" loading="lazy" onerror="this.style.display='none'">`
+                      : `<div class="g-thumb g-vid">▶</div>`
+  const meta = it.metadata || {}
+  const metaBits = []
+  if (meta.prompt) metaBits.push('<span class="g-prompt">' + escHtmlGallery(meta.prompt.slice(0, 120)) + (meta.prompt.length > 120 ? '…' : '') + '</span>')
+  if (meta.model) metaBits.push('<span class="g-meta-tag">model: ' + escHtmlGallery(meta.model) + '</span>')
+  if (meta.seed != null) metaBits.push('<span class="g-meta-tag">seed: ' + escHtmlGallery(meta.seed) + '</span>')
+  const metaHtml = metaBits.length ? '<div class="g-meta">' + metaBits.join(' ') + '</div>' : ''
+  return '' +
+    '<div class="g-card" data-path="' + escHtmlGallery(it.path) + '">' +
+      '<a class="g-thumb-link" href="#" data-open="' + escHtmlGallery(it.path) + '">' + thumb + '</a>' +
+      '<div class="g-name" title="' + escHtmlGallery(it.name) + '">' + escHtmlGallery(it.name) + '</div>' +
+      metaHtml +
+      '<div class="g-actions">' +
+        '<button class="cat-btn g-open" data-open="' + escHtmlGallery(it.path) + '">Open</button>' +
+        '<button class="cat-btn g-folder" data-folder="' + escHtmlGallery(it.dir) + '">Folder</button>' +
+      '</div>' +
+    '</div>'
+}
+
+async function loadGallery() {
+  const grid = $('galleryGrid')
+  const dirs = $('galleryDirs')
+  if (grid) grid.innerHTML = '<div class="catalog-loading">Scanning outputs…</div>'
+  try {
+    const res = await window.w2gp.galleryScan()
+    if (!res || !res.ok) throw new Error((res && res.error) || 'scan failed')
+    if (dirs) dirs.textContent = (res.outputDirs && res.outputDirs.length) ? res.outputDirs.join(' · ') : 'No output folders found'
+    if (grid) {
+      if (!res.items.length) grid.innerHTML = '<div class="catalog-loading">No media found in output folders.</div>'
+      else grid.innerHTML = res.items.map(galleryCard).join('')
+    }
+  } catch (e) {
+    if (grid) grid.innerHTML = '<div class="catalog-error">Gallery scan failed: ' + escHtmlGallery(e.message) + '</div>'
+  }
+}
+
+function wireGallery() {
+  $('galleryBtn')?.addEventListener('click', () => { show('gallery'); loadGallery() })
+  $('galleryBackBtn')?.addEventListener('click', () => show('dashboard'))
+  $('galleryRefreshBtn')?.addEventListener('click', loadGallery)
+  const grid = $('galleryGrid')
+  if (!grid) return
+  grid.addEventListener('click', async (ev) => {
+    const openBtn = ev.target.closest('[data-open]')
+    if (openBtn) { window.w2gp.openExternal('file:///' + openBtn.getAttribute('data-open')); return }
+    const folderBtn = ev.target.closest('[data-folder]')
+    if (folderBtn) { window.w2gp.openExternal('file:///' + folderBtn.getAttribute('data-folder')); return }
+  })
+  // Join frames: pick a frame folder, run join, then refresh.
+  const joinBtn = document.createElement('button')
+  joinBtn.className = 'btn btn-primary small'
+  joinBtn.textContent = 'Join Frames → MP4'
+  joinBtn.style.marginLeft = 'auto'
+  joinBtn.addEventListener('click', async () => {
+    const folder = await window.w2gp.selectFolder()
+    if (!folder) return
+    joinBtn.disabled = true; joinBtn.textContent = 'Joining…'
+    try {
+      const r = await window.w2gp.galleryJoin({ folder })
+      if (r && r.ok) { showToast('✓ Joined → ' + r.outPath); }
+      else showToast('✗ ' + ((r && r.error) || 'join failed'))
+    } catch (e) { showToast('✗ ' + e.message) }
+    finally { joinBtn.disabled = false; joinBtn.textContent = 'Join Frames → MP4'; }
+  })
+  const topRight = document.querySelector('#gallery .catalog-topbar-right')
+  topRight?.appendChild(joinBtn)
+}
+wireGallery()
+
 
 
 // ── BrowserView navigation / zoom (relayed via main process) ──
