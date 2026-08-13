@@ -219,70 +219,72 @@
           </div>
         </div>
 
-        <!-- Recommendation Card (read-only; edits happen in the VRAM / RAM Adjuster below) -->
-        <div class="card" style="margin-bottom:12px">
-          <div class="card-header">
-            <span class="card-title">Recommendation</span>
-          </div>
-          <div id="autotuneRecommendInfo" style="padding:4px 12px 12px">
-            <p class="token-hint" style="margin:0">Run detection first.</p>
-          </div>
-        </div>
-
         <!-- Status / Result -->
         <div id="autotuneStatus" class="hidden" style="padding:10px 14px;border-radius:8px;font-size:0.75rem;line-height:1.5;background:var(--bg-tertiary)"></div>
 
-        <!-- Manual VRAM / RAM Adjuster -->
+        <!-- Unified Performance Settings (recommended + override + saved) -->
         <div class="card" style="margin-bottom:12px;margin-top:12px">
           <div class="card-header">
-            <span class="card-title">VRAM / RAM Adjuster</span>
+            <span class="card-title">Performance Settings</span>
             <button class="btn btn-primary small" id="memProfileApplyBtn" style="margin-left:auto">Apply Overrides</button>
           </div>
-          <p class="token-hint" style="padding:4px 12px 0">Manually set Wan2GP's memory-management knobs in <code>wgp_config.json</code> (mmgp profiles, safety coefficient, VAE tiling, transformer quantization). These override Auto-Tune.</p>
+          <p class="token-hint" style="padding:4px 12px 0">Detect scans your hardware and calibrates these mmgp knobs in <code>wgp_config.json</code>. Each dropdown defaults to the <strong>recommended</strong> value — change any to override. <span class="tag-rec">rec</span> = recommended, <span class="tag-saved">saved</span> = currently written to disk.</p>
           <label style="display:flex;align-items:center;gap:8px;padding:8px 12px 0;font-size:0.6875rem;color:var(--text-secondary);cursor:pointer"
                  title="Force the P5 minimum-compatibility profile — slower, but maximizes the chance generation works (e.g. a 10GB card that still crashes on P4+). Check and press Detect to re-seed these fields with P5 values.">
             <input type="checkbox" id="autotuneFailsafeChk" style="accent-color:var(--signal-yellow)">
             Prefer failsafe (P5 — maximum compatibility)
           </label>
-          <div style="padding:8px 12px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <label class="token-hint">Video Profile
+          <div class="mem-grid" style="padding:8px 12px 0">
+            <div class="mem-field">
+              <label class="token-hint">Video Profile</label>
               <select id="memVideoProfile" class="input">
                 <option value="">— unset —</option>
                 <option value="1">1</option><option value="2">2</option><option value="3">3</option>
                 <option value="3.5">3.5</option><option value="4">4</option><option value="4.5">4.5</option><option value="5">5</option>
               </select>
-            </label>
-            <label class="token-hint">Image Profile
+              <div class="mem-hint"><span id="recVideoProfile" class="tag-rec">rec: —</span><span id="savedVideoProfile" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field">
+              <label class="token-hint">Image Profile</label>
               <select id="memImageProfile" class="input">
                 <option value="">— unset —</option>
                 <option value="1">1</option><option value="2">2</option><option value="3">3</option>
                 <option value="3.5">3.5</option><option value="4">4</option><option value="4.5">4.5</option><option value="5">5</option>
               </select>
-            </label>
-            <label class="token-hint">Audio Profile
+              <div class="mem-hint"><span id="recImageProfile" class="tag-rec">rec: —</span><span id="savedImageProfile" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field">
+              <label class="token-hint">Audio Profile</label>
               <select id="memAudioProfile" class="input">
                 <option value="">— unset —</option>
                 <option value="1">1</option><option value="2">2</option><option value="3">3</option>
                 <option value="3.5">3.5</option><option value="4">4</option><option value="4.5">4.5</option><option value="5">5</option>
               </select>
-            </label>
-            <label class="token-hint">VRAM Safety Coeff (0.1–1)
+              <div class="mem-hint"><span id="recAudioProfile" class="tag-rec">rec: —</span><span id="savedAudioProfile" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field">
+              <label class="token-hint">VRAM Safety Coeff (0.1–1)</label>
               <input type="number" id="memCoeff" class="input" min="0.1" max="1" step="0.05" placeholder="0.80">
-            </label>
-            <label class="token-hint">VAE Config
+              <div class="mem-hint"><span id="recCoeff" class="tag-rec">rec: —</span><span id="savedCoeff" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field">
+              <label class="token-hint">VAE Config</label>
               <select id="memVae" class="input">
                 <option value="">— unset —</option>
                 <option value="0">0 — auto</option><option value="1">1 — full/untiled</option>
                 <option value="2">2 — tiling 256</option><option value="3">3 — tiling 128</option>
               </select>
-            </label>
-            <label class="token-hint">Transformer Quant
+              <div class="mem-hint"><span id="recVae" class="tag-rec">rec: —</span><span id="savedVae" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field">
+              <label class="token-hint">Transformer Quant</label>
               <select id="memQuant" class="input">
                 <option value="">— unset —</option>
                 <option value="none">none</option><option value="int8">int8</option>
                 <option value="fp8">fp8</option><option value="nvfp4">nvfp4</option>
               </select>
-            </label>
+              <div class="mem-hint"><span id="recQuant" class="tag-rec">rec: —</span><span id="savedQuant" class="tag-saved">saved: —</span></div>
+            </div>
           </div>
           <div id="memProfileStatus" class="token-hint" style="padding:8px 12px 12px;min-height:1em"></div>
         </div>

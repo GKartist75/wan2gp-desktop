@@ -2105,44 +2105,6 @@ function renderAutoTuneHardware(hw) {
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">' + badges.join('') + '</div>'
 }
 
-/** Render recommendation as READ-ONLY info. Editing happens in the VRAM/RAM
- *  Adjuster below (the single editor for these keys); Detect just seeds it. */
-function renderAutoTuneRecommendation(rec) {
-  var el = $('autotuneRecommendInfo')
-  if (!rec) {
-    el.innerHTML = '<p class="token-hint" style="margin:0">Run detection first.</p>'
-    return
-  }
-
-  var unavailable = /unavailable/i.test(rec._recommendation_label || '')
-  var currentProf = rec.video_profile
-  var isP3plus = currentProf === 3.5
-  var isP4plus = currentProf === 4.5
-  var profDisp = isP3plus ? 'P3+' : isP4plus ? 'P4+' : 'P' + currentProf
-
-  el.innerHTML = [
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">',
-    '<strong>' + escHtml(rec._recommendation_label || 'Recommended settings') + '</strong>',
-    (unavailable ? '<span class="env-type-tag" style="background:#3A1E1E;color:#FCA5A5">unavailable on this hardware</span>' : '<span class="env-type-tag" style="background:#2D4A3E;color:#8AF8C5">estimated</span>'),
-    '</div>',
-    '<div class="spec-grid" style="margin-bottom:8px">',
-    '<div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + (rec.video_profile != null ? rec.video_profile : '—') + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + (rec.image_profile != null ? rec.image_profile : '—') + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + (rec.audio_profile != null ? rec.audio_profile : '—') + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value">' + (rec.transformer_quantization != null ? rec.transformer_quantization : '—') + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value">' + (rec.vae_config != null ? (rec.vae_config + (rec.vae_config === 0 ? ' (AUTO)' : '')) : '—') + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">VRAM Safety Coeff</span><span class="spec-value">' + (rec.vram_safety_coefficient != null ? rec.vram_safety_coefficient : '—') + '</span></div>',
-    '</div>',
-    '<p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '</p>',
-    '<table class="profile-matrix" style="margin-top:6px">',
-    '<tr><th>VRAM \\ RAM</th><th style="text-align:center">high<br><span class="tier-range">≥64GB</span></th><th style="text-align:center">low<br><span class="tier-range">≥32GB</span></th><th style="text-align:center">very low<br><span class="tier-range"><32GB</span></th></tr>',
-    '<tr><td>high<br><span class="tier-range">≥24GB</span></td><td style="text-align:center;color:#6ee7b7">P1</td><td style="text-align:center">P3</td><td style="text-align:center;color:#67e8f9">P3+</td></tr>',
-    '<tr><td>low<br><span class="tier-range">12–23GB</span></td><td style="text-align:center">P2</td><td style="text-align:center">P4</td><td style="text-align:center;color:#f87171">P5</td></tr>',
-    '<tr><td>tight<br><span class="tier-range"><12GB</span></td><td style="text-align:center">P4</td><td style="text-align:center;color:#67e8f9">P4+</td><td style="text-align:center;color:#f87171">P5</td></tr>',
-    '</table>',
-    '<p class="token-hint" style="margin:4px 0 0;color:var(--text-tertiary);font-size:0.65rem">These values are loaded into the <strong>VRAM / RAM Adjuster</strong> below — adjust there if you want, then press <strong>Apply Overrides</strong>. Changes take effect after Wan2GP is restarted.</p>'
-  ].join('\n')
-}
 
 // escHtml now comes from services/escape.js (loaded before app.js) so the
 // module's escaping logic is shared with the node --test suite.
@@ -2165,7 +2127,6 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
     memProfileFromRecommendation(rec)
 
     renderAutoTuneHardware(_autotuneHardware)
-    renderAutoTuneRecommendation(_autotuneRecommendation)
 
     status.className = ''
     status.style.background = 'var(--bg-tertiary)'
@@ -2180,7 +2141,7 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
   }
 })
 
-// ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
+// ── Performance Settings (unified: Detect seeds dropdowns + rec tags; user overrides; saved tags from disk) ──
 function memProfileCollect() {
   // Only include fields the user actually set (non-empty) — unset = leave existing config.
   const s = {}
@@ -2210,19 +2171,42 @@ function setMemStatus(msg, isError) {
   el.style.color = isError ? 'var(--signal-red)' : 'var(--text-secondary)'
 }
 
-function memProfilePopulate(settings) {
-  if (!settings) return
-  $('memVideoProfile').value = settings.video_profile != null ? String(settings.video_profile) : ''
-  $('memImageProfile').value = settings.image_profile != null ? String(settings.image_profile) : ''
-  $('memAudioProfile').value = settings.audio_profile != null ? String(settings.audio_profile) : ''
-  $('memCoeff').value = settings.vram_safety_coefficient != null ? String(settings.vram_safety_coefficient) : ''
-  // VAE defaults to AUTO (0) per preference — runtime picks tiling from actual VRAM.
-  $('memVae').value = (settings.vae_config != null && settings.vae_config !== '') ? String(settings.vae_config) : '0'
-  $('memQuant').value = settings.transformer_quantization != null ? String(settings.transformer_quantization) : ''
+// Field metadata: maps the dropdown id to its rec/saved tag ids and a formatter.
+const MEM_FIELDS = {
+  video_profile: { sel: 'memVideoProfile', rec: 'recVideoProfile', saved: 'savedVideoProfile' },
+  image_profile: { sel: 'memImageProfile', rec: 'recImageProfile', saved: 'savedImageProfile' },
+  audio_profile: { sel: 'memAudioProfile', rec: 'recAudioProfile', saved: 'savedAudioProfile' },
+  vram_safety_coefficient: { sel: 'memCoeff', rec: 'recCoeff', saved: 'savedCoeff' },
+  vae_config: { sel: 'memVae', rec: 'recVae', saved: 'savedVae' },
+  transformer_quantization: { sel: 'memQuant', rec: 'recQuant', saved: 'savedQuant' }
+}
+function fmtVal(key, v) {
+  if (v == null || v === '') return '—'
+  if (key === 'vae_config') return v + (Number(v) === 0 ? ' (AUTO)' : '')
+  return String(v)
 }
 
-// Feed the manual Adjuster from an Auto-Tune detection result so Detect →
-// review/edit in the Adjuster → Apply is one coherent flow.
+function memProfilePopulate(settings, opts = {}) {
+  if (!settings) return
+  // opts.mode: 'recommend' fills the dropdown + rec tags; 'saved' fills rec tags from detect AND saved tags from disk.
+  for (const key of Object.keys(MEM_FIELDS)) {
+    const f = MEM_FIELDS[key]
+    const v = settings[key]
+    if (opts.mode === 'recommend') {
+      // Seed the dropdown with the recommended value (user can override).
+      const sel = $(f.sel)
+      if (sel) sel.value = (v != null && v !== '') ? String(v) : (key === 'vae_config' ? '0' : '')
+      const rec = $(f.rec); if (rec) rec.textContent = 'rec: ' + fmtVal(key, v)
+    } else if (opts.mode === 'saved') {
+      // Show what's currently written to disk (preferred/saved).
+      const saved = $(f.saved); if (saved) saved.textContent = 'saved: ' + fmtVal(key, v)
+    }
+  }
+}
+
+// Feed the manual Adjuster from an Auto-Tune detection result: set the dropdown
+// defaults to the recommended values AND show the rec tags. The user can then
+// override any dropdown before pressing Apply.
 function memProfileFromRecommendation(rec) {
   if (!rec) return
   memProfilePopulate({
@@ -2232,14 +2216,20 @@ function memProfileFromRecommendation(rec) {
     vram_safety_coefficient: rec.vram_safety_coefficient,
     vae_config: rec.vae_config != null ? rec.vae_config : 0, // AUTO unless Detect set a fixed value
     transformer_quantization: rec.transformer_quantization
-  })
+  }, { mode: 'recommend' })
 }
 
 async function memProfileLoad() {
   try {
     const res = await window.w2gp.memoryProfileRead()
-    if (res && res.ok) memProfilePopulate(res.settings)
-    else setMemStatus((res && res.error) || 'Failed to read memory settings', true)
+    if (res && res.ok) {
+      // Show the currently-saved (preferred) values from disk.
+      memProfilePopulate(res.settings, { mode: 'saved' })
+      // If a detection already populated the dropdowns, leave them; otherwise
+      // seed the dropdowns from the saved config too so the panel isn't empty.
+      const first = $('memVideoProfile')
+      if (first && first.value === '') memProfilePopulate(res.settings, { mode: 'recommend' })
+    } else setMemStatus((res && res.error) || 'Failed to read memory settings', true)
   } catch (e) { setMemStatus(e.message, true) }
 }
 
@@ -2280,7 +2270,6 @@ document.querySelectorAll('.settings-tab').forEach(tab => {
   try {
     const rec = await window.w2gp.autoTuneRecommend(_autotuneHardware, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
-    renderAutoTuneRecommendation(rec)
     // Re-seed the editable Adjuster fields with the (P5) recommendation.
     memProfileFromRecommendation(rec)
     status.className = ''

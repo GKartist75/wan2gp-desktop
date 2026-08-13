@@ -261,6 +261,47 @@ body {
   border-bottom: none;
 }
 
+/* ── Unified Auto-Tune Performance Settings panel ── */
+.mem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+.mem-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mem-field > label.token-hint {
+  margin-bottom: 0;
+}
+.mem-field .input {
+  width: 100%;
+}
+.mem-hint {
+  display: flex;
+  gap: 8px;
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+.tag-rec, .tag-saved {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-variant: tabular-nums;
+  white-space: nowrap;
+}
+.tag-rec {
+  background: #1E3A2E;
+  color: #6EE7B7;
+  border: 1px solid #2D5E47;
+}
+.tag-saved {
+  background: #2A2A3E;
+  color: #A9A9E6;
+  border: 1px solid #3E3E5E;
+}
+
 /* ── Compact Hardware Info (Auto-Tune) ── */
 .hw-compact {
   display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
