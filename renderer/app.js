@@ -2281,6 +2281,8 @@ document.querySelectorAll('.settings-tab').forEach(tab => {
     const rec = await window.w2gp.autoTuneRecommend(_autotuneHardware, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
     renderAutoTuneRecommendation(rec)
+    // Re-seed the editable Adjuster fields with the (P5) recommendation.
+    memProfileFromRecommendation(rec)
     status.className = ''
     status.style.background = 'var(--bg-tertiary)'
     status.innerHTML = $('autotuneFailsafeChk').checked

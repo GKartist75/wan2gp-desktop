@@ -224,11 +224,6 @@
           <div class="card-header">
             <span class="card-title">Recommendation</span>
           </div>
-          <label style="display:flex;align-items:center;gap:8px;padding:0 12px 8px;font-size:0.6875rem;color:var(--text-secondary);cursor:pointer"
-                 title="Force the P5 minimum-compatibility profile — slower, but maximizes the chance generation works (e.g. a 10GB card that still crashes on P4+).">
-            <input type="checkbox" id="autotuneFailsafeChk" style="accent-color:var(--signal-yellow)">
-            Prefer failsafe (P5 — maximum compatibility)
-          </label>
           <div id="autotuneRecommendInfo" style="padding:4px 12px 12px">
             <p class="token-hint" style="margin:0">Run detection first.</p>
           </div>
@@ -244,6 +239,11 @@
             <button class="btn btn-primary small" id="memProfileApplyBtn" style="margin-left:auto">Apply Overrides</button>
           </div>
           <p class="token-hint" style="padding:4px 12px 0">Manually set Wan2GP's memory-management knobs in <code>wgp_config.json</code> (mmgp profiles, safety coefficient, VAE tiling, transformer quantization). These override Auto-Tune.</p>
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px 0;font-size:0.6875rem;color:var(--text-secondary);cursor:pointer"
+                 title="Force the P5 minimum-compatibility profile — slower, but maximizes the chance generation works (e.g. a 10GB card that still crashes on P4+). Check and press Detect to re-seed these fields with P5 values.">
+            <input type="checkbox" id="autotuneFailsafeChk" style="accent-color:var(--signal-yellow)">
+            Prefer failsafe (P5 — maximum compatibility)
+          </label>
           <div style="padding:8px 12px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px">
             <label class="token-hint">Video Profile
               <select id="memVideoProfile" class="input">
