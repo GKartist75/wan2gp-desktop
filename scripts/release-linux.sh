@@ -34,18 +34,20 @@ APPIMAGE="Wan2GP-Desktop-Launcher-${VERSION}-linux-x86_64.AppImage"
 echo "==> 1. Bump version to $VERSION (linux branch)"
 npm --no-git-tag-version version "$VERSION"
 
-echo "==> 2. Stage, commit, tag, push (linux branch)"
+echo "==> 2. Stage and commit (tag + push happen only after a successful build)"
 git add -A
 git commit -m "linux: v$VERSION"
-git tag "$TAG"
-git push origin linux --tags
 
 echo "==> 3. Build Linux packages"
 npx electron-builder --linux --config electron-builder.yml
 echo "  -> Build done. Artifacts in dist/"
 
-echo "==> 4. Create draft PRE-RELEASE"
-RESP=$(curl -sf -X POST \
+echo "==> 4. Tag and push (only after the build succeeded)"
+git tag "$TAG"
+git push origin linux --tags
+
+echo "==> 5. Create draft PRE-RELEASE"
+RESP=$(curl -fsS -X POST \
   -H "Authorization: token ${GH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "$(cat <<END
@@ -54,15 +56,15 @@ END
   )" \
   "https://api.github.com/repos/$REPO/releases")
 
-RELEASE_ID=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+RELEASE_ID=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$RESP")
 UPLOAD_URL="https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets"
 echo "  -> Release draft created (ID: $RELEASE_ID)"
 
-echo "==> 5. Upload assets"
+echo "==> 6. Upload assets"
 for asset in "latest-linux.yml" "$DEB" "$APPIMAGE"; do
   if [ -f "dist/$asset" ]; then
     echo "  Uploading $asset..."
-    curl -sf -X POST \
+    curl -fsS -X POST \
       -H "Authorization: token ${GH_TOKEN}" \
       -H "Content-Type: application/octet-stream" \
       --data-binary @"dist/$asset" \

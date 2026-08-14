@@ -115,7 +115,7 @@ def build_data_tar():
         desktop = (
             '[Desktop Entry]\n'
             f'Name={PKG_JSON.get("productName", "Wan2GP Desktop Launcher")}\n'
-            f'Exec={APP_DIR}/{BIN_NAME} %U\n'
+            f'Exec="{APP_DIR}/{BIN_NAME}" %U\n'
             'Terminal=false\n'
             'Type=Application\n'
             'Icon=wan2gp-desktop\n'

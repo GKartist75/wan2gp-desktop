@@ -36,7 +36,7 @@ function appendLog(text) {
       }
     }
   }
-  while (logBuffer.length > MAX_LOG) logBuffer.shift()
+  if (logBuffer.length > MAX_LOG) logBuffer.splice(0, logBuffer.length - MAX_LOG)
   scheduleTerminalRender()
 }
 
@@ -44,6 +44,7 @@ const termFollow = { termBody: true, ftTermBody: true, installTermBody: true }
 const termAutoScroll = {}
 const termDirty = {}
 
+const termText = {}
 function renderTerminals() {
   // Include the in-progress (carriage-return-updated) line so progress bars are visible
   // before a newline arrives. When lastLine is empty we show buffer only.
@@ -57,7 +58,8 @@ function renderTerminals() {
     // (showTerminal/toggleFloatingTerm call renderTerminals() explicitly).
     if (el.offsetParent === null) { termDirty[id] = true; return }
     termDirty[id] = false
-    el.textContent = text
+    // Dirty-check: skip the textContent write when the text hasn't changed.
+    if (termText[id] !== text) { termText[id] = text; el.textContent = text }
     if (termFollow[id]) setTimeout(() => { el.scrollTop = el.scrollHeight }, 10)
   })
 }
@@ -74,7 +76,13 @@ function setupScrollUnfollow(bodyId, btnId) {
 }
 
 const $ = id => document.getElementById(id)
-function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active') }
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active')
+  // Flush console output buffered while the terminal was offscreen (e.g. the
+  // post-install show('dashboard') would otherwise leave the Console card
+  // empty until the next log line arrives).
+  if (Object.values(termDirty).some(Boolean)) renderTerminals()
+}
 function breakPath(p) { if (!p) return p; const zwsp = String.fromCharCode(0x200B); const bs = String.fromCharCode(0x5C); const s = String(p); return s.split(bs).join(bs + zwsp).split('/').join('/' + zwsp); }
 
 // ── Floating Terminal state/helpers (hoisted so the launch handler can use them) ──
@@ -447,7 +455,7 @@ function startMetricsPolling() {
     pushMetric('cpu', m.cpu); pushMetric('gpu', m.gpu); pushMetric('ram', m.ram); pushMetric('vram', m.vram)
     if ($('valCpu')) $('valCpu').textContent = m.cpu != null ? m.cpu + '%' : '—'
     if ($('valGpu')) $('valGpu').textContent = m.gpu != null ? m.gpu + '%' : '—'
-    if ($('valRam')) $('valRam').textContent = m.ramUsed ? m.ramUsed + '/' + m.ramTotal : '—'
+    if ($('valRam')) $('valRam').textContent = m.ramUsed != null ? m.ramUsed + '/' + m.ramTotal : '—'
     if ($('valVram')) $('valVram').textContent = m.vramUsed ? m.vramUsed + '/' + m.vramTotal : '—'
     drawSpark('sparkCpu', _sparkHistory.cpu, '#4ADE80')
     drawSpark('sparkGpu', _sparkHistory.gpu, '#60A5FA')
@@ -458,6 +466,18 @@ function startMetricsPolling() {
   window.__metricsTick = tick
   tick()
   window.__metricsTimer = setInterval(tick, 2000)
+  // Pause the 2s nvidia-smi sampling while the window is hidden/minimized;
+  // resume with an immediate tick on visibility.
+  if (!window.__metricsVisBound) {
+    window.__metricsVisBound = () => {
+      if (document.hidden) {
+        if (window.__metricsTimer) { clearInterval(window.__metricsTimer); window.__metricsTimer = null }
+      } else if (!window.__metricsTimer) {
+        startMetricsPolling()
+      }
+    }
+    document.addEventListener('visibilitychange', window.__metricsVisBound)
+  }
 }
 
 // ── Periodic Wan2GP update check ──
@@ -474,7 +494,19 @@ function startWangpPolling() {
     if (dash && dash.style.display === 'none') return
     loadWangpChangelog(false)
   }
+  poll()  // immediate tick on (re)start
   window.__wangpPollTimer = setInterval(poll, WANGP_POLL_MS)
+  // Same visibility pause/resume as startMetricsPolling.
+  if (!window.__wangpVisBound) {
+    window.__wangpVisBound = () => {
+      if (document.hidden) {
+        if (window.__wangpPollTimer) { clearInterval(window.__wangpPollTimer); window.__wangpPollTimer = null }
+      } else if (!window.__wangpPollTimer) {
+        startWangpPolling()
+      }
+    }
+    document.addEventListener('visibilitychange', window.__wangpVisBound)
+  }
 }
 
 // ── Task List ──
@@ -651,9 +683,15 @@ async function doInstall(installed, mode) {
       $('installStartBtn').classList.remove('hidden')
       return
     }
-  } else {
+  } else if (mode === 'update') {
     $('installSubtitle').textContent='Update instead of fresh install...'
     skipClone = true
+  } else {
+    // Fresh install (startInstall passes no mode): clone the repo normally —
+    // previously this branch treated fresh installs as updates, showing
+    // "Update instead of fresh install..." and marking the clone task done
+    // before it had even run.
+    skipClone = false
   }
   if(!skipClone) { taskStart('clone'); prevPhaseId = 'clone'; appendLog('[*] Cloning Wan2GP repository...') } else { taskComplete('clone'); prevPhaseId = 'clone' }
   try {
@@ -717,7 +755,7 @@ async function refreshDashboard(){
 
     function setSpec(specId, dotId, val, pkgName) {
       const el=$(specId); if(el) el.textContent=val||'—'
-      const dot=$(dotId); if(dot){ if(val) dot.classList.add('installed'); else dot.classList.remove('installed') }
+      const dot=$(dotId); if(dot){ if(val) { dot.classList.remove('has-update','error','installing'); dot.classList.add('installed') } else dot.classList.remove('installed') }
       // Show install button if package is missing and we know its pip name
       if (!val && pkgName && el) {
         var parent = el.closest('.spec-row')
@@ -768,7 +806,15 @@ async function refreshDashboard(){
     const div=document.createElement('div')
     div.className='env-list-item'+(e.active?' active':'')
     div.innerHTML=`<span class="env-dot"></span><span class="env-list-name">${escHtml(e.name)}</span><span style="font-size:0.65rem;color:#666;flex-shrink:0">${escHtml(e.type)}</span>`
-    if(!e.active) div.addEventListener('click',async()=>{ await window.w2gp.manageSetActive(e.name); refreshDashboard() })
+    if(!e.active) {
+      div.setAttribute('role','button')
+      div.tabIndex = 0
+      const activate = async()=>{ await window.w2gp.manageSetActive(e.name); refreshDashboard() }
+      div.addEventListener('click', activate)
+      div.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate() }
+      })
+    }
     list.appendChild(div)
   })
   loadWangpChangelog()
@@ -825,7 +871,7 @@ function refreshEnvUnlink() {
     }
   }
 
-const _labelToKey = {'Python':'python','Torch':'torch','CUDA':'cuda','Triton':'triton','Sage Attn':'sageattention','Flash Attn':'flash_attn','Diffusers':'diffusers','Transformers':'transformers','Gradio':'gradio','Accelerate':'accelerate','onnxruntime':'onnxruntime','OpenCV':'opencv','PEFT':'peft','hf_hub':'huggingface_hub'}
+const _labelToKey = {'Python':'python','Torch':'torch','CUDA':'cuda','Triton':'triton','Sage Attn':'sageattention','Flash Attn':'flash_attn','Diffusers':'diffusers','Transformers':'transformers','Gradio':'gradio','Accelerate':'accelerate','onnxruntime':'onnxruntime','OpenCV':'opencv','PEFT':'peft','hf_hub':'huggingface_hub','NumPy':'numpy','Tokenizers':'tokenizers'}
 
 $('checkPkgUpdatesBtn').addEventListener('click', async function() {
   this.textContent = 'Checking...'
@@ -911,6 +957,10 @@ $('checkPkgUpdatesBtn').addEventListener('click', async function() {
     } else {
       row.classList.add('up-to-date')
       row.classList.remove('has-update')
+      // Clear stale dot state (e.g. 'error' from a failed upgrade) when the
+      // check now reports the package is installed & current.
+      const dot = row.querySelector('.spec-dot')
+      if (dot) { dot.classList.remove('installing','has-update','error'); dot.classList.add('installed') }
     }
   })
   showToast(updateCount > 0 ? updateCount + ' updates available' : 'All packages up to date')
@@ -1004,13 +1054,16 @@ async function loadWangpChangelog(showLoading) {
     if (showLoading) listEl.innerHTML = '<div class="changelog-loading">Checking for updates...</div>'
 
     const local = await window.w2gp.getWangpLocalVersion()
-    if (local && localEl) localEl.textContent = local.hash.substring(0, 7)
+    if (local && localEl) localEl.textContent = local.hash ? local.hash.substring(0, 7) : ''
 
     window.w2gp.getWangpVersion().then(v => { if (v && verEl) verEl.textContent = v })
 
     const upstream = await window.w2gp.getWangpUpstreamInfo()
     if (!upstream || !upstream.commits) {
-      listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
+      // A transient upstream failure on the silent periodic poll must not
+      // clobber a previously rendered changelog — show the error only on an
+      // explicit user check.
+      if (showLoading) listEl.innerHTML = '<div class="changelog-error">Could not fetch updates</div>'
       // Clear any stale green dot from a previous check — don't leave it dangling
       const updateBtn = $('updateBtn')
       if (updateBtn) {
@@ -1107,7 +1160,9 @@ $('browserBtn').addEventListener('click', async () => {
 
 // ── Launch in Browser with GPU disabled (start-chrome-no-gpu script) ──
 $('browserNoGpuBtn').addEventListener('click', async () => {
-  if (browserRunning && currentUrl) { await window.w2gp.launchBrowser(currentUrl); return }
+  // Already running → re-open with the SAME no-GPU path (previously this
+  // fell back to launchBrowser, silently re-enabling GPU acceleration).
+  if (browserRunning && currentUrl) { await window.w2gp.launchBrowserNoGpu(currentUrl); return }
   const btn = $('browserNoGpuBtn')
   btn.disabled = true; btn.textContent = 'Starting...'
   $('launchInfo').classList.remove('hidden')
@@ -1183,11 +1238,6 @@ $('appBtn').addEventListener('click', async () => {
     updateFtStatus('running')
     serverMode = 'app'
     if (browserRunning) resetBrowserLaunchUI()
-    const overlay = $('launchOverlay')
-    if (overlay) {
-      overlay.classList.remove('hidden')
-      setTimeout(() => overlay.classList.add('hidden'), 30000)
-    }
     // Open the floating terminal per the saved default dock (or stay minimised)
     const cfg = await window.w2gp.configLoad()
     const dock = cfg.termDockDefault || 'bottom'
@@ -1228,6 +1278,7 @@ async function closeWebview() {
   $('webviewContainer').classList.add('hidden')
   $('dashBody').style.display = ''
   hideWebviewUI()
+  serverMode = null   // webview UI is gone; a later server exit must not re-close it
   appendLog('[*] Webview closed. Server still running.')
 }
 
@@ -1244,10 +1295,12 @@ $('wvFwdBtn').addEventListener('click', () => window.w2gp.bvNavigate('forward'))
 $('wvReloadBtn').addEventListener('click', () => window.w2gp.bvNavigate('reload'))
 // Listen for live nav state updates (pushed from main process after each navigation)
 window.w2gp.onBvNavState(updateNavButtons)
+let _zoomDebounce = null
 $('zoomSlider').addEventListener('input', () => {
   const pct = parseInt($('zoomSlider').value)
   $('zoomLabel').textContent = pct + '%'
-  window.w2gp.bvSetZoom(pct / 100)
+  clearTimeout(_zoomDebounce)
+  _zoomDebounce = setTimeout(() => window.w2gp.bvSetZoom(pct / 100), 120)
 })
 
 $('popoutBtn')?.addEventListener('click', () => {
@@ -1305,7 +1358,7 @@ $('stopWangpBtn').addEventListener('click', async () => {
 
 // ── Reset UI when server exits (manual stop or crash) ──
 window.w2gp.onWangpExit(c => {
-  appendLog(`[!] Wan2GP process exited (code ${c})`)
+  appendLog(`${c === 0 ? '[*]' : '[!]'} Wan2GP process exited (code ${c})`)
   if (serverMode === 'app') {
     if (!$('webviewContainer').classList.contains('hidden')) closeWebview()
   } else if (serverMode === 'browser') {
@@ -1379,7 +1432,6 @@ async function checkAutoTuneInstalled() {
 document.querySelectorAll('.settings-tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
     switchSettingsTab(tab.dataset.tab)
-    tab.closest('.settings-tabs')?.querySelector('.settings-tabs-inner')?.scrollTo({ left: tab.offsetLeft - 80, behavior: 'smooth' })
   })
 })
 $('settingsBtn').addEventListener('click',()=>{ openSettings() })
@@ -1468,10 +1520,10 @@ $('ftFollowBtn').addEventListener('click', () => {
   if (termFollow.ftTermBody) { const e = $('ftTermBody'); if (e) setTimeout(() => e.scrollTop = e.scrollHeight, 10) }
 })
 // Keyboard shortcut: Ctrl+` toggles floating terminal
-document.addEventListener('keydown', (e) => {
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
-  if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleFloatingTerm() }
-})
+// NOTE: the real shortcut lives in the Keyboard-shortcuts handler below
+// (Ctrl+` / Escape / Ctrl+W). This duplicate copy fired on the SAME keypress,
+// calling toggleFloatingTerm() twice — open then instantly close — so the
+// shortcut looked dead in webview mode. Removed to avoid the double toggle.
 
 // ── Dashboard console follow ──
 $('dashTermFollowBtn').addEventListener('click', () => {
@@ -1501,6 +1553,7 @@ $('logExportBtn')?.addEventListener('click', () => {
   const blob = new Blob([logBuffer.join('\n')], { type: 'text/plain' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob); a.download = 'wan2gp-console.log'; a.click()
+  URL.revokeObjectURL(a.href)
 })
 // Resize handle
 let _resize = null
@@ -1524,6 +1577,9 @@ function _resizeEnd() { _resize = null; document.removeEventListener('mousemove'
 // ── Keyboard shortcuts ──
 document.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+  // Escape closes the Manage panel first — it can be open in webview mode too,
+  // where the webview Escape branch below would otherwise fire instead.
+  if (e.key === 'Escape' && $('settingsPanel').classList.contains('open')) { closeSettings(); return }
   // Ctrl+` toggles floating terminal
   if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleFloatingTerm(); return }
   // Escape closes the webview/BrowserView
@@ -1535,6 +1591,8 @@ document.addEventListener('keydown', (e) => {
 function showToast(msg) {
   const t = document.createElement('div')
   t.textContent = msg
+  t.setAttribute('role', 'status')
+  t.setAttribute('aria-live', 'polite')
   t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#e8e6e1;padding:8px 16px;border-radius:6px;font-size:13px;z-index:9999;font-family:Geist Mono,monospace;transition:opacity 0.3s;max-width:90vw;text-align:center'
   document.body.appendChild(t)
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400) }, 2500)
@@ -1736,7 +1794,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateDismissBtn').classList.remove('hidden')
       break
     case 'error':
-      $('updateText').textContent = status.message.includes('401') || status.message.includes('403') || status.message.includes('authentication')
+      $('updateText').textContent = (status.message || '').includes('401') || (status.message || '').includes('403') || (status.message || '').includes('authentication')
         ? 'GitHub rate limited — add token in Manage settings'
         : `Update error: ${status.message}`
       $('updateDownloadBtn').classList.add('hidden')

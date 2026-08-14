@@ -12,6 +12,14 @@ let _lastLine = ''
 let _carriageReturn = false  // next text part replaces _lastLine instead of appending
 const MAX = 5000
 
+// Theme: the main window applies data-theme on <html> (dark) or removes it
+// (light), storing the choice in desktop-config.json — not localStorage — and
+// this window's preload exposes no config/theme channel, so read localStorage
+// if present and otherwise default to dark.
+const _theme = (() => { try { return localStorage.getItem('theme') } catch { return null } })()
+if (_theme === 'light') document.documentElement.removeAttribute('data-theme')
+else document.documentElement.setAttribute('data-theme', 'dark')
+
 function strip(t) {
   return t.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x08/g, '')
 }
@@ -37,7 +45,7 @@ function appendToBuf(text) {
       }
     }
   }
-  while (buf.length > MAX) buf.shift()
+  if (buf.length > MAX) buf.splice(0, buf.length - MAX)
   render()
 }
 

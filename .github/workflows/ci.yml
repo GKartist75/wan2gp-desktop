@@ -32,6 +32,9 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: POSIX external-terminal smoke test
+        run: bash scripts/smoke-test-posix.sh
+
   build-windows:
     # Build the installer on version tags so the release is reproducible and
     # never depends on a maintainer's machine.

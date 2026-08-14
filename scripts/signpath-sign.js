@@ -42,6 +42,48 @@ const path = require("path");
 
 const DEFAULT_BASE = "https://app.signpath.io/api/v1";
 
+const REQUEST_TIMEOUT_MS = 60 * 1000; // per network call (submit, poll, download)
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = [2000, 4000, 8000];
+// Retryable transient statuses. 500 is deliberately NOT retried on the
+// non-idempotent SubmitWithArtifact POST: a 500 can mean the request was
+// already processed server-side, and blind re-submission would create a
+// duplicate signing request (and burn a signature). Idempotent GETs (polling)
+// do retry 500 — a server hiccup mid-signing is transient there.
+const RETRYABLE_GET_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRYABLE_POST_STATUS = new Set([429, 502, 503, 504]);
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * fetch with a per-call AbortSignal.timeout and bounded retry-with-backoff for
+ * transient failures (retryable HTTP statuses + network/timeout errors).
+ * Returns the response of the last attempt (even if its status is still
+ * retryable, so the caller can surface the error body).
+ */
+async function fetchWithRetry(url, options = {}, { retries = MAX_RETRIES, label = "request", retryableStatuses = RETRYABLE_GET_STATUS } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, { ...options, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (attempt >= retries || !retryableStatuses.has(res.status)) {
+        return res;
+      }
+      const delay = RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
+      log(`${label} attempt ${attempt + 1} returned HTTP ${res.status} — retrying in ${delay / 1000}s`);
+      await sleep(delay);
+    } catch (e) {
+      if (attempt >= retries) {
+        throw e;
+      }
+      const delay = RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
+      log(`${label} attempt ${attempt + 1} failed (network): ${e.message} — retrying in ${delay / 1000}s`);
+      await sleep(delay);
+    }
+  }
+}
+
 function env(name) {
   const v = process.env[name];
   return v == null ? "" : v.trim();
@@ -62,11 +104,15 @@ function error(msg) {
   console.error(`[signpath-sign] ERROR: ${msg}`);
 }
 
-/** Download helper with status handling. Returns response object. */
-async function httpGet(url, token, headers = {}) {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, ...headers },
-  });
+/**
+ * GET helper with a 60s timeout and optional bounded retry-with-backoff.
+ * The Authorization header is ONLY sent when `token` is provided — presigned
+ * artifact URLs (S3/Azure) reject an explicit auth header with 400, so the
+ * artifact download must be called WITHOUT a token.
+ */
+async function httpGet(url, token, { headers = {}, retries = 0, label = "GET" } = {}) {
+  const auth = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetchWithRetry(url, { headers: { ...auth, ...headers } }, { retries, label });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status} GET ${url}: ${body.slice(0, 500)}`);
@@ -128,17 +174,23 @@ async function signPathSign(config) {
 
   const filePath = config.path;
   const fileName = path.basename(filePath);
-  const stat = fs.statSync(filePath);
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (e) {
+    throw new Error(`SignPath cannot sign ${fileName}: input executable not found at ${filePath} (${e.code || e.message})`);
+  }
   log(`Submitting ${fileName} (${stat.size} bytes) for signing...`);
 
   const submitUrl = `${base}/${orgId}/SigningRequests/SubmitWithArtifact`;
+  const fileBytes = fs.readFileSync(filePath);
   const form = new FormData();
   form.append("projectSlug", projectSlug);
   form.append("signingPolicySlug", policySlug);
   if (artifactConfigSlug) {
     form.append("artifactConfigurationSlug", artifactConfigSlug);
   }
-  form.append("artifact", new Blob([fs.readFileSync(filePath)]), fileName);
+  form.append("artifact", new Blob([fileBytes]), fileName);
   const description = env("SIGNPATH_DESCRIPTION") || `${process.env.npm_package_name || ""} ${process.env.npm_package_version || ""}`.trim();
   if (description) {
     form.append("description", description);
@@ -155,11 +207,14 @@ async function signPathSign(config) {
 
   let submitRes;
   try {
-    submitRes = await fetch(submitUrl, {
+    // Non-idempotent POST: retry only clearly-transient statuses (429/502/503/504),
+    // never 500 — a 500 may mean the request was already accepted server-side,
+    // and a blind re-submit would duplicate the signing request.
+    submitRes = await fetchWithRetry(submitUrl, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
-    });
+    }, { retries: MAX_RETRIES, label: "submit", retryableStatuses: RETRYABLE_POST_STATUS });
   } catch (e) {
     throw new Error(`SignPath submit request failed (network): ${e.message}`);
   }
@@ -173,8 +228,9 @@ async function signPathSign(config) {
   const statusUrl = `${base}/${orgId}/SigningRequests/${requestId}`;
   const deadline = Date.now() + timeoutMs;
   let lastStatus = "";
+  let warnedApproval = false;
   for (;;) {
-    const res = await httpGet(statusUrl, token);
+    const res = await httpGet(statusUrl, token, { retries: MAX_RETRIES, label: "signing status" });
     const data = await res.json();
     lastStatus = data.status || data.workflowStatus || "unknown";
     if (data.isFinalStatus === true) {
@@ -186,8 +242,14 @@ async function signPathSign(config) {
         (data.webLink ? `See ${data.webLink}` : ""));
     }
     if (data.status === "WaitingForApproval") {
-      warn(`${fileName}: waiting for manual approval in the SignPath portal ` +
-        `(use an auto-approve test-signing policy in CI) — ${data.webLink || statusUrl}`);
+      // Warn only on the FIRST transition into this state, not every poll.
+      if (!warnedApproval) {
+        warnedApproval = true;
+        warn(`${fileName}: waiting for manual approval in the SignPath portal ` +
+          `(use an auto-approve test-signing policy in CI) — ${data.webLink || statusUrl}`);
+      }
+    } else {
+      warnedApproval = false; // status changed; re-arm the once-only warning
     }
     if (Date.now() > deadline) {
       throw new Error(`SignPath signing timed out after ${timeoutMs / 1000}s for ${fileName} (last status: ${lastStatus}). ` +
@@ -196,12 +258,28 @@ async function signPathSign(config) {
     await new Promise(r => setTimeout(r, pollMs));
   }
 
-  const signedLink = (await httpGet(statusUrl, token).then(r => r.json())).signedArtifactLink;
+  const signedLink = (await httpGet(statusUrl, token, { retries: MAX_RETRIES, label: "final status" }).then(r => r.json())).signedArtifactLink;
   if (!signedLink) {
     throw new Error(`SignPath completed but response had no signedArtifactLink for ${fileName}`);
   }
-  const artifactRes = await httpGet(signedLink, token);
+  // NO token here: signedArtifactLink is a presigned S3/Azure URL that REJECTS
+  // an explicit Authorization header (HTTP 400) — signpath's own docs say to
+  // fetch it unauthenticated. Passing the Bearer token here previously failed
+  // every signed download. Retried, because a 5xx mid-download is transient.
+  const artifactRes = await httpGet(signedLink, undefined, { retries: MAX_RETRIES, label: "artifact download" });
   const signedBuf = Buffer.from(await artifactRes.arrayBuffer());
+
+  // Validate the bytes before replacing the exe: a 200 HTML error page (or a
+  // proxy redirect page) must never overwrite the artifact. PE files start
+  // with 'MZ' (0x4D 0x5A).
+  if (signedBuf.length === 0) {
+    throw new Error(`SignPath artifact download for ${fileName} was EMPTY (${artifactRes.status} ${artifactRes.statusText}) — refusing to replace the executable`);
+  }
+  if (signedBuf[0] !== 0x4D || signedBuf[1] !== 0x5A) {
+    const head = signedBuf.slice(0, 64).toString("utf8").replace(/[\x00-\x1f]/g, ".");
+    throw new Error(`SignPath artifact download for ${fileName} is not a valid PE executable (first bytes: ${head}) — refusing to replace the executable`);
+  }
+  log(`✔ Downloaded signed artifact (${signedBuf.length} bytes, valid PE header)`);
 
   // Atomic-ish replace: write temp next to target, then rename over it.
   const tmpPath = `${filePath}.signed.tmp`;

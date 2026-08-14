@@ -24,18 +24,20 @@ UPLOAD_URL=""
 echo "==> 1. Bump version to $VERSION"
 npm --no-git-tag-version version "$VERSION"
 
-echo "==> 2. Stage, commit, tag, push"
+echo "==> 2. Stage and commit (tag + push happen only after a successful build)"
 git add -A
 git commit -m "v$VERSION"
-git tag "v$VERSION"
-git push origin main --tags
 
 echo "==> 3. Build Windows installer"
 npx electron-builder --win --config electron-builder.yml
 echo "  -> Build done. Artifacts in dist/"
 
-echo "==> 4. Create draft GitHub release"
-RESP=$(curl -sf -X POST \
+echo "==> 4. Tag and push (only after the build succeeded)"
+git tag "v$VERSION"
+git push origin main --tags
+
+echo "==> 5. Create draft GitHub release"
+RESP=$(curl -fsS -X POST \
   -H "Authorization: token $GH_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$(cat <<END
@@ -44,15 +46,15 @@ END
   )" \
   "https://api.github.com/repos/$REPO/releases")
 
-RELEASE_ID=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+RELEASE_ID=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$RESP")
 UPLOAD_URL="https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets"
 echo "  -> Release draft created (ID: $RELEASE_ID)"
 
-echo "==> 5. Upload assets"
+echo "==> 6. Upload assets"
 for asset in "latest.yml" "$BLOCKMAP" "$ARTIFACT"; do
   if [ -f "dist/$asset" ]; then
     echo "  Uploading $asset..."
-    curl -sf -X POST \
+    curl -fsS -X POST \
       -H "Authorization: token $GH_TOKEN" \
       -H "Content-Type: application/octet-stream" \
       --data-binary @"dist/$asset" \
