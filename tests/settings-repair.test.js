@@ -79,6 +79,35 @@ test('reports invalid JSON instead of crashing', () => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test('repairs a UTF-8 BOM-prefixed settings file (previously skipped as invalid-json)', () => {
+  const dir = tmpdir()
+  const f = path.join(dir, '_settings.json')
+  fs.writeFileSync(f, '\uFEFF' + JSON.stringify({ apg_switch: 2 }))
+  const r = clampSettingsFile(f)
+  assert.strictEqual(r.error, undefined, 'BOM file must not be reported invalid')
+  assert.strictEqual(r.fixed, 1)
+  const after = JSON.parse(fs.readFileSync(f, 'utf8'))
+  assert.strictEqual(after.apg_switch, 0)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('repairs nested model paths case-insensitively on win32 (issue #18 lowercase form)', () => {
+  const dir = tmpdir()
+  const repo = path.join(dir, 'repo')
+  fs.mkdirSync(path.join(repo, 'Wan2GP'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'wgp_config.json'), JSON.stringify({ checkpoints_paths: ['./wan2gp/ckpts'] }))
+  const r = repairNestedModelPaths(repo, path.join(dir, 'data'))
+  // On win32 the lowercase './wan2gp/ckpts' must be caught; on POSIX it is a
+  // genuinely different (non-nested) directory and must be left alone.
+  if (process.platform === 'win32') {
+    assert.strictEqual(r.fixed, true)
+    assert.strictEqual(r.replacements.length, 1)
+  } else {
+    assert.strictEqual(r.fixed, false)
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
 test('reports unreadable files instead of crashing', () => {
   const r = clampSettingsFile(path.join('Z:', 'does-not-exist', '_settings.json'))
   assert.strictEqual(r.error, 'unreadable')

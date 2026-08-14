@@ -40,7 +40,10 @@ function startMockServer({ failAfterSubmits = 0 } = {}) {
         const raw = Buffer.concat(chunks).toString("utf8");
         const fileMatch = raw.match(/name="artifact"; filename="[^"]*"\r\n\r\n([\s\S]*?)\r\n--/);
         const original = fileMatch ? fileMatch[1] : "MOCK-ORIGINAL-BYTES";
-        seen.artifactBytes = Buffer.from(`SIGNED-BYTES:${original}`);
+        // Real PE files start with 'MZ' (0x4D 0x5A) — the hook validates the
+        // downloaded bytes before replacing the exe, so the mock artifact must
+        // look like a PE (payload kept recognizable for the assertion below).
+        seen.artifactBytes = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.from(`SIGNED-BYTES:${original}`)]);
         res.writeHead(201, {
           location: `http://127.0.0.1:${server.address().port}/api/v1/${ORG_ID}/SigningRequests/req-123`,
         });
@@ -132,7 +135,8 @@ test("submits, polls, downloads and replaces the artifact (happy path)", async (
     };
     await withEnv(envVars, () => hook.sign({ path: file }));
     const signed = fs.readFileSync(file, "utf8");
-    assert.ok(signed.startsWith("SIGNED-BYTES:"), `file must be replaced with signed bytes, got: ${signed.slice(0, 60)}`);
+    assert.ok(signed.startsWith("MZ"), `file must be replaced with signed bytes, got: ${signed.slice(0, 60)}`);
+    assert.ok(signed.includes("SIGNED-BYTES:"), `signed payload must be the downloaded artifact, got: ${signed.slice(0, 60)}`);
     assert.strictEqual(seen.submits, 1, "exactly one submit");
     assert.ok(seen.statusPolls >= 2, "must poll at least twice");
   } finally {

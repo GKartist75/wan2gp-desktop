@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Wan2GP Desktop progress-forcing bootstrap.
+"""DEPRECATED / SUPERSEDED — kept for reference only.
+
+The launcher embeds the canonical bootstrap inline in main.js (BOOTSTRAP_LINES)
+and writes it to disk at runtime, so the file this script points at is the one
+that actually runs. This standalone copy is NOT used by the launcher; it exists
+so the technique is documented outside the JS.
+
+The inline copy (main.js) includes the z-image VAE dtype fix
+(_patch_zimage_vae_dtype), which this file mirrors below so the two copies
+don't drift.
+
+Wan2GP Desktop progress-forcing bootstrap.
 
 Patches sys.stderr and sys.stdout so that tqdm, huggingface_hub,
 and any other progress-bar library believe they are writing to a
@@ -60,6 +71,32 @@ def _patch_tty():
     print("[bootstrap] active", flush=True)
 
 
+def _patch_zimage_vae_dtype():
+    """Mirror of the inline main.js fix (BOOTSTRAP_LINES).
+
+    Z-Image: pipeline casts latents to the transformer dtype (bf16) before VAE
+    decode (pipeline_z_image.py ~:978), but wgp.py loads the VAE as fp16 by
+    default (vae_precision=16) -> F.conv2d "Input type (BFloat16) and bias type
+    (Half)" crash. The ZImageTurbo VAE checkpoint is natively bf16 (and fp32
+    VAE crashes too), so force the z-image factory to load the VAE as bf16.
+    """
+    try:
+        import torch
+        import models.z_image.z_image_main as _zim
+
+        _orig_init = _zim.model_factory.__init__
+
+        def _init(self, *a, **kw):
+            kw["VAE_dtype"] = torch.bfloat16
+            print("[bootstrap] z-image VAE dtype fix APPLIED (bf16)", flush=True)
+            return _orig_init(self, *a, **kw)
+
+        _zim.model_factory.__init__ = _init
+        print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)
+    except Exception as e:
+        print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1].startswith("-"):
         print(
@@ -75,6 +112,7 @@ def main():
 
     # Patch BEFORE running the target
     _patch_tty()
+    _patch_zimage_vae_dtype()
 
     # Hand argv to the target (remove bootstrap path from argv[0])
     sys.argv = sys.argv[1:]
