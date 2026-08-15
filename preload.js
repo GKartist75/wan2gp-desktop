@@ -131,21 +131,9 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Desktop experience: tray, auto-start, notifications, theme
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
 
-  // Plugin Catalog (community plugins)
-  catalogList: () => ipcRenderer.invoke('catalog-list'),
-  catalogInstall: (id, verifyOk) => ipcRenderer.invoke('catalog-install', id, verifyOk),
-  catalogUpdate: (id, verifyOk) => ipcRenderer.invoke('catalog-update', id, verifyOk),
-  catalogRemove: (id) => ipcRenderer.invoke('catalog-remove', id),
-  catalogToggle: (id, on) => ipcRenderer.invoke('catalog-toggle', id, on),
-  catalogVerify: (id) => ipcRenderer.invoke('catalog-verify', id),
-
   // VRAM / RAM Adjuster
   memoryProfileRead: () => ipcRenderer.invoke('memory-profile:read'),
   memoryProfileApply: (settings) => ipcRenderer.invoke('memory-profile:apply', settings),
-
-  // Gallery
-  galleryScan: () => ipcRenderer.invoke('gallery-scan'),
-  galleryJoin: (opts) => ipcRenderer.invoke('gallery-join', opts),
 
   // Queue Notifier
   notifierConfig: () => ipcRenderer.invoke('notifier-config'),

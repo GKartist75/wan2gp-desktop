@@ -9,9 +9,7 @@ const net = require('net')
 const http = require('http')
 const https = require('https')
 const autoTune = require('./services/auto-tune.js')
-const catalog = require('./services/catalog.js')
 const memoryProfile = require('./services/memory-profile.js')
-const gallery = require('./services/gallery.js')
 const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 
@@ -3611,95 +3609,6 @@ autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progr
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
 autoUpdater.on('error', (err) => { console.log('[DEBUG] Update error:', err.message); send('update-status', { status: 'error', message: err.message || err.toString() }) })
 
-// ── Plugin Catalog (community plugins: install / update / remove / enable) ──
-// All operations are scoped to the launcher-managed Wan2GP at getRepoDir().
-// The original user Wan2GP install is never touched.
-function loadCatalogManifest() {
-  // Manifest is vendored under resources/ (works from both dev and asar build).
-  const prod = path.join(__dirname, 'resources', 'plugin-catalog.json')
-  const dev = path.join(__dirname, '..', 'resources', 'plugin-catalog.json')
-  const p = fs.existsSync(prod) ? prod : dev
-  return catalog.parseManifest(fs.readFileSync(p, 'utf8'))
-}
-
-function findCatalogEntry(manifest, id) {
-  const e = manifest.plugins.find((p) => p.id === id)
-  if (!e) throw new Error(`Plugin '${id}' not found in catalog`)
-  return e
-}
-
-ipcMain.handle('catalog-list', async () => {
-  try {
-    const manifest = loadCatalogManifest()
-    return { ok: true, plugins: catalog.listCatalog(manifest, getRepoDir()) }
-  } catch (e) {
-    logError('catalog-list', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-ipcMain.handle('catalog-install', async (_, id, verifyOk) => {
-  try {
-    const manifest = loadCatalogManifest()
-    const entry = findCatalogEntry(manifest, id)
-    const res = catalog.install(entry, getRepoDir(), { verifyOk: !!verifyOk })
-    return { ok: true, ...res }
-  } catch (e) {
-    logError('catalog-install', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-ipcMain.handle('catalog-update', async (_, id, verifyOk) => {
-  try {
-    const manifest = loadCatalogManifest()
-    const entry = findCatalogEntry(manifest, id)
-    const res = catalog.update(entry, getRepoDir(), { verifyOk: !!verifyOk })
-    return { ok: true, ...res }
-  } catch (e) {
-    logError('catalog-update', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-ipcMain.handle('catalog-remove', async (_, id) => {
-  try {
-    const manifest = loadCatalogManifest()
-    const entry = findCatalogEntry(manifest, id)
-    const res = catalog.remove(entry, getRepoDir())
-    return { ok: true, ...res }
-  } catch (e) {
-    logError('catalog-remove', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-ipcMain.handle('catalog-toggle', async (_, id, on) => {
-  try {
-    const manifest = loadCatalogManifest()
-    const entry = findCatalogEntry(manifest, id)
-    const res = catalog.setEnabled(entry, getRepoDir(), !!on)
-    return { ok: true, ...res }
-  } catch (e) {
-    logError('catalog-toggle', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-// Read-only verify of a plugin's repo URL + tag (git ls-remote). No clone, no files
-// written — used to flip `verified` before any install is allowed.
-ipcMain.handle('catalog-verify', async (_, id) => {
-  try {
-    const manifest = loadCatalogManifest()
-    const entry = findCatalogEntry(manifest, id)
-    const res = catalog.verifyRepo(entry)
-    return { ok: true, ...res, verified: res.ok && res.tagExists !== false }
-  } catch (e) {
-    logError('catalog-verify', e)
-    return { ok: false, error: e.message }
-  }
-})
-
 // ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
 ipcMain.handle('memory-profile:read', async () => {
   try {
@@ -3717,71 +3626,6 @@ ipcMain.handle('memory-profile:apply', async (_, settings) => {
     return { ok: true, applied: r.applied, path: r.path }
   } catch (e) {
     logError('memory-profile:apply', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-// ── Gallery (native output browser + frame join) ──
-function getWgpSavePath() {
-  try {
-    const cfgPath = path.join(getRepoDir(), 'wgp_config.json')
-    if (fs.existsSync(cfgPath)) {
-      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-      return cfg.save_path || cfg.savePath || null
-    }
-  } catch {}
-  return null
-}
-
-// Resolve ffmpeg: prefer imageio-ffmpeg bundled with the env (imageio is installed),
-// then system ffmpeg on PATH. Returns absolute path or null.
-function resolveFfmpeg() {
-  const env = getActiveEnv()
-  const py = env ? getPythonForEnv(env) : null
-  if (py) {
-    try {
-      const out = execSync(`"${py}" -c "import imageio_ffmpeg,sys; print(imageio_ffmpeg.get_ffmpeg_exe())"`,
-        { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: 'pipe' }).trim()
-      if (out && fs.existsSync(out)) return out
-    } catch {}
-  }
-  // system ffmpeg
-  try {
-    const which = IS_WIN ? 'where ffmpeg' : 'which ffmpeg'
-    const p = execSync(which, { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0]
-    if (p) return p
-  } catch {}
-  return null
-}
-
-ipcMain.handle('gallery-scan', async () => {
-  try {
-    const savePath = getWgpSavePath()
-    const items = gallery.scanOutputs({ repoDir: getRepoDir(), savePath })
-    return { ok: true, items, outputDirs: gallery.resolveOutputDirs({ repoDir: getRepoDir(), savePath }) }
-  } catch (e) {
-    logError('gallery-scan', e)
-    return { ok: false, error: e.message }
-  }
-})
-
-ipcMain.handle('gallery-join', async (_, { folder, outName, fps, crf }) => {
-  try {
-    const ff = resolveFfmpeg()
-    if (!ff) return { ok: false, error: 'ffmpeg not found (imageio-ffmpeg nor system ffmpeg)' }
-    const built = gallery.buildJoinCommand({ folder, outName: outName || 'joined.mp4', fps: fps || 24, ffmpegPath: ff, crf: crf || 18 })
-    if (built.error) return { ok: false, error: built.error }
-    // Run ffmpeg (frames are local; this is a quick, bounded join).
-    await new Promise((resolve, reject) => {
-      const child = spawn(ff, built.args, { cwd: folder, windowsHide: true, stdio: 'pipe' })
-      let stderr = ''
-      child.stderr.on('data', (d) => { stderr += d.toString() })
-      child.on('close', (code) => code === 0 ? resolve() : reject(new Error('ffmpeg exited ' + code + ': ' + stderr.slice(-500))))
-      child.on('error', reject)
-    })
-    return { ok: true, outPath: built.outPath }
-  } catch (e) {
-    logError('gallery-join', e)
     return { ok: false, error: e.message }
   }
 })
