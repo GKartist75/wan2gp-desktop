@@ -1658,6 +1658,12 @@ ipcMain.handle('popout-webview', (_, url) => {
       width: 1280, height: 800, title: 'Wan2GP',
     })
     detachedWin.loadURL(url)
+    watchRenderer(detachedWin.webContents, 'pop-out', () => {
+      setTimeout(() => {
+        if (!detachedWin || detachedWin.isDestroyed()) return
+        try { detachedWin.webContents.reload() } catch {}
+      }, 1000)
+    })
     detachedWin.on('closed', () => { detachedWin = null; mainWin?.webContents.send('webview-returned') })
     return { success: true }
   } catch (e) { return { error: e.message } }
@@ -1708,6 +1714,18 @@ ipcMain.handle('create-browser-view', (_, url) => {
           }})
         } else cb({})
       })
+      // Crash watchdog: the embedded Wan2GP page shares the same GPU/driver
+      // risk as the launcher UI — reload it so the UI comes back (the server
+      // never stopped, so a generation keeps running regardless).
+      watchRenderer(_bv.webContents, 'Wan2GP embed', () => {
+        if (!_bvUrl) return
+        setTimeout(() => {
+          if (!_bv || _bv.webContents.isDestroyed()) return
+          send('launch-log', '[!] Embedded Wan2GP view crashed — reloading it. The server keeps running, generation is unaffected.\n')
+          try { _bv.webContents.loadURL(_bvUrl) } catch (e) { logError('bv-reload', e) }
+        }, 1200)
+        try { mainWin?.webContents.send('bv-crash-recovered') } catch {}
+      })
       // Wire resize only once (view is created once and reused thereafter)
       if (_bvResizeHandler) mainWin.removeListener('resize', _bvResizeHandler)
       _bvResizeHandler = () => bvBounds()
@@ -1717,6 +1735,7 @@ ipcMain.handle('create-browser-view', (_, url) => {
     // never destroyed, so re-adding + reload avoids the blank-paint race on recreate).
     const attached = mainWin.getBrowserViews().includes(_bv)
     if (!attached) mainWin.addBrowserView(_bv)
+    if (typeof url === 'string') _bvUrl = url
     _panel = null
     bvBounds()
     _bv.webContents.loadURL(url)
@@ -1781,6 +1800,12 @@ ipcMain.handle('create-term-view', () => {
         webPreferences: { preload: path.join(__dirname, 'renderer', 'term-preload.js'), nodeIntegration: false, contextIsolation: true }
       })
       _termWin.loadURL('file://' + path.join(__dirname, 'renderer', 'term.html'))
+      watchRenderer(_termWin.webContents, 'floating console', () => {
+        setTimeout(() => {
+          if (!_termWin || _termWin.isDestroyed()) return
+          try { _termWin.webContents.reload() } catch {}
+        }, 1000)
+      })
       _termWin.on('closed', () => { _termWin = null })
     }
     return { success: true }
@@ -3634,6 +3659,98 @@ function createTray() {
   } catch (e) { console.error('[TRAY] Failed to create tray:', e.message) }
 }
 
+// ── Renderer crash recovery ──
+// "The GUI disappeared" reports: on Windows a display-driver hiccup (TDR) under
+// heavy GPU load — a Wan2GP generation saturating the card — can kill
+// Chromium's GPU process and take a renderer down with it. The window goes
+// blank while the main process (and the generation, which runs in its own
+// Python process) keeps running. There was no handler anywhere, so the only
+// recovery was a manual reload back to the dashboard. This watchdog detects
+// those deaths and heals the window automatically: reload the launcher
+// renderer (bounded — no reload loops), auto-reload a crashed embedded-Wan2GP
+// BrowserView, and let the reloaded UI put itself back where it was (see
+// get-crash-recovery-info) instead of stranding the user on the dashboard.
+let _uiMode = null                 // last UI mode the renderer reported: 'app' | 'browser' | null
+let _pendingCrashRestore = false   // set on a launcher-renderer crash; consumed by the reloaded UI
+let _gpuProcessDied = false        // GPU process crashed since startup (driver hiccup — likely culprit)
+let _crashTimes = []               // timestamps of launcher-UI crashes (bounds the auto-reload)
+let _bvUrl = null                  // last URL loaded into the Wan2GP BrowserView (for auto-reload)
+
+const CRASH_RELOAD_WINDOW_MS = 10 * 60 * 1000
+const CRASH_RELOAD_MAX = 2
+
+function watchRenderer(contents, label, onGone) {
+  contents.on('render-process-gone', (_e, details) => {
+    const reason = details && details.reason ? String(details.reason) : 'unknown'
+    const exitCode = details && typeof details.exitCode === 'number' ? details.exitCode : '?'
+    if (reason === 'clean-exit') return // normal teardown (window closed), not a crash
+    console.error(`[crash] ${label} renderer gone (${reason}, exit ${exitCode})`)
+    if (onGone) onGone(details)
+  })
+}
+
+function handleMainRendererGone(details) {
+  const now = Date.now()
+  _crashTimes = _crashTimes.filter(t => now - t < CRASH_RELOAD_WINDOW_MS)
+  _crashTimes.push(now)
+  _pendingCrashRestore = true
+  const reason = details && details.reason ? String(details.reason) : 'unknown'
+  const gpuHint = _gpuProcessDied
+  const gpuLine = gpuHint
+    ? ' The display driver likely reset while the GPU was under heavy load (a running generation). The server itself is unaffected.'
+    : ''
+  // Auto-reload (bounded) so the window heals itself instead of staying dead grey.
+  if (_crashTimes.length <= CRASH_RELOAD_MAX) {
+    // If the GPU process just died, give Chromium ~2s to respawn it before
+    // reloading — a reload into a still-dead GPU process crashes right back.
+    const delay = gpuHint ? 2000 : 800
+    setTimeout(() => {
+      if (!mainWin || mainWin.isDestroyed()) return
+      send('launch-log', `[!] Launcher UI ${reason} — reloading automatically. The Wan2GP server keeps running.${gpuLine}\n`)
+      try { mainWin.webContents.reload() } catch (e) { logError('crash-reload', e) }
+    }, delay)
+  } else {
+    // Repeated crashes: stop the reload loop and say what to do instead.
+    send('launch-log', `[!] Launcher UI ${reason} repeatedly (${_crashTimes.length} crashes in 10 min) — not auto-reloading again.${gpuLine}\n`)
+    send('launch-log', '[!] If this keeps happening during generation, disable GPU acceleration: Settings → General → “Enable GPU acceleration”, then restart the launcher. The UI restart never touches generation.\n')
+    try {
+      if (loadConfig().notificationsEnabled !== false) {
+        new Notification({ title: 'Wan2GP Desktop', body: 'Launcher UI crashed repeatedly. Disable GPU acceleration in Settings → General and restart the launcher.' }).show()
+      }
+    } catch {}
+  }
+}
+
+// GPU-process death is the usual accomplice of a display-driver reset: flag it
+// so the main-window recovery waits for the respawn and mentions the cause.
+app.on('child-process-gone', (_e, details) => {
+  if (!details || details.type !== 'GPU') return
+  if (details.reason === 'clean-exit') return
+  _gpuProcessDied = true
+  console.error('[crash] GPU process died:', details.reason, 'exit', details.exitCode)
+})
+
+// The renderer reports which UI mode it is in so a later crash can be undone.
+ipcMain.handle('ui-mode-set', (_e, mode) => {
+  _uiMode = mode === 'app' ? 'app' : (mode === 'browser' ? 'browser' : null)
+  return true
+})
+
+// Consumed once by the reloaded launcher UI: tells it a crash just happened,
+// whether the Wan2GP server is still up, and what mode it was in — so it can
+// put the window back exactly where the user was instead of the bare dashboard.
+ipcMain.handle('get-crash-recovery-info', () => {
+  const info = {
+    pending: _pendingCrashRestore,
+    mode: _uiMode,
+    serverRunning: _wangpProc !== null || _currentPort > 0,
+    url: _currentPort > 0 ? `http://127.0.0.1:${_currentPort}` : null,
+    gpuProcessDied: _gpuProcessDied
+  }
+  _pendingCrashRestore = false
+  return info
+})
+
 // ── Window ──
 
 function toggleDevTools(wc) {
@@ -3659,6 +3776,9 @@ function createWindow() {
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+
+  // Crash watchdog: a dead renderer blanked the window with no recovery.
+  watchRenderer(mainWin.webContents, 'launcher', handleMainRendererGone)
 
   // Restore maximized state after load
   if (savedState.maximized) mainWin.maximize()
