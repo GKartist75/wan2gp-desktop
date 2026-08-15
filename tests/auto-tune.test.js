@@ -3,22 +3,18 @@
  * Run: npm test  (node --test tests/)
  *
  * Covers the Wan2GP-aligned tier matrix, the audio-profile rule,
- * calibrated vram_safety_coefficient, VAE config tiers and the no-CUDA
- * fallback. detect() is async and requires a GPU — kept out of unit tests.
+ * calibrated vram_safety_coefficient, the always-Auto VAE recommendation and
+ * the no-CUDA fallback. detect() is async and requires a GPU — kept out of
+ * unit tests.
  */
 const { test } = require('node:test')
 const assert = require('node:assert')
-const { recommend, computePerJobCoefficient, audioProfile, findWgpConfig, ramTierFor } = require('../services/auto-tune')
+const { recommend, apply, computePerJobCoefficient, audioProfile, findWgpConfig, ramTierFor, PROFILE_MATRIX } = require('../services/auto-tune')
 
 // ── Profile matrix: VRAM tier × RAM tier → profile ──
-// Realigned to Wan2GP's own profile table (wgp.py memory_profile_choices) and
-// Wan2GP's tiers: high ≥24GB / low 12–23GB / tight <12GB VRAM;
-// high ≥64GB / low ≥32GB / very_low <32GB RAM.
-const MATRIX = {
-  high:  { high: 1, low: 3, very_low: 3.5 }, // ≥24GB VRAM
-  low:   { high: 2, low: 4, very_low: 5 },   // 12–23GB VRAM
-  tight: { high: 4, low: 4.5, very_low: 5 }  // <12GB VRAM
-}
+// Imported from the module itself (single source of truth) so the test can
+// never silently validate a stale copy if the matrix changes.
+const MATRIX = PROFILE_MATRIX
 
 test('recommend() maps every VRAM×RAM tier to the Wan2GP-aligned profile', () => {
   for (const [vramTier, ramRows] of Object.entries(MATRIX)) {
@@ -71,13 +67,13 @@ test('recommend() falls back to profile 4 on unknown tiers', () => {
 })
 
 // ── Failsafe preference (P5 forced regardless of tier) ──
-test('failsafe forces P5 + 0.60 coeff + VAE-3 on any hardware', () => {
+test('failsafe forces P5 + 0.60 coeff + VAE-auto on any hardware', () => {
   // A high-end machine that still wants max compatibility
   const r = recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true })
   assert.strictEqual(r.video_profile, 5)
   assert.strictEqual(r.image_profile, 5)
   assert.strictEqual(r.vram_safety_coefficient, 0.60)
-  assert.strictEqual(r.vae_config, 3)
+  assert.strictEqual(r.vae_config, 0)
   assert.strictEqual(r.transformer_quantization, 'int8')
   assert.match(r._recommendation_label, /Failsafe/)
   // Audio still honors the ≥12GB LM-decoder rule, not the failsafe profile
@@ -103,11 +99,6 @@ test('Detect leaves VAE on AUTO (0) for every normal tier', () => {
     const r = recommend({ vram_tier: vramTier, ram_tier: 'high', gpu_vram_gb: 24 })
     assert.strictEqual(r.vae_config, 0, `VAE should be AUTO (0) for tier ${vramTier}`)
   }
-})
-
-test('failsafe still forces aggressive VAE tiling (3) for compatibility', () => {
-  const r = recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true })
-  assert.strictEqual(r.vae_config, 3)
 })
 
 // ── Audio profile rule (wan2gp fast LM decoder gate) ──
@@ -140,15 +131,14 @@ test('vram_safety_coefficient: 0.80 for ≥12GB VRAM, 0.70 for <12GB', () => {
   assert.strictEqual(recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 8 }).vram_safety_coefficient, 0.70)
 })
 
-// ── VAE config: Detect leaves AUTO (0) for every normal tier ──
-test('vae_config is AUTO (0) for high/low/tight on normal Detect', () => {
+// ── VAE config ──
+test('vae_config is always Auto (0) — runtime decides tiling by actual headroom', () => {
   assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }).vae_config, 0)
   assert.strictEqual(recommend({ vram_tier: 'low', ram_tier: 'low', gpu_vram_gb: 16 }).vae_config, 0)
   assert.strictEqual(recommend({ vram_tier: 'tight', ram_tier: 'low', gpu_vram_gb: 8 }).vae_config, 0)
-})
-
-test('vae_config is still forced to 3 (aggressive) under failsafe', () => {
-  assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true }).vae_config, 3)
+  // Failsafe + no-CUDA fallback also advise Auto
+  assert.strictEqual(recommend({ vram_tier: 'high', ram_tier: 'high', gpu_vram_gb: 24 }, { failsafe: true }).vae_config, 0)
+  assert.strictEqual(recommend({ cuda_available: false, vram_tier: 'none', ram_tier: 'very_low', gpu_vram_gb: 0 }).vae_config, 0)
 })
 
 test('recommend() always returns int8 quantization', () => {
@@ -168,8 +158,17 @@ test('recommend() without CUDA returns the labeled conservative fallback', () =>
   assert.strictEqual(r.video_profile, 4.5)
   assert.strictEqual(r.audio_profile, 4.5)
   assert.strictEqual(r.vram_safety_coefficient, 0.70)
-  assert.strictEqual(r.vae_config, 3)
+  assert.strictEqual(r.vae_config, 0)
   assert.match(r._recommendation_label, /unavailable/i)
+})
+
+test('recommend(null/undefined) — failed detection — returns the same conservative fallback', () => {
+  for (const bad of [null, undefined]) {
+    const r = recommend(bad)
+    assert.strictEqual(r.video_profile, 4.5)
+    assert.strictEqual(r.vae_config, 0)
+    assert.match(r._recommendation_label, /unavailable/i)
+  }
 })
 
 // ── Config discovery order ──
@@ -210,4 +209,50 @@ test('computePerJobCoefficient: video is the most conservative, audio the least'
 test('computePerJobCoefficient returns base coefficient for unknown job types', () => {
   const r = computePerJobCoefficient(0.60, 'unknown-job')
   assert.strictEqual(r, 0.60)
+})
+
+// ── apply() writes to wgp_config.json ──
+test('apply() writes the recommended keys and preserves unrelated ones', () => {
+  const os = require('os')
+  const path = require('path')
+  const fs = require('fs')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autotune-apply-'))
+  try {
+    const repo = path.join(tmp, 'repo')
+    fs.mkdirSync(repo, { recursive: true })
+    fs.writeFileSync(path.join(repo, 'wgp_config.json'), JSON.stringify({ unrelated_key: 'keep-me', video_profile: 5 }, null, 2))
+    const rec = recommend({ vram_tier: 'low', ram_tier: 'low', gpu_vram_gb: 16 })
+    const result = apply(rec, repo, tmp)
+    assert.strictEqual(result.success, true)
+    assert.ok(result.applied.includes('vae_config'))
+    const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'wgp_config.json'), 'utf8'))
+    assert.strictEqual(cfg.video_profile, 4)
+    assert.strictEqual(cfg.vae_config, 0)
+    assert.strictEqual(cfg.unrelated_key, 'keep-me', 'unrelated config keys must survive')
+    assert.strictEqual(cfg.services.auto_performance_applied, true)
+    // No .tmp residue from the atomic write
+    assert.strictEqual(fs.existsSync(path.join(repo, 'wgp_config.json.tmp')), false)
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('apply() with empty settings is a no-op (unchanged, no file touch)', () => {
+  const os = require('os')
+  const path = require('path')
+  const fs = require('fs')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autotune-apply-'))
+  try {
+    const repo = path.join(tmp, 'repo')
+    fs.mkdirSync(repo, { recursive: true })
+    fs.writeFileSync(path.join(repo, 'wgp_config.json'), JSON.stringify({ keep: 1 }, null, 2))
+    const result = apply({}, repo, tmp)
+    assert.strictEqual(result.success, true)
+    assert.strictEqual(result.unchanged, true)
+    const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'wgp_config.json'), 'utf8'))
+    assert.deepStrictEqual(cfg, { keep: 1 })
+    assert.ok(!('services' in cfg), 'no-op must not stamp the auto_performance marker')
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 })

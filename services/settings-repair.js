@@ -38,7 +38,9 @@ function clampSettingsFile(filePath) {
   } catch { return { file: filePath, error: 'unreadable' } }
   let obj
   try {
-    obj = JSON.parse(raw)
+    // Strip a UTF-8 BOM if present — JSON.parse throws on \uFEFF, which made
+    // BOM-prefixed settings files silently skip repair as 'invalid-json'.
+    obj = JSON.parse(raw.replace(/^\uFEFF/, ''))
   } catch {
     return { file: filePath, error: 'invalid-json' }
   }
@@ -150,6 +152,11 @@ function repairNestedModelPaths(repo, dataDir) {
 
   const nestedRoot = path.join(repo, 'Wan2GP')
   const home = dataDir || repo
+  // Windows filesystems are case-insensitive: a config entry pointing at
+  // "./wan2gp/ckpts" (lowercase) resolves to the same nested folder and is
+  // exactly the issue-#18 failure mode — compare case-insensitively there.
+  const caseInsensitive = process.platform === 'win32'
+  const norm = (p) => caseInsensitive ? p.toLowerCase() : p
   const MAP = {
     checkpoints_paths: { default: path.join(home, 'ckpt'), isList: true },
     loras_root: { default: path.join(home, 'lora'), isList: false },
@@ -160,7 +167,9 @@ function repairNestedModelPaths(repo, dataDir) {
   const isNested = (p) => {
     if (typeof p !== 'string' || !p) return false
     const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(repo, p)
-    return abs === nestedRoot || abs.startsWith(nestedRoot + path.sep) || abs.startsWith(nestedRoot + '/')
+    const cmp = norm(abs)
+    const root = norm(nestedRoot)
+    return cmp === root || cmp.startsWith(root + path.sep) || cmp.startsWith(root + '/')
   }
 
   const replacements = []

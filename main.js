@@ -4,7 +4,7 @@ const { app, BrowserWindow, BrowserView, ipcMain, shell, Menu, MenuItem, dialog,
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { spawn, exec, execSync } = require('child_process')
+const { spawn, exec, execFile, execSync } = require('child_process')
 const net = require('net')
 const http = require('http')
 const https = require('https')
@@ -210,13 +210,13 @@ function findWan2gpPid() {
       const pids = out.split('\n').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n))
       return pids[0] || null
     }
-    const list = execSync('tasklist /fi "IMAGENAME eq python.exe" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
-    const pids = [...list.matchAll(/\"(\d+)\"/g)].map(m => m[1])
-    for (const pid of pids) {
-      try {
-        const cl = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"ProcessId=' + pid + '\" | Select-Object -ExpandProperty CommandLine"', { windowsHide: true, timeout: 5000 }).toString()
-        if (cl.includes('wgp.py')) return parseInt(pid, 10)
-      } catch {}
+    // One query for ALL python.exe processes (pid|commandline), instead of a
+    // PowerShell round-trip per PID — several unrelated Python processes used
+    // to make this take many seconds on the stop/uninstall path.
+    const out = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'python.exe\' } | ForEach-Object { $_.ProcessId.ToString() + \'|\' + $_.CommandLine }"', { windowsHide: true, timeout: 5000 }).toString()
+    for (const line of out.split('\n')) {
+      const bar = line.indexOf('|')
+      if (bar > 0 && line.slice(bar + 1).includes('wgp.py')) return parseInt(line.slice(0, bar), 10)
     }
   } catch {}
   return null
@@ -246,14 +246,26 @@ try {
 
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
-// ── Simple sequential mutex for mutable state ──
-// Ensures async operations on shared globals (_wangpProc, _currentPort, etc.) don't interleave.
-let _stateQueue = Promise.resolve()
-function mutex(fn) {
-  const prev = _stateQueue
-  let release
-  _stateQueue = new Promise(resolve => { release = resolve })
-  return prev.then(fn).finally(release)
+// Original (unredirected) Electron userData, captured at module scope BEFORE
+// app.whenReady() redirects runtime data to <dataDir>/.electron. Used by
+// reset-data-dir (and the getDataDir fallback) to compute the true default
+// data dir — recomputing from app.getPath('userData') after the redirect
+// landed the app in a nested <dataDir>/.electron/Wan2GP/.electron/Wan2GP and
+// silently orphaned the user's existing install.
+const ORIGINAL_USER_DATA = app.getPath('userData')
+
+// ── Mutation guard (replaces the old dead mutex()) ──
+// Serializes mutating operations (install / reinstall / update / uninstall /
+// launch). Two rapid IPC calls previously interleaved: double runSetup() spawns
+// clobbered the shared setupProc, and a second launch could spawn a second
+// server against the same port. The guard rejects the second call instead.
+let _mutatingOp = null // name of the running mutation, or null
+function mutating(name, fn) {
+  if (_mutatingOp) return { error: `Another operation is already running (${_mutatingOp}). Wait for it to finish.` }
+  _mutatingOp = name
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => { _mutatingOp = null })
 }
 
 // Redirect Electron's internal runtime data is done inside app.whenReady()
@@ -274,7 +286,7 @@ function getDataDir() {
       }
     }
   } catch (e) { logError('getDataDir', e) }
-  return path.join(app.getPath('userData'), 'Wan2GP')
+  return path.join(ORIGINAL_USER_DATA, 'Wan2GP')
 }
 
 function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
@@ -418,38 +430,38 @@ function sysPython() {
 // Windows" loader error 0xc0e90002) is auto-repaired with a forced reinstall
 // before falling back to a verified system Python.
 // ponytail: once uv becomes mandatory, return null here to hard-fail instead of falling back.
-function installPython() {
-  const find311 = () => {
-    try { return execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 30000 }).trim() } catch { return '' }
+async function installPython() {
+  const find311 = async () => {
+    try { return (await asyncExec('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 30000 })).trim() } catch { return '' }
   }
   // Confirm the interpreter actually executes — uv's "find" only locates it,
   // and a corrupted/blocked managed install still shows up in the list.
-  const runs = (p) => {
+  const runs = async (p) => {
     if (!p) return false
-    try { execSync(`"${p}" -c "import sys"`, { stdio: 'pipe', windowsHide: true, timeout: 30000 }); return true } catch { return false }
+    try { await asyncExec(`"${p}" -c "import sys"`, { stdio: 'pipe', windowsHide: true, timeout: 30000 }); return true } catch { return false }
   }
   // Preferred: uv-managed 3.11 (default env type already requires uv)
-  try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 120000 }) } catch {}
-  let p = find311()
-  if (runs(p)) return p
+  try { await asyncExec('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 120000 }) } catch {}
+  let p = await find311()
+  if (await runs(p)) return p
   // Managed 3.11 exists but won't run (corrupted download / loader block).
   // Force a clean reinstall instead of handing the broken exe to setup.py.
   send('setup-output', '[!] Managed Python 3.11 is broken (DLL load failure). Forcing a clean reinstall...\n')
-  try { execSync('uv python install --reinstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) }
+  try { await asyncExec('uv python install --reinstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) }
   catch {
     // Older uv without --reinstall: uninstall + install
-    try { execSync('uv python uninstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }) } catch {}
-    try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) } catch {}
+    try { await asyncExec('uv python uninstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }) } catch {}
+    try { await asyncExec('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) } catch {}
   }
-  p = find311()
-  if (runs(p)) return p
+  p = await find311()
+  if (await runs(p)) return p
   // Fallback: any system 3.11 that actually runs (verified, so setup.py never
   // spawns a dead exe — previously this dead-ended in "exited code 9009").
   const sysCandidates = IS_WIN ? ['python', 'python3.11'] : ['python3.11', 'python3']
   for (const cand of sysCandidates) {
     let resolved = cand
-    try { resolved = execSync(IS_WIN ? 'where ' + cand : 'which ' + cand, { encoding: 'utf8', windowsHide: true }).split('\n')[0].trim() || cand } catch {}
-    if (runs(resolved)) return resolved
+    try { resolved = (await asyncExec(IS_WIN ? 'where ' + cand : 'which ' + cand, { encoding: 'utf8', windowsHide: true })).split('\n')[0].trim() || cand } catch {}
+    if (await runs(resolved)) return resolved
   }
   return null
 }
@@ -547,7 +559,7 @@ function repoGitHealth() {
 }
 
 function fetchUrl(url, opts = {}) {
-  const { method, body, headers, timeout } = opts
+  const { method, body, headers, timeout, maxBytes } = opts
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const mod = parsed.protocol === 'https:' ? https : http
@@ -561,32 +573,143 @@ function fetchUrl(url, opts = {}) {
     }
     if (body) options.headers['Content-Length'] = Buffer.byteLength(body)
     const req = mod.request(options, (res) => {
+      // Follow redirects (GitHub/PyPI APIs occasionally 301/302) — bounded by
+      // the request timeout, and the new URL is re-validated via new URL().
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        const next = new URL(res.headers.location, url).toString()
+        return fetchUrl(next, opts).then(resolve, reject)
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      }
       let data = ''
-      res.on('data', chunk => data += chunk)
-      res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
-        } else {
-          try { resolve(JSON.parse(data)) } catch { resolve(data) }
+      let aborted = false
+      res.on('data', chunk => {
+        if (aborted) return
+        data += chunk
+        // Size cap: JSON API responses should be tiny; a runaway/broken
+        // endpoint must not balloon memory. Default 16 MB, override per call.
+        if (data.length > (maxBytes || 16 * 1024 * 1024)) {
+          aborted = true
+          res.destroy()
+          reject(new Error(`Response too large (>${Math.round((maxBytes || 16 * 1024 * 1024) / 1024 / 1024)} MB) for ${url}`))
         }
       })
+      res.on('end', () => {
+        if (aborted) return
+        try { resolve(JSON.parse(data)) } catch { resolve(data) }
+      })
+      res.on('error', reject)
     })
     req.on('error', reject)
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
+    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout after ${(timeout || 15000) / 1000}s for ${url}`)) })
     if (body) req.write(body)
     req.end()
   })
 }
 
-// ── Run setup.py with structured events ──
-function runSetup(args, extraPath) {
+// ── Prerequisite-download + silent-install helpers (used by install-prerequisite) ──
+// These used to be missing entirely: install-prerequisite called downloadFile()
+// (defined nowhere) and asyncExec() (scoped to the uninstall-env handler), so
+// every "Install Git/Python/Miniconda" action failed with a swallowed
+// ReferenceError. Module-level here so every handler can reach them.
+
+/**
+ * Download a URL to a file, following redirects (GitHub releases and
+ * python.org redirect to CDNs), streaming to disk so a 120 MB installer
+ * never lives in RAM. Rejects on HTTP errors / timeouts.
+ *
+ * @param {string} url
+ * @param {string} dest absolute path to write to
+ * @returns {Promise<string>} resolves with dest on success
+ */
+function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
-    let py = installPython()
-    if (!py) {
-      send('setup-output', '[!] No usable Python 3.11 found: the uv-managed install is broken and no working system Python 3.11 is available.\n')
-      send('setup-output', '[!] Fix: run "uv python install --reinstall 3.11" in a terminal (or uninstall + install), or install Python 3.11 from https://www.python.org/downloads/ and retry.\n')
-      return reject(new Error('No usable Python 3.11 interpreter found (see output above)'))
+    const parsed = new URL(url)
+    const mod = parsed.protocol === 'https:' ? https : http
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'wan2gp-desktop' },
+      timeout: 30000
     }
+    const req = mod.request(options, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        return downloadFile(new URL(res.headers.location, url).toString(), dest).then(resolve, reject)
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      }
+      const out = fs.createWriteStream(dest)
+      res.pipe(out)
+      out.on('finish', () => out.close(() => resolve(dest)))
+      out.on('error', (e) => { res.destroy(); reject(e) })
+      res.on('error', (e) => { out.destroy(); reject(e) })
+    })
+    req.on('error', reject)
+    req.on('timeout', () => { req.destroy(); reject(new Error('download timeout: ' + url)) })
+    req.end()
+  })
+}
+
+/**
+ * Promise wrapper around child_process.exec. The handler-local copy inside
+ * uninstall-env is out of scope for install-prerequisite — this is the
+ * shared one.
+ *
+ * @param {string} cmd
+ * @param {object} [opts] child_process.exec options (timeout, windowsHide, encoding, ...)
+ * @returns {Promise<string>} trimmed stdout
+ */
+function asyncExec(cmd, opts = {}) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, opts, (err, stdout) => {
+      if (err) reject(err)
+      else resolve((stdout || '').trim())
+    })
+  })
+}
+
+/**
+ * Promise wrapper around child_process.execFile — arg-array form, so no shell
+ * quoting/interpolation is involved. Used to move the install/update pipeline
+ * off blocking execSync (which froze the whole main process for up to minutes
+ * during clone/pip/git operations).
+ *
+ * @param {string} cmd executable (resolved via PATH)
+ * @param {string[]} args argv array
+ * @param {object} [opts] execFile options (timeout, cwd, windowsHide, env, ...)
+ * @returns {Promise<string>} trimmed stdout
+ */
+function runCmd(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout) => {
+      if (err) reject(err)
+      else resolve((stdout || '').trim())
+    })
+  })
+}
+
+// Sleep helper — async replacement for the old Atomics.wait-based sleepSync.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// ── Run setup.py with structured events ──
+async function runSetup(args, extraPath) {
+  // Resolve the interpreter first (async — uv can take minutes to install a
+  // broken 3.11; this used to freeze the whole app via execSync).
+  const py = await installPython()
+  if (!py) {
+    send('setup-output', '[!] No usable Python 3.11 found: the uv-managed install is broken and no working system Python 3.11 is available.\n')
+    send('setup-output', '[!] Fix: run "uv python install --reinstall 3.11" in a terminal (or uninstall + install), or install Python 3.11 from https://www.python.org/downloads/ and retry.\n')
+    throw new Error('No usable Python 3.11 interpreter found (see output above)')
+  }
+  return new Promise((resolve, reject) => {
     var env = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
         TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
     if (extraPath) {
@@ -695,7 +818,7 @@ ipcMain.handle('detect-gpus', async () => {
   } catch { return [{ index: 0, name: 'Unknown', vramMB: 0, vendor: 'UNKNOWN' }] }
 })
 
-ipcMain.handle('install', async (_, envType) => {
+ipcMain.handle('install', async (_, envType) => mutating('install', async () => {
   const env = envType || 'venv'
   // NVIDIA driver pre-check (upstream parity) — warn before a long install if the
   // driver can't run the cu130 stack Wan2GP's profile will install.
@@ -719,9 +842,8 @@ ipcMain.handle('install', async (_, envType) => {
       send('setup-output', `[!] Could not stash leftover folder: ${e.message}\n`)
     }
     try {
-      execSync(`git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"`, {
-        stdio: 'pipe', timeout: 120000, windowsHide: true
-      })
+      // Async — the clone used to block the entire app (execSync, up to 2 min).
+      await runCmd('git', ['clone', '--depth', '1', 'https://github.com/deepbeepmeep/Wan2GP.git', getRepoDir()], { timeout: 120000 })
     } catch (e) {
       // Restore the leftover folder if the clone failed
       try {
@@ -765,7 +887,8 @@ ipcMain.handle('install', async (_, envType) => {
             // Ensure destination exists (fresh clone may not have these dirs)
             var dst = path.join(repo, sub)
             fs.mkdirSync(dst, { recursive: true })
-            execSync(IS_WIN ? `xcopy /E /I "${src}" "${dst}"` : `cp -r "${src}" "${repo}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
+            if (IS_WIN) await runCmd('xcopy', ['/E', '/I', src, dst], { timeout: 30000 })
+            else await runCmd('cp', ['-r', src, repo + '/'], { timeout: 30000 })
           }
         }
         // Restore config if it exists and no config exists yet
@@ -788,11 +911,11 @@ ipcMain.handle('install', async (_, envType) => {
   var _pyShimDir = null
   if (IS_WIN && env === 'venv') {
     try {
-      execSync('py -3.11 -c ""', { stdio: 'pipe', windowsHide: true, timeout: 10000 })
+      await runCmd('py', ['-3.11', '-c', ''], { timeout: 10000 })
     } catch {
       send('setup-output', '[*] Python 3.11 not found via py launcher. Using uv-managed Python (isolated, no global install)...\n')
       var uvPy = null
-      try { execSync('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }); uvPy = execSync('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 10000 }).trim() } catch {}
+      try { await asyncExec('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }); uvPy = (await asyncExec('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 10000 })).trim() } catch {}
       if (uvPy) {
         send('setup-output', '[*] Creating py launcher shim -> ' + uvPy + '\n')
         _pyShimDir = path.join(getDataDir(), '.py-shim')
@@ -828,13 +951,15 @@ ipcMain.handle('install', async (_, envType) => {
   // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
   // The upstream install scripts force numpy==1.26.4 on win32+AMD for the same reason.
   try {
-    const _gpuPost = getGpuInfo()
+    // Async probe first (nvidia-smi spawn) — falls back to the cached sync
+    // getGpuInfo() so cold-cache installs don't stall on the main thread.
+    const _gpuPost = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
     if (IS_WIN && _gpuPost.vendor === 'AMD') {
       const _envPost = getActiveEnv()
       const _pyPost = _envPost ? getPythonForEnv(_envPost) : null
       if (_pyPost) {
         send('setup-output', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
-        execSync(`"${_pyPost}" -m pip install numpy==1.26.4 -q`, { stdio: 'pipe', timeout: 60000, cwd: getRepoDir(), windowsHide: true })
+        await runCmd(_pyPost, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], { timeout: 60000, cwd: getRepoDir() })
       }
     }
   } catch (e) { send('setup-output', `[!] AMD numpy pin: ${e.message}\n`) }
@@ -843,7 +968,7 @@ ipcMain.handle('install', async (_, envType) => {
     const envData = getActiveEnv()
     if (envData) {
       const py = getPythonForEnv(envData)
-      if (py) execSync(`"${py}" -m pip install huggingface_hub -q`, { stdio: 'pipe', timeout: 30000, cwd: getRepoDir(), windowsHide: true })
+      if (py) await runCmd(py, ['-m', 'pip', 'install', 'huggingface_hub', '-q'], { timeout: 30000, cwd: getRepoDir() })
     }
   } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
   send('setup-output', '[*] Installing hf_xet (Xet Storage) for faster model downloads...\n')
@@ -851,14 +976,14 @@ ipcMain.handle('install', async (_, envType) => {
     const envData = getActiveEnv()
     if (envData) {
       const py = getPythonForEnv(envData)
-      if (py) execSync(`"${py}" -m pip install hf_xet -q`, { stdio: 'pipe', timeout: 60000, cwd: getRepoDir(), windowsHide: true })
+      if (py) await runCmd(py, ['-m', 'pip', 'install', 'hf_xet', '-q'], { timeout: 60000, cwd: getRepoDir() })
     }
   } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
     send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
   send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
   invalidateGitCache()
   return true
-})
+}))
 
 // ── Shared removal engine (used by reinstall + uninstall) ──
 // Kills every running Wan2GP process, waits for Windows to release their
@@ -868,7 +993,7 @@ ipcMain.handle('install', async (_, envType) => {
 // keepFolders: list of in-repo folder names (lowercase) to leave in place, or
 // null/undefined to delete everything including the root.
 // Returns { ok, leftoverFolder, error }.
-function forceRemoveRepo(repo, log, keepFolders) {
+async function forceRemoveRepo(repo, log, keepFolders) {
   const killedPids = new Set()
   try {
     if (_wangpProc) { killedPids.add(_wangpProc.pid); try { killProcessTree(_wangpProc) } catch {}; _wangpProc = null }
@@ -882,11 +1007,12 @@ function forceRemoveRepo(repo, log, keepFolders) {
   // Windows releases a killed process's directory handles asynchronously — wait
   // until every Wan2GP python is really gone AND the install dir is enumerable
   // again, so the deletion below doesn't race a still-exiting process (EPERM).
-  const sleepSync = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } catch {} }
-  const isPidAlive = (pid) => {
+  // Async sleeps: the old Atomics.wait loops froze the whole app for up to ~10s
+  // per uninstall — the UI stays responsive while the removal engine waits now.
+  const isPidAlive = async (pid) => {
     try {
       if (IS_WIN) {
-        const out = execSync('tasklist /fi "PID eq ' + pid + '" /fo csv /nh', { windowsHide: true, timeout: 5000 }).toString()
+        const out = await asyncExec('tasklist /fi "PID eq ' + pid + '" /fo csv /nh', { windowsHide: true, timeout: 5000 })
         return out.trim().length > 0 && !out.includes('No tasks')
       }
       // POSIX: signal 0 tests existence without delivering a signal
@@ -894,29 +1020,32 @@ function forceRemoveRepo(repo, log, keepFolders) {
       return true
     } catch { return false }
   }
+  const anyAlive = async (pids) => {
+    for (const p of pids) if (await isPidAlive(p)) return true
+    return false
+  }
   let released = false
   for (let i = 0; i < 20; i++) {
-    let stillRunning = [...killedPids].some(p => isPidAlive(p))
-    if (!stillRunning) {
+    if (!(await anyAlive(killedPids))) {
       try { fs.readdirSync(repo); released = true; break } catch { /* dir handle still held */ }
     }
-    sleepSync(500)
+    await sleep(500)
   }
   if (!released) {
     log('[!] Wan2GP processes are still shutting down — files may be locked. Stop them and retry.')
     return { ok: false, leftoverFolder: null, error: 'Wan2GP processes are still running. Stop them and retry.' }
   }
-  const rmRetry = (p) => {
+  const rmRetry = async (p) => {
     let lastErr = null
     for (let i = 0; i < 20; i++) {
       try { fs.rmSync(p, { recursive: true, force: true }); return null } catch (e) { lastErr = e }
       // Antivirus scanning a freshly installed venv can hold a directory for
       // several seconds — wait it out instead of giving up. A killed process can
       // also be slow to release its handles; re-poll it here too.
-      if ([...killedPids].some(pid => isPidAlive(pid))) {
-        for (let j = 0; j < 20 && [...killedPids].some(pid2 => isPidAlive(pid2)); j++) sleepSync(500)
+      if (await anyAlive(killedPids)) {
+        for (let j = 0; j < 20 && (await anyAlive(killedPids)); j++) await sleep(500)
       }
-      sleepSync(1000)
+      await sleep(1000)
     }
     return lastErr
   }
@@ -931,7 +1060,7 @@ function forceRemoveRepo(repo, log, keepFolders) {
     if (venvIdx >= 0) items = items.filter(i => i !== items[venvIdx]).concat(items[venvIdx])
     for (const item of items) {
       if (keepFolders && keepFolders.includes(item.toLowerCase())) continue
-      const err = rmRetry(path.join(repo, item))
+      const err = await rmRetry(path.join(repo, item))
       if (err) { log(`[!] Could not remove ${item}: ${err.message}`); failed.push(item); ok = false }
     }
     // One last sweep: a process that escaped the first kill (or respawned) gets
@@ -941,10 +1070,10 @@ function forceRemoveRepo(repo, log, keepFolders) {
       for (let i = 0; i < 5; i++) { extra = findWan2gpPid(); if (!extra) break; killedPids.add(extra); try { killProcessTree({ pid: extra }) } catch {} }
       if (extra) {
         log('[i] Waiting for a lingering Wan2GP process to exit...')
-        for (let j = 0; j < 20 && [...killedPids].some(pid2 => isPidAlive(pid2)); j++) sleepSync(500)
+        for (let j = 0; j < 20 && (await anyAlive(killedPids)); j++) await sleep(500)
       }
       for (const item of [...failed]) {
-        const err = rmRetry(path.join(repo, item))
+        const err = await rmRetry(path.join(repo, item))
         if (err) { log(`[!] Still could not remove ${item}: ${err.message}`) }
         else failed.splice(failed.indexOf(item), 1)
       }
@@ -952,7 +1081,7 @@ function forceRemoveRepo(repo, log, keepFolders) {
     }
     if (!keepFolders) {
       // Remove the now-empty root last (it may be CWD-locked by a terminal window)
-      const err = rmRetry(repo)
+      const err = await rmRetry(repo)
       if (err) {
         if (ok) {
           leftoverFolder = repo
@@ -971,7 +1100,7 @@ function forceRemoveRepo(repo, log, keepFolders) {
   return { ok, leftoverFolder, error: null }
 }
 
-ipcMain.handle('reinstall', async () => {
+ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Preparing reinstall...\n')
   // Ask user if they want to backup plugins, finetunes, and config
   var doBackup = false
@@ -994,7 +1123,8 @@ ipcMain.handle('reinstall', async () => {
       for (const sub of ['plugins', 'finetunes']) {
         const src = path.join(repo, sub)
         if (fs.existsSync(src)) {
-          execSync(IS_WIN ? `xcopy /E /I "${src}" "${path.join(backupDir, sub)}"` : `cp -r "${src}" "${backupDir}/"`, { stdio: 'pipe', timeout: 30000, windowsHide: true })
+          if (IS_WIN) await runCmd('xcopy', ['/E', '/I', src, path.join(backupDir, sub)], { timeout: 30000 })
+          else await runCmd('cp', ['-r', src, backupDir + '/'], { timeout: 30000 })
         }
       }
       const configPath = path.join(repo, 'wgp_config.json')
@@ -1012,7 +1142,7 @@ ipcMain.handle('reinstall', async () => {
   send('setup-output', '[*] Removing existing installation...\n')
   const repo = getRepoDir()
   if (fs.existsSync(repo)) {
-    const res = forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
+    const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
     if (!res.ok) {
       send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
       send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
@@ -1025,9 +1155,9 @@ ipcMain.handle('reinstall', async () => {
   invalidateGitCache()
   send('setup-output', '[*] Ready for fresh install.\n')
   return true
-})
+}))
 
-ipcMain.handle('uninstall', async () => {
+ipcMain.handle('uninstall', async () => mutating('uninstall', async () => {
   const log = (m) => send('launch-log', m + '\n')
   log('[*] Preparing to uninstall Wan2GP...')
   const repo = getRepoDir()
@@ -1057,7 +1187,7 @@ ipcMain.handle('uninstall', async () => {
     keepFiles = result.response === 0
   } catch { keepFiles = false }
   log('[*] Removing installation...')
-  const res = forceRemoveRepo(repo, log, keepFiles ? userFolders : null)
+  const res = await forceRemoveRepo(repo, log, keepFiles ? userFolders : null)
   const keptPaths = keepFiles ? present.map(f => path.join(repo, f)) : []
   try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
   try { fs.rmSync(path.join(getDataDir(), '.py-shim'), { recursive: true, force: true }) } catch {}
@@ -1076,7 +1206,7 @@ ipcMain.handle('uninstall', async () => {
     log('[i] All installation files were removed.')
   }
   return { success: true, keptFiles: keepFiles, keptPaths, leftoverFolder: res.leftoverFolder }
-})
+}))
 
 ipcMain.handle('get-status', async () => {
   const env = getActiveEnv()
@@ -1135,7 +1265,7 @@ function checkPort(host, port, timeoutMs = 2000) {
 
 // ── Launch with proper port check ──
 // mode: 'browser' (default, python in a visible window) | 'terminal' (run.bat style: real cmd.exe /K window)
-ipcMain.handle('launch', async (_, mode = 'browser') => {
+ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async () => {
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     throw new Error('Wan2GP is not installed. Restart the Desktop launcher to install it.')
   }
@@ -1424,31 +1554,41 @@ ipcMain.handle('launch', async (_, mode = 'browser') => {
     send('launch-log', '[*] Wan2GP is ready!\n')
     // Desktop notification
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
-    // Monitor process — report when it stops (terminal closed / crash)
+    // Monitor process — report when it stops (terminal closed / crash).
     // Tracked so explicit stop via stopWangpServer() clears it immediately.
-    _monitorInterval = setInterval(() => {
-      const sock = new net.Socket()
-      sock.setTimeout(2000)
-      sock.on('connect', () => { sock.destroy() })
-      sock.on('error', () => {
-        sock.destroy()
-        if (_monitorInterval) { clearInterval(_monitorInterval); _monitorInterval = null }
-        _terminalTitle = null
-        _currentPort = 0
-        if (_terminalPidFile) { try { fs.unlinkSync(_terminalPidFile) } catch {} _terminalPidFile = null }
-        if (_terminalScriptFile) { try { fs.unlinkSync(_terminalScriptFile) } catch {} _terminalScriptFile = null }
-        send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
-        send('wangp-exit', -1)
-        try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
-      })
-      sock.on('timeout', () => { sock.destroy() })
-      sock.connect(port, '127.0.0.1')
-    }, 8000)
+    // Terminal mode ONLY: the launcher has no child handle there (the server
+    // runs inside the user's terminal), so the port poll is the only exit
+    // signal. Browser/webview mode already reaps through the child 'close'
+    // handler — running the poll there too fired duplicate wangp-exit events
+    // and double notifications.
+    if (mode === 'terminal') {
+      _monitorInterval = setInterval(() => {
+        const sock = new net.Socket()
+        sock.setTimeout(2000)
+        sock.on('connect', () => { sock.destroy() })
+        sock.on('error', () => {
+          sock.destroy()
+          if (_monitorInterval) { clearInterval(_monitorInterval); _monitorInterval = null }
+          _terminalTitle = null
+          _currentPort = 0
+          if (_terminalPidFile) { try { fs.unlinkSync(_terminalPidFile) } catch {} _terminalPidFile = null }
+          if (_terminalScriptFile) { try { fs.unlinkSync(_terminalScriptFile) } catch {} _terminalScriptFile = null }
+          send('launch-log', '[!] Wan2GP process closed (terminal window or server stopped).\n')
+          send('wangp-exit', -1)
+          try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped.' }).show() } catch {}
+        })
+        sock.on('timeout', () => { sock.destroy() })
+        sock.connect(port, '127.0.0.1')
+      }, 8000)
+    }
     return { url: `http://127.0.0.1:${port}`, port }
   } catch (err) {
+    // Never leave an orphaned server process holding the port: waitForPort
+    // threw before the close handler could reap the child (browser mode).
+    if (child && mode !== 'terminal') { killProcessTree(child); _wangpProc = null; _currentPort = 0 }
     throw err
   }
-})
+}))
 
 // ── Launch in-app (direct spawn, streams to console) ──
 ipcMain.handle('launch-webview', async () => {
@@ -1504,7 +1644,7 @@ ipcMain.handle('launch-webview', async () => {
       }
     }
   })
-  proc.on('close', code => { _wangpProc = null; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code); try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {} })
+  proc.on('close', code => { _wangpProc = null; _currentPort = 0; send('launch-log', `[!] Wan2GP process exited (code ${code})\n`); send('wangp-exit', code); try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server has stopped (exit ' + code + ').' }).show() } catch {} })
   try {
     await waitForPort('127.0.0.1', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
@@ -1514,7 +1654,7 @@ ipcMain.handle('launch-webview', async () => {
 })
 
 ipcMain.handle('stop-wangp', () => { stopWangpServer() })
-ipcMain.handle('is-wangp-running', () => _wangpProc !== null)
+ipcMain.handle('is-wangp-running', () => _wangpProc !== null || _currentPort > 0)
 
 // ── Phase 4: Pop-out webview ──
 let detachedWin = null
@@ -1524,6 +1664,12 @@ ipcMain.handle('popout-webview', (_, url) => {
       width: 1280, height: 800, title: 'Wan2GP',
     })
     detachedWin.loadURL(url)
+    watchRenderer(detachedWin.webContents, 'pop-out', () => {
+      setTimeout(() => {
+        if (!detachedWin || detachedWin.isDestroyed()) return
+        try { detachedWin.webContents.reload() } catch {}
+      }, 1000)
+    })
     detachedWin.on('closed', () => { detachedWin = null; mainWin?.webContents.send('webview-returned') })
     return { success: true }
   } catch (e) { return { error: e.message } }
@@ -1574,6 +1720,18 @@ ipcMain.handle('create-browser-view', (_, url) => {
           }})
         } else cb({})
       })
+      // Crash watchdog: the embedded Wan2GP page shares the same GPU/driver
+      // risk as the launcher UI — reload it so the UI comes back (the server
+      // never stopped, so a generation keeps running regardless).
+      watchRenderer(_bv.webContents, 'Wan2GP embed', () => {
+        if (!_bvUrl) return
+        setTimeout(() => {
+          if (!_bv || _bv.webContents.isDestroyed()) return
+          send('launch-log', '[!] Embedded Wan2GP view crashed — reloading it. The server keeps running, generation is unaffected.\n')
+          try { _bv.webContents.loadURL(_bvUrl) } catch (e) { logError('bv-reload', e) }
+        }, 1200)
+        try { mainWin?.webContents.send('bv-crash-recovered') } catch {}
+      })
       // Wire resize only once (view is created once and reused thereafter)
       if (_bvResizeHandler) mainWin.removeListener('resize', _bvResizeHandler)
       _bvResizeHandler = () => bvBounds()
@@ -1583,6 +1741,7 @@ ipcMain.handle('create-browser-view', (_, url) => {
     // never destroyed, so re-adding + reload avoids the blank-paint race on recreate).
     const attached = mainWin.getBrowserViews().includes(_bv)
     if (!attached) mainWin.addBrowserView(_bv)
+    if (typeof url === 'string') _bvUrl = url
     _panel = null
     bvBounds()
     _bv.webContents.loadURL(url)
@@ -1647,6 +1806,12 @@ ipcMain.handle('create-term-view', () => {
         webPreferences: { preload: path.join(__dirname, 'renderer', 'term-preload.js'), nodeIntegration: false, contextIsolation: true }
       })
       _termWin.loadURL('file://' + path.join(__dirname, 'renderer', 'term.html'))
+      watchRenderer(_termWin.webContents, 'floating console', () => {
+        setTimeout(() => {
+          if (!_termWin || _termWin.isDestroyed()) return
+          try { _termWin.webContents.reload() } catch {}
+        }, 1000)
+      })
       _termWin.on('closed', () => { _termWin = null })
     }
     return { success: true }
@@ -1710,7 +1875,7 @@ ipcMain.handle('bv-set-zoom', (_, factor) => {
   if (_bv) _bv.webContents.setZoomLevel(Math.log2(factor))
 })
 
-ipcMain.handle('update', async () => {
+ipcMain.handle('update', async () => mutating('update', async () => {
   // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
   // need R580+, and setup.py's own pull/install won't warn about it.
   const _drvWarn = checkNvidiaDriver()
@@ -1739,9 +1904,7 @@ ipcMain.handle('update', async () => {
   // lands new code, a pin bump (e.g. mmgp 3.7.11 -> 3.7.12) is silently skipped.
   let oldHead = ''
   try {
-    oldHead = execSync('git rev-parse HEAD', {
-      cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-    }).trim()
+    oldHead = await runCmd('git', ['rev-parse', 'HEAD'], { cwd: getRepoDir(), timeout: 5000 })
   } catch {}
   // Run setup.py update (pip packages, etc.). A failure here must NOT abort the
   // whole update: the launcher's own git fetch/reset below is authoritative for
@@ -1756,9 +1919,7 @@ ipcMain.handle('update', async () => {
   // First, check which branch we're on so we pull the right one.
   let branch = ''
   try {
-    branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-    }).trim()
+    branch = await runCmd('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: getRepoDir(), timeout: 5000 })
     send('launch-log', `[*] Current branch: ${branch}\n`)
   } catch (e) {
     send('launch-log', `[!] Could not detect git branch: ${e.message}\n`)
@@ -1767,9 +1928,7 @@ ipcMain.handle('update', async () => {
     const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'echo' }
     // Diagnostic: log remote URL so we can confirm where origin points
     try {
-      const remoteUrl = execSync('git remote get-url origin', {
-        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-      }).trim()
+      const remoteUrl = await runCmd('git', ['remote', 'get-url', 'origin'], { cwd: getRepoDir(), timeout: 5000 })
       send('launch-log', `[*] Remote origin: ${remoteUrl}\n`)
     } catch (e) {
       send('launch-log', `[!] Cannot get remote URL: ${e.message}\n`)
@@ -1778,33 +1937,33 @@ ipcMain.handle('update', async () => {
     }
     // Diagnose: what does the remote actually advertise vs what origin/main tracks vs upstream API
     try {
-      const lsRemote = execSync('git ls-remote origin main 2>&1', {
-        cwd: getRepoDir(), encoding: 'utf8', timeout: 15000, windowsHide: true,
-        env: gitEnv, stdio: 'pipe'
-      }).trim()
+      const lsRemote = await runCmd('git', ['ls-remote', 'origin', 'main'], { cwd: getRepoDir(), timeout: 15000, env: gitEnv })
       send('launch-log', `[*] Remote main via ls-remote: ${lsRemote}\n`)
     } catch (e) {
       send('launch-log', `[!] ls-remote failed: ${(e.stderr||e.message).toString().trim()}\n`)
     }
     // Show current origin/main tracking ref (local cache of what remote had last fetch)
     try {
-      const originMain = execSync('git rev-parse origin/main 2>&1', {
-        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-      }).trim()
+      const originMain = await runCmd('git', ['rev-parse', 'origin/main'], { cwd: getRepoDir(), timeout: 5000 })
       send('launch-log', `[*] Local origin/main: ${originMain.substring(0,12)}\n`)
     } catch (e) {}
+    // Guard: branch comes from the local repo's own HEAD ref. execFile argv is
+    // shell-safe, but a name starting with '-' could still be read as a git
+    // option — validate before it reaches git.
+    if (!/^[A-Za-z0-9._/\\-]+$/.test(branch)) {
+      send('launch-log', `[!] Unusual branch name "${branch}" — skipping git fetch/reset.\n`)
+      invalidateGitCache()
+      return true
+    }
     send('launch-log', `[*] Fetching origin --prune ${branch}...\n`)
     try {
-      execSync(`git fetch origin --prune ${branch} 2>&1`, {
-        cwd: getRepoDir(), timeout: 30000, windowsHide: true, encoding: 'utf8',
-        env: gitEnv, stdio: 'pipe'
-      })
+      await runCmd('git', ['fetch', 'origin', '--prune', branch], { cwd: getRepoDir(), timeout: 30000, env: gitEnv })
       // Dirty-repo guard: any tracked-file edit (e.g. a user-patched wgp.py)
       // would be silently destroyed by the hard reset below — back it up first.
       // Untracked files (envs.json, models/, ...) are NOT touched by
       // `git reset --hard`, so they need no backup and must not warn.
       try {
-        const diff = execSync('git diff', { cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true })
+        const diff = await runCmd('git', ['diff'], { cwd: getRepoDir(), timeout: 10000 })
         if (diff) {
           const patchDir = path.join(getDataDir(), 'patches')
           fs.mkdirSync(patchDir, { recursive: true })
@@ -1824,13 +1983,8 @@ ipcMain.handle('update', async () => {
       // git merge --ff-only was unreliable (says up-to-date even when behind),
       // so we reset the branch ref directly ensuring HEAD always matches origin.
       send('launch-log', `[*] Resetting ${branch} to origin/${branch}...\n`)
-      execSync(`git reset --hard origin/${branch} 2>&1`, {
-        cwd: getRepoDir(), timeout: 15000, windowsHide: true, encoding: 'utf8',
-        env: gitEnv, stdio: 'pipe'
-      })
-      const newHash = execSync('git rev-parse HEAD', {
-        cwd: getRepoDir(), encoding: 'utf8', timeout: 5000, windowsHide: true
-      }).trim()
+      await runCmd('git', ['reset', '--hard', `origin/${branch}`], { cwd: getRepoDir(), timeout: 15000, env: gitEnv })
+      const newHash = await runCmd('git', ['rev-parse', 'HEAD'], { cwd: getRepoDir(), timeout: 5000 })
       send('launch-log', `[*] HEAD is now ${newHash.substring(0,12)}\n`)
     } catch (e) {
       const errMsg = (e.stderr || e.message || String(e)).toString().trim()
@@ -1843,9 +1997,7 @@ ipcMain.handle('update', async () => {
   // Force a requirements reinstall so pin bumps (e.g. mmgp 3.7.11 -> 3.7.12) land.
   try {
     if (oldHead) {
-      const reqChanged = execSync(`git diff --name-only ${oldHead} HEAD -- requirements.txt 2>&1`, {
-        cwd: getRepoDir(), encoding: 'utf8', timeout: 10000, windowsHide: true
-      }).trim()
+      const reqChanged = await runCmd('git', ['diff', '--name-only', oldHead, 'HEAD', '--', 'requirements.txt'], { cwd: getRepoDir(), timeout: 10000 })
       if (reqChanged) {
         send('launch-log', `[*] requirements.txt changed since v${oldHead.substring(0,8)} — reinstalling dependencies...\n`)
         const env = getActiveEnv()
@@ -1875,7 +2027,7 @@ ipcMain.handle('update', async () => {
   // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
   // the ROCm "TheRock" torch wheels on Windows/AMD.
   try {
-    const _gpuUpd = getGpuInfo()
+    const _gpuUpd = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
     if (IS_WIN && _gpuUpd.vendor === 'AMD') {
       const _envUpd = getActiveEnv()
       const _pyUpd = _envUpd ? getPythonForEnv(_envUpd) : null
@@ -1896,7 +2048,7 @@ ipcMain.handle('update', async () => {
   }
   invalidateGitCache() // don't return stale pre-update hashes
   return true
-})
+}))
 
 ipcMain.handle('manage-list', () => {
   try {
@@ -1926,8 +2078,14 @@ ipcMain.handle('manage-delete', async (_, name) => {
   const entry = d.envs[name]
   if (entry?.path && entry.type !== 'none') {
     const envPath = path.isAbsolute(entry.path) ? entry.path : path.join(getRepoDir(), entry.path)
+    // Same containment guard uninstall-env applies: never rm -rf a path that
+    // resolves outside the repo (a corrupted envs.json entry must not be able
+    // to delete arbitrary folders).
+    if (!ensureInsideRepo(envPath)) {
+      return { error: 'Environment path outside repo — deletion blocked' }
+    }
     if (fs.existsSync(envPath)) {
-      execSync(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+      await runCmd(IS_WIN ? 'rmdir' : 'rm', IS_WIN ? ['/s', '/q', envPath] : ['-rf', envPath])
     }
   }
   delete d.envs[name]
@@ -1999,12 +2157,12 @@ ipcMain.handle('uninstall-env', async (_, name) => {
           send('setup-output', `[${name}] removing ${label}\n`)
           if (IS_WIN) {
             if (fs.statSync(itemPath).isDirectory()) {
-              await asyncExec(`rmdir /s /q "${itemPath}"`, { stdio: 'pipe' })
+              await runCmd('rmdir', ['/s', '/q', itemPath])
             } else {
               fs.unlinkSync(itemPath)
             }
           } else {
-            await asyncExec(`rm -rf "${itemPath}"`, { stdio: 'pipe' })
+            await runCmd('rm', ['-rf', itemPath])
           }
         }
         // Remove the now-empty env dir itself
@@ -2013,7 +2171,7 @@ ipcMain.handle('uninstall-env', async (_, name) => {
       } catch (delErr) {
         send('setup-output', ` error: ${delErr.message}\n`)
         // Fallback: try bulk delete
-        await asyncExec(IS_WIN ? `rmdir /s /q "${envPath}"` : `rm -rf "${envPath}"`, { stdio: 'pipe' })
+        await runCmd(IS_WIN ? 'rmdir' : 'rm', IS_WIN ? ['/s', '/q', envPath] : ['-rf', envPath])
         if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
       }
     } else {
@@ -2068,6 +2226,19 @@ const WELL_KNOWN_BROWSERS = [
 
 function expandEnv(p) { return p.replace(/%([^%]+)%/g, (_, k) => process.env[k] || '') }
 
+// Validate a renderer-supplied URL before it is opened / handed to a shell.
+// Mirrors open-external's http(s)-only policy; the raw string must also not
+// contain metacharacters that survive cmd/sh double-quoting (" $ `). The
+// re-serialized URL has " and spaces percent-encoded, so the value that is
+// interpolated into the launch command cannot break out of its quotes.
+function safeHttpUrl(url) {
+  if (typeof url !== 'string' || /["$`]/.test(url)) return null
+  let parsed
+  try { parsed = new URL(url) } catch { return null }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  return parsed.toString()
+}
+
 ipcMain.handle('detect-browsers', () => {
   const found = []
   for (const b of WELL_KNOWN_BROWSERS) {
@@ -2091,7 +2262,8 @@ ipcMain.handle('detect-browsers', () => {
 
 // Launch URL via the user's chosen default browser (no extra GPU flags).
 ipcMain.handle('launch-browser', (_, url) => {
-  if (typeof url !== 'string' || !url.startsWith('http')) return { error: 'invalid url' }
+  const safeUrl = safeHttpUrl(url)
+  if (!safeUrl) return { error: 'invalid url' }
   const chosen = loadConfig().defaultBrowser || 'system'
   if (chosen !== 'system') {
     const b = WELL_KNOWN_BROWSERS.find(x => x.id === chosen)
@@ -2105,15 +2277,15 @@ ipcMain.handle('launch-browser', (_, url) => {
     }
     if (exe) {
       try {
-        if (IS_WIN) exec(`start "" "${exe}" "${url}"`, { windowsHide: false })
-        else if (PLATFORM === 'darwin') exec(`open -a "${exe}" "${url}"`, { windowsHide: true })
-        else exec(`"${exe}" "${url}"`, { windowsHide: true })
+        if (IS_WIN) exec(`start "" "${exe}" "${safeUrl}"`, { windowsHide: false })
+        else if (PLATFORM === 'darwin') exec(`open -a "${exe}" "${safeUrl}"`, { windowsHide: true })
+        else exec(`"${exe}" "${safeUrl}"`, { windowsHide: true })
         return { success: true }
       } catch (e) { return { error: e.message } }
     }
   }
   // No specific browser (or not found) → let the OS decide.
-  shell.openExternal(url)
+  shell.openExternal(safeUrl)
   return { success: true }
 })
 
@@ -2144,7 +2316,8 @@ function findChrome() {
 }
 
 ipcMain.handle('launch-browser-no-gpu', (_, url) => {
-  if (typeof url !== 'string' || !url.startsWith('http')) return { error: 'invalid url' }
+  const safeUrl = safeHttpUrl(url)
+  if (!safeUrl) return { error: 'invalid url' }
   const noGpuArgs = ['--disable-gpu', '--disable-gpu-compositing', '--disable-accelerated-2d-canvas', '--disable-accelerated-video-decode', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-webgpu']
 
   const spawnDetached = (cmd, args) => {
@@ -2156,8 +2329,8 @@ ipcMain.handle('launch-browser-no-gpu', (_, url) => {
   const repoScript = path.join(getRepoDir(), 'scripts', 'start-chrome-no-gpu' + (IS_WIN ? '.bat' : '.sh'))
   if (fs.existsSync(repoScript)) {
     try {
-      if (IS_WIN) spawnDetached('cmd.exe', ['/c', repoScript, url])
-      else { fs.chmodSync(repoScript, 0o755); spawnDetached(repoScript, [url]) }
+      if (IS_WIN) spawnDetached('cmd.exe', ['/c', repoScript, safeUrl])
+      else { fs.chmodSync(repoScript, 0o755); spawnDetached(repoScript, [safeUrl]) }
       return { success: true }
     } catch (e) { /* fall through */ }
   }
@@ -2166,8 +2339,8 @@ ipcMain.handle('launch-browser-no-gpu', (_, url) => {
   const vendored = path.join(__dirname, 'scripts', 'start-chrome-no-gpu' + (IS_WIN ? '.bat' : '.sh'))
   if (fs.existsSync(vendored)) {
     try {
-      if (IS_WIN) spawnDetached('cmd.exe', ['/c', vendored, url])
-      else { fs.chmodSync(vendored, 0o755); spawnDetached(vendored, [url]) }
+      if (IS_WIN) spawnDetached('cmd.exe', ['/c', vendored, safeUrl])
+      else { fs.chmodSync(vendored, 0o755); spawnDetached(vendored, [safeUrl]) }
       return { success: true }
     } catch (e) { /* fall through */ }
   }
@@ -2176,9 +2349,9 @@ ipcMain.handle('launch-browser-no-gpu', (_, url) => {
   const chrome = findChrome()
   if (chrome) {
     try {
-      if (IS_WIN) spawnDetached(chrome, [...noGpuArgs, url])
-      else if (PLATFORM === 'darwin') spawnDetached('open', ['-a', chrome, '--args', ...noGpuArgs, url])
-      else spawnDetached(chrome, [...noGpuArgs, url])
+      if (IS_WIN) spawnDetached(chrome, [...noGpuArgs, safeUrl])
+      else if (PLATFORM === 'darwin') spawnDetached('open', ['-a', chrome, '--args', ...noGpuArgs, safeUrl])
+      else spawnDetached(chrome, [...noGpuArgs, safeUrl])
       return { success: true }
     } catch (e) { return { error: e.message } }
   }
@@ -2276,7 +2449,9 @@ ipcMain.handle('open-folder', (_, dir) => {
 ipcMain.handle('reset-data-dir', () => {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
-    const d = path.join(app.getPath('userData'), 'Wan2GP')
+    // Compute the default from the ORIGINAL userData (pre-redirect) — using
+    // app.getPath('userData') here nested the app under <dataDir>/.electron.
+    const d = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
     fs.mkdirSync(d, { recursive: true })
     app.setPath('userData', path.join(d, '.electron'))
   } catch {}
@@ -2908,6 +3083,16 @@ const ALL_PACKAGES = [
   'torchaudio', 'huggingface_hub', 'lightx2v', 'bitsandbytes', 'hf_xet'
 ]
 
+// Security guard for pip install/upgrade/uninstall handlers. Without a
+// whitelist a name like "--index-url <host>" or "-r <url>" would make pip
+// fetch or install arbitrary code — check-package already whitelists, the
+// mutating handlers must too.
+function assertWhitelistedPackage(pkgName) {
+  if (typeof pkgName !== 'string' || !ALL_PACKAGES.includes(pkgName)) {
+    throw new Error('Package not in whitelist')
+  }
+}
+
 ipcMain.handle('check-package-updates', async (_, installedVersions) => {
   const results = []
   if (!installedVersions || typeof installedVersions !== 'object') return results
@@ -2917,7 +3102,7 @@ ipcMain.handle('check-package-updates', async (_, installedVersions) => {
       if (_pypiCache[name] && Date.now() - _pypiCache[name].ts < 300000) {
         return { name, latest: _pypiCache[name].latest, installed: installedVersions[name] }
       }
-      const pypiName = ({sageattention:'sageattention',spas_sage_attn:'spas-sage-attn',opencv:'opencv-python',hfhub:'huggingface-hub',onnxruntime:'onnxruntime',nunchaku:'nunchaku',gguf:'gguf',mmgp:'mmgp',moviepy:'moviepy',insightface:'insightface',peft:'peft',timm:'timm',vector_quantize_pytorch:'vector-quantize-pytorch',torchcodec:'torchcodec',torchaudio:'torchaudio',lightx2v:'lightx2v',xformers:'xformers'})[name] || name
+      const pypiName = ({sageattention:'sageattention',spas_sage_attn:'spas-sage-attn',opencv:'opencv-python',hfhub:'huggingface-hub',huggingface_hub:'huggingface-hub',flash_attn:'flash-attn',onnxruntime:'onnxruntime',nunchaku:'nunchaku',gguf:'gguf',mmgp:'mmgp',moviepy:'moviepy',insightface:'insightface',peft:'peft',timm:'timm',vector_quantize_pytorch:'vector-quantize-pytorch',torchcodec:'torchcodec',torchaudio:'torchaudio',lightx2v:'lightx2v',xformers:'xformers'})[name] || name
       const data = await fetchUrl(`https://pypi.org/pypi/${pypiName}/json`, { timeout: 8000 })
       const latest = (data && data.info && data.info.version) || null
       if (latest) _pypiCache[name] = { latest, ts: Date.now() }
@@ -2932,6 +3117,7 @@ ipcMain.handle('check-package-updates', async (_, installedVersions) => {
 // ── Upgrade a single package in the active env ──
 ipcMain.handle('upgrade-package', async (_, pkgName) => {
   try {
+    assertWhitelistedPackage(pkgName)
     const env = getActiveEnv()
     if (!env) return { error: 'No active environment' }
     const py = getPythonForEnv(env)
@@ -2959,6 +3145,7 @@ ipcMain.handle('upgrade-package', async (_, pkgName) => {
 // ── Install a single package (e.g. triton, flash_attn) into active env ──
 ipcMain.handle('install-package', async (_, pkgName) => {
   try {
+    assertWhitelistedPackage(pkgName)
     const env = getActiveEnv()
     if (!env) return { error: 'No active environment' }
     const py = getPythonForEnv(env)
@@ -2985,6 +3172,7 @@ ipcMain.handle('install-package', async (_, pkgName) => {
 // ── Uninstall a single package from the active env ──
 ipcMain.handle('uninstall-package', async (_, pkgName) => {
   try {
+    assertWhitelistedPackage(pkgName)
     const env = getActiveEnv()
     if (!env) return { error: 'No active environment' }
     const py = getPythonForEnv(env)
@@ -3894,6 +4082,98 @@ function createTray() {
   } catch (e) { console.error('[TRAY] Failed to create tray:', e.message) }
 }
 
+// ── Renderer crash recovery ──
+// "The GUI disappeared" reports: on Windows a display-driver hiccup (TDR) under
+// heavy GPU load — a Wan2GP generation saturating the card — can kill
+// Chromium's GPU process and take a renderer down with it. The window goes
+// blank while the main process (and the generation, which runs in its own
+// Python process) keeps running. There was no handler anywhere, so the only
+// recovery was a manual reload back to the dashboard. This watchdog detects
+// those deaths and heals the window automatically: reload the launcher
+// renderer (bounded — no reload loops), auto-reload a crashed embedded-Wan2GP
+// BrowserView, and let the reloaded UI put itself back where it was (see
+// get-crash-recovery-info) instead of stranding the user on the dashboard.
+let _uiMode = null                 // last UI mode the renderer reported: 'app' | 'browser' | null
+let _pendingCrashRestore = false   // set on a launcher-renderer crash; consumed by the reloaded UI
+let _gpuProcessDied = false        // GPU process crashed since startup (driver hiccup — likely culprit)
+let _crashTimes = []               // timestamps of launcher-UI crashes (bounds the auto-reload)
+let _bvUrl = null                  // last URL loaded into the Wan2GP BrowserView (for auto-reload)
+
+const CRASH_RELOAD_WINDOW_MS = 10 * 60 * 1000
+const CRASH_RELOAD_MAX = 2
+
+function watchRenderer(contents, label, onGone) {
+  contents.on('render-process-gone', (_e, details) => {
+    const reason = details && details.reason ? String(details.reason) : 'unknown'
+    const exitCode = details && typeof details.exitCode === 'number' ? details.exitCode : '?'
+    if (reason === 'clean-exit') return // normal teardown (window closed), not a crash
+    console.error(`[crash] ${label} renderer gone (${reason}, exit ${exitCode})`)
+    if (onGone) onGone(details)
+  })
+}
+
+function handleMainRendererGone(details) {
+  const now = Date.now()
+  _crashTimes = _crashTimes.filter(t => now - t < CRASH_RELOAD_WINDOW_MS)
+  _crashTimes.push(now)
+  _pendingCrashRestore = true
+  const reason = details && details.reason ? String(details.reason) : 'unknown'
+  const gpuHint = _gpuProcessDied
+  const gpuLine = gpuHint
+    ? ' The display driver likely reset while the GPU was under heavy load (a running generation). The server itself is unaffected.'
+    : ''
+  // Auto-reload (bounded) so the window heals itself instead of staying dead grey.
+  if (_crashTimes.length <= CRASH_RELOAD_MAX) {
+    // If the GPU process just died, give Chromium ~2s to respawn it before
+    // reloading — a reload into a still-dead GPU process crashes right back.
+    const delay = gpuHint ? 2000 : 800
+    setTimeout(() => {
+      if (!mainWin || mainWin.isDestroyed()) return
+      send('launch-log', `[!] Launcher UI ${reason} — reloading automatically. The Wan2GP server keeps running.${gpuLine}\n`)
+      try { mainWin.webContents.reload() } catch (e) { logError('crash-reload', e) }
+    }, delay)
+  } else {
+    // Repeated crashes: stop the reload loop and say what to do instead.
+    send('launch-log', `[!] Launcher UI ${reason} repeatedly (${_crashTimes.length} crashes in 10 min) — not auto-reloading again.${gpuLine}\n`)
+    send('launch-log', '[!] If this keeps happening during generation, disable GPU acceleration: Settings → General → “Enable GPU acceleration”, then restart the launcher. The UI restart never touches generation.\n')
+    try {
+      if (loadConfig().notificationsEnabled !== false) {
+        new Notification({ title: 'Wan2GP Desktop', body: 'Launcher UI crashed repeatedly. Disable GPU acceleration in Settings → General and restart the launcher.' }).show()
+      }
+    } catch {}
+  }
+}
+
+// GPU-process death is the usual accomplice of a display-driver reset: flag it
+// so the main-window recovery waits for the respawn and mentions the cause.
+app.on('child-process-gone', (_e, details) => {
+  if (!details || details.type !== 'GPU') return
+  if (details.reason === 'clean-exit') return
+  _gpuProcessDied = true
+  console.error('[crash] GPU process died:', details.reason, 'exit', details.exitCode)
+})
+
+// The renderer reports which UI mode it is in so a later crash can be undone.
+ipcMain.handle('ui-mode-set', (_e, mode) => {
+  _uiMode = mode === 'app' ? 'app' : (mode === 'browser' ? 'browser' : null)
+  return true
+})
+
+// Consumed once by the reloaded launcher UI: tells it a crash just happened,
+// whether the Wan2GP server is still up, and what mode it was in — so it can
+// put the window back exactly where the user was instead of the bare dashboard.
+ipcMain.handle('get-crash-recovery-info', () => {
+  const info = {
+    pending: _pendingCrashRestore,
+    mode: _uiMode,
+    serverRunning: _wangpProc !== null || _currentPort > 0,
+    url: _currentPort > 0 ? `http://127.0.0.1:${_currentPort}` : null,
+    gpuProcessDied: _gpuProcessDied
+  }
+  _pendingCrashRestore = false
+  return info
+})
+
 // ── Window ──
 
 function toggleDevTools(wc) {
@@ -3919,6 +4199,9 @@ function createWindow() {
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+
+  // Crash watchdog: a dead renderer blanked the window with no recovery.
+  watchRenderer(mainWin.webContents, 'launcher', handleMainRendererGone)
 
   // Restore maximized state after load
   if (savedState.maximized) mainWin.maximize()

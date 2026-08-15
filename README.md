@@ -93,7 +93,7 @@ VRAM and system RAM:
 **Settings written** — The auto-tune writes these keys to `wgp_config.json`:
 - `video_profile`, `image_profile`, `audio_profile` — profile (1, 2, 3, 3.5, 4, 4.5, 5)
 - `transformer_quantization` — Scaled Int8 (recommended), FP8, NVFP4, or None
-- `vae_config` — Auto (recommended), Full/untiled (≥24GB), Tiling 256, or Aggressive tiling 128 (<12GB)
+- `vae_config` — always **Auto** (recommended); the runtime picks VAE tiling from real VRAM headroom at generation time
 - `vram_safety_coefficient` — 0.80 (≥12GB), 0.70 (<12GB), 0.60 (failsafe)
 
 All three profile dropdowns (video/image/audio) are **editable** before applying,
@@ -101,7 +101,7 @@ so you can override the recommendation.
 
 **Failsafe preference** — tick *"Prefer failsafe (P5 — maximum compatibility)"* in
 the recommendation card to force the P5 profile (with a 0.60 safety coefficient
-and aggressive VAE tiling) regardless of the matrix — for hardware where the
+and VAE on Auto) regardless of the matrix — for hardware where the
 recommended profile still crashes. Toggling re-renders live; Apply writes
 whatever is shown.
 
@@ -125,6 +125,25 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **System tray** — minimize to tray, auto-start with Windows, notifications on server ready/stop.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
+
+> **New in v2.6.1** — **The GUI stops disappearing.** A Chromium renderer crash
+> (GPU/driver TDR under heavy load — a generation saturating the card) used to
+> blank the launcher window mid-generation with no recovery. A watchdog on
+> `render-process-gone` now auto-reloads the UI (bounded, no reload loops),
+> restores Desktop or Browser mode exactly where you were, self-heals the
+> embedded Wan2GP view and floating consoles, and after repeated crashes points
+> you to disabling GPU acceleration. Generation is never touched — the server
+> runs in its own process.
+> [Full changelog →](changelogs/CHANGELOG-v2.6.1.md)
+
+> **New in v2.6.0** — **No more install/update/uninstall freezes.** Setup,
+> git, pip, and env-removal steps all ran as blocking main-process calls —
+> a clone or an AV-throttled uninstall froze the window for minutes. The
+> whole pipeline is async now; the UI stays responsive while setup works.
+> Prerequisite installs (Git/Python/Miniconda) work again, Auto-Tune
+> recommends the VAE config **Auto** for every tier, and launch/pip paths
+> are hardened against shell and option injection.
+> [Full changelog →](changelogs/CHANGELOG-v2.6.0.md)
 
 > **New in v2.5.4** — **No more phantom "local changes" backups.** That
 > `[!] Local changes... backup saved` warning on update used to fire for
@@ -248,6 +267,8 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.6.1** — **The GUI stops disappearing** — a renderer-crash watchdog on `render-process-gone` auto-reloads the launcher window when the Chromium renderer dies (GPU/driver TDR under heavy load during a generation), restores Desktop/Browser mode exactly where you were, self-heals the embedded Wan2GP view and floating consoles, diagnoses GPU-process deaths, and stops looping after repeated crashes with a pointer to disabling GPU acceleration. Generation is never touched — the server runs in its own process. See [CHANGELOG-v2.6.1.md](changelogs/CHANGELOG-v2.6.1.md).
+- **v2.6.0** — **No more install/update/uninstall freezes, VAE on Auto, deeper hardening** — the entire setup pipeline (Python/uv installs, git clone/fetch/reset, pip pins, xcopy backups, env removal) ran as blocking main-process calls that froze the window for minutes; everything is async now, so the UI stays responsive. Prerequisite installs (Git/Python/Miniconda) work again, orphaned servers from failed launches are killed with their process tree, duplicate console toggles and stale "running" states fixed, and install/reinstall/update/uninstall are serialized so rapid clicks can't interleave. Auto-Tune recommends the VAE config **Auto** for every tier (runtime picks tiling from real VRAM headroom). Hardened: launch URLs strictly validated (shell injection), pip option injection blocked (package names whitelisted), `manage-delete` path containment, `fetchUrl` redirects/16MB cap, release scripts build before pushing the tag, SignPath hook timeouts+PE validation. 51 tests. See [CHANGELOG-v2.6.0.md](changelogs/CHANGELOG-v2.6.0.md).
 - **v2.5.4** — **No more phantom "local changes" backups** — the `[!] Local changes... backup saved` warning used to fire for any untracked file (like `envs.json`) and saved an empty 0-byte patch, even though `git reset --hard` never touches untracked files; updates now warn and back up only for real edits to tracked files. See [CHANGELOG-v2.5.4.md](changelogs/CHANGELOG-v2.5.4.md).
 - **v2.5.3** — **Self-healing updates for broken git repos** — updates that died with `fatal: not a git repository` (AV quarantine / interrupted clone leaving `.git` unusable) now detect the broken state before updating and rebuild the repository automatically (issue #27); a failed `setup.py update` no longer strands the update — the launcher-side git fetch/reset continues; NVIDIA driver pre-check added to updates (parity with install). 46 tests. See [CHANGELOG-v2.5.3.md](changelogs/CHANGELOG-v2.5.3.md).
 - **v2.5.2** — **Async hardware detection, model-path repair, update safety, injection hardening** — GPU/RAM/VRAM probing never blocks the app anymore (previously up to 15–20s of frozen window); Repair Settings + a silent background scan fix `wgp_config.json` entries pointing inside the repo — the fix for "error in getting the location" model downloads (issue #18); updates back up local repo edits (`pre-update-*.patch`) before resetting; Auto-Tune auto-runs detection on first tab visit; dashboard refresh batches its IPC and metric/update polling pauses while hidden; console rendering coalesced to one paint per frame; all repo-sourced content (commit messages, authors, env names, package lists) HTML-escaped through one unit-tested helper; 46 tests. See [CHANGELOG-v2.5.2.md](changelogs/CHANGELOG-v2.5.2.md).

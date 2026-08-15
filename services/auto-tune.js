@@ -39,7 +39,10 @@ async function run(cmd, args, timeoutMs = 5000) {
       maxBuffer: 4 * 1024 * 1024
     })
     return stdout.trim()
-  } catch {
+  } catch (e) {
+    // Driver/env failures must be visible, not silently swallowed. args are
+    // fixed static strings (no user input, no secrets) so this is safe to log.
+    console.log(`[auto-tune] command failed: ${cmd} ${(args || []).join(' ')} — ${(e && e.message) ? e.message : e}`)
     return null
   }
 }
@@ -127,8 +130,9 @@ function ramTierFor(ramGb) {
  *   supports_triton    bool
  */
 async function detect(repoDir) {
-  const gpu = await queryNvidiaGpu()
-  const cudaVer = gpu ? await queryCudaVersion() : null
+  // Two independent nvidia-smi probes — run them in parallel instead of
+  // serializing two subprocess spawns (~2x faster driver probing).
+  const [gpu, cudaVer] = await Promise.all([queryNvidiaGpu(), queryCudaVersion()])
 
   const cudaAvailable = gpu !== null
   const gpuName = gpu ? gpu.name : '—'
@@ -194,15 +198,19 @@ async function detect(repoDir) {
 /**
  * Run a shell pipeline with a hard timeout (bounded, async — pipes are needed
  * for the few lspci/grep style probes). Returns trimmed stdout or null.
+ *
+ * ⚠ GUARD: bin/args must be a FIXED, hardcoded argv array. NEVER interpolate
+ * user input (env names, paths, settings values) into the -c script — shell
+ * metacharacters would turn it into arbitrary command execution. The pipeline
+ * string is a static constant only.
  */
-async function runShell(cmd, timeoutMs = 10000) {
+async function runShell(bin, args, timeoutMs = 10000) {
   try {
-    const { stdout } = await execFileP(cmd, {
+    const { stdout } = await execFileP(bin, args, {
       timeout: timeoutMs,
       windowsHide: true,
       encoding: 'utf8',
-      maxBuffer: 4 * 1024 * 1024,
-      shell: true
+      maxBuffer: 4 * 1024 * 1024
     })
     return stdout.trim()
   } catch {
@@ -234,25 +242,51 @@ async function queryGpuList() {
     if (wmi) {
       wmi.split('\n').forEach((line, i) => {
         const [name, ram] = line.split('|').map(s => s.trim())
-        if (name) gpus.push({ index: i, name, vramMB: Math.round((parseInt(ram) || 0) / (1024 * 1024)), vendor: /radeon|amd/i.test(name) ? 'AMD' : 'INTEL' })
+        if (!name) return
+        const raw = parseInt(ram) || 0
+        const vramMB = Math.round(raw / (1024 * 1024))
+        // Win32_VideoController.AdapterRAM is a 32-bit field: it caps at ~4GB
+        // and frequently reads 0, so a small value is a wrong number, not the
+        // truth. Report unknown rather than a misleading tiny VRAM figure.
+        const unknown = raw === 0 || vramMB < 2048
+        gpus.push({
+          index: i,
+          name: unknown ? `${name} (VRAM unknown)` : name,
+          vramMB: unknown ? 0 : vramMB,
+          vendor: /radeon|amd/i.test(name) ? 'AMD' : 'INTEL'
+        })
       })
     }
   } else if (process.platform === 'darwin') {
     const sp = await run('system_profiler', ['SPDisplaysDataType'], 10000)
     if (sp) {
-      const names = sp.split('\n').filter(l => /Chipset Model/.test(l)).map(l => l.replace('Chipset Model:', '').trim()).filter(Boolean)
-      const vramLine = sp.split('\n').find(l => /VRAM \(Dynamic, Max\)|VRAM \(Total\)/.test(l))
-      const vramMb = vramLine ? (parseFloat(vramLine.split(':')[1]) || 0) * 1024 : 0
-      names.forEach((name, i) => gpus.push({ index: i, name, vramMB: Math.round(vramMb), vendor: 'APPLE' }))
+      // One system_profiler block per GPU: split on the Chipset Model lines and
+      // pair each GPU name with the VRAM line inside ITS OWN block (the old
+      // code applied the first VRAM line in the file to every GPU).
+      const lines = sp.split('\n')
+      const chipIdx = []
+      lines.forEach((l, i) => { if (/Chipset Model/.test(l)) chipIdx.push(i) })
+      chipIdx.forEach((start, gi) => {
+        const name = lines[start].replace('Chipset Model:', '').trim()
+        if (!name) return
+        const end = gi + 1 < chipIdx.length ? chipIdx[gi + 1] : lines.length
+        const vramLine = lines.slice(start, end).find(l => /VRAM \(Dynamic, Max\)|VRAM \(Total\)/.test(l))
+        const vramMb = vramLine ? (parseFloat(vramLine.split(':')[1]) || 0) * 1024 : 0
+        gpus.push({ index: gi, name, vramMB: Math.round(vramMb), vendor: 'APPLE' })
+      })
     }
   } else if (process.platform === 'linux') {
-    const l = await runShell('lspci | grep -iE "vga|3d" | head -1', 10000)
+    const l = await runShell('bash', ['-c', 'lspci | grep -iE "vga|3d"'], 10000)
     if (l) {
-      const name = l.split(':')[2]?.trim() || l.trim()
-      let vendor = 'UNKNOWN'
-      if (/nvidia/i.test(l)) vendor = 'NVIDIA'
-      else if (/amd|radeon/i.test(l)) vendor = 'AMD'
-      gpus.push({ index: 0, name, vramMB: 0, vendor })
+      // Push EVERY lspci match — no `head -1`, so AMD/Intel multi-GPU systems
+      // get all their cards like the nvidia-smi branch does.
+      l.split('\n').forEach((line, i) => {
+        const name = line.split(':')[2]?.trim() || line.trim()
+        let vendor = 'UNKNOWN'
+        if (/nvidia/i.test(line)) vendor = 'NVIDIA'
+        else if (/amd|radeon/i.test(line)) vendor = 'AMD'
+        gpus.push({ index: i, name, vramMB: 0, vendor })
+      })
     }
   }
   return gpus
@@ -350,35 +384,21 @@ function quantForProfile(profile) {
   return 'int8'
 }
 
-/** All supported transformer quantization options. */
-const QUANT_OPTIONS = [
-  { value: 'int8',    label: 'Scaled Int8 \u2705 recommended' },
-  { value: 'fp8',     label: 'FP8' },
-  { value: 'nvfp4',   label: 'NVFP4' },
-  { value: 'no_quant', label: 'None (no quantization)' }
-]
-
 /**
- * VAE config — per-tier picker, labels verified against
- * models/wan/modules/vae2_2.py get_VAE_tile_size():
- *   0 = Auto (runtime: ≥24GB → 1, ≥8GB → 2, else 3)
- *   1 = No tiling (fast, high VRAM)
- *   2 = Tiling 256
- *   3 = Tiling 128 (aggressive)
+ * VAE config — always recommend Auto (0).
+ *
+ * Auto defers the tiling decision to Wan2GP's runtime
+ * (models/wan/modules/vae2_2.py get_VAE_tile_size(): ≥24GB → 1, ≥8GB → 2,
+ * else 3), evaluated against the REAL memory headroom at generation time.
+ * A static per-tier picker is strictly worse: a "high" card busy decoding a
+ * long video with other apps open can OOM on untiled VAE, while a "tight"
+ * card generating a small image wastes time on aggressive tiling. Runtime
+ * Auto picks correctly in both cases, so it is the recommendation for every
+ * tier. The dropdown stays editable — users who know better can override.
  */
 function vaeConfigForTier(vramTier) {
-  if (vramTier === 'high') return 1   // full VAE — VRAM is plentiful
-  if (vramTier === 'low') return 0   // auto — let the runtime decide
-  return 3                            // aggressive tiling — squeeze it
+  return 0
 }
-
-/** All supported VAE config options (labels per vae2_2.py semantics). */
-const VAE_OPTIONS = [
-  { value: 0, label: 'Auto \u2705 recommended' },
-  { value: 1, label: 'Full (no tiling)' },
-  { value: 2, label: 'Tiling 256' },
-  { value: 3, label: 'Tiling 128 (aggressive)' }
-]
 
 /**
  * VRAM safety coefficient — calibrated flat policy:
@@ -452,15 +472,16 @@ function appliedKeys() {
  *                   _recommendation_label and _recommendation_reason.
  */
 function recommend(hw, opts) {
-  // No CUDA — conservative fallback, clearly labeled. Never silently pick
-  // P5: the user needs to know auto-tune can't help their hardware.
-  if (hw && hw.cuda_available === false) {
+  // No hardware info at all (null/undefined from a failed detect) or no CUDA —
+  // conservative fallback, clearly labeled. Never silently pick P5: the user
+  // needs to know auto-tune can't help their hardware.
+  if (!hw || hw.cuda_available === false) {
     return {
       video_profile: 4.5,
       image_profile: 4.5,
       audio_profile: 4.5,
       transformer_quantization: 'int8',
-      vae_config: 3,
+      vae_config: 0,
       vram_safety_coefficient: 0.70,
       _recommendation_label: 'Auto-tune unavailable on this hardware',
       _recommendation_reason: 'No CUDA-capable GPU detected. Conservative profile applied — generation may be limited.'
@@ -478,7 +499,7 @@ function recommend(hw, opts) {
   if (failsafe) {
     profile = 5
     coeff = 0.60 // deliberately below the calibrated 0.70/0.80 — max headroom
-    vaeCfg = 3   // aggressive tiling everywhere
+    vaeCfg = 0   // Auto — runtime picks the tiling to match actual headroom
   } else {
     // Lookup base profile from matrix
     const ramRow = PROFILE_MATRIX[vramTier] || PROFILE_MATRIX.low
@@ -532,12 +553,16 @@ function recommend(hw, opts) {
  * @returns {string|null} Full path to wgp_config.json or null
  */
 function findWgpConfig(repoDir, dataDir) {
-  const candidates = [
-    path.join(repoDir || '', 'wgp_config.json'),
-    path.join(dataDir || '', 'wgp_config.json'),
-    path.join(dataDir || '', 'Wan2GP', 'wgp_config.json'),
-    path.join(process.cwd(), 'wgp_config.json')
-  ]
+  const candidates = []
+  if (repoDir) candidates.push(path.join(repoDir, 'wgp_config.json'))
+  if (dataDir) {
+    candidates.push(path.join(dataDir, 'wgp_config.json'))
+    candidates.push(path.join(dataDir, 'Wan2GP', 'wgp_config.json'))
+  }
+  // Never process.cwd() first: a packaged exe's cwd can hold a stray
+  // wgp_config.json; writing there would be invisible to Wan2GP, which reads
+  // the repo dir. cwd stays as the last-resort candidate only.
+  candidates.push(path.join(process.cwd(), 'wgp_config.json'))
   for (const p of candidates) {
     if (p && fs.existsSync(p)) return p
   }
@@ -586,12 +611,22 @@ function apply(settings, repoDir, dataDir) {
       }
     }
 
+    // Nothing to write — don't touch the file (and don't stamp the
+    // auto_performance marker) when the caller passed an empty/no-op settings.
+    if (applied.length === 0) {
+      return { success: true, path: cfgPath, applied, unchanged: true }
+    }
+
     // Mark auto_tune as applied so manual settings aren't overwritten
     if (!config.services) config.services = {}
     config.services.auto_performance_applied = true
 
+    // Atomic write: tmp file + rename, so a crash mid-write can't corrupt
+    // Wan2GP's config (a torn write previously left wgp_config.json unparseable).
     fs.mkdirSync(path.dirname(cfgPath), { recursive: true })
-    fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), 'utf8')
+    const tmpPath = cfgPath + '.tmp'
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), 'utf8')
+    fs.renameSync(tmpPath, cfgPath)
 
     return { success: true, path: cfgPath, applied }
   } catch (e) {
@@ -637,10 +672,19 @@ function getPythonForEnv(env) {
   return fs.existsSync(py) ? py : null
 }
 
+// Memoized Python import probes — keyed by python binary + module name, so
+// repeated detect()/fullTune() calls don't spawn the same interpreter three
+// times over. Results never change within a session.
+const pythonImportCache = new Map()
+
 async function checkPythonImport(py, moduleName) {
   if (!py) return false
+  const key = `${py}\u0000${moduleName}`
+  if (pythonImportCache.has(key)) return pythonImportCache.get(key)
   const out = await run(py, ['-c', `import ${moduleName}`], 4000)
-  return out !== null
+  const ok = out !== null
+  pythonImportCache.set(key, ok)
+  return ok
 }
 
 // ──────────────────────────────────────────────

@@ -314,9 +314,9 @@
           <div class="metric" title="VRAM used / total"><span class="metric-label">VRAM</span><canvas class="metric-spark" id="sparkVram" width="44" height="18"></canvas><span class="metric-val" id="valVram">—</span></div>
         </div>
         <div id="wvControls" class="wv-controls" style="display:none">
-          <button class="btn-icon wv-btn" id="wvBackBtn" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg></button>
-          <button class="btn-icon wv-btn" id="wvFwdBtn" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg></button>
-          <button class="btn-icon wv-btn" id="wvReloadBtn"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
+          <button class="btn-icon wv-btn" id="wvBackBtn" aria-label="Go back" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="btn-icon wv-btn" id="wvFwdBtn" aria-label="Go forward" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg></button>
+          <button class="btn-icon wv-btn" id="wvReloadBtn" aria-label="Reload"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
           <span class="wv-sep"></span>
           <input type="range" id="zoomSlider" class="zoom-slider" min="25" max="200" value="100" title="Zoom">
           <span class="zoom-label" id="zoomLabel">100%</span>
@@ -369,7 +369,7 @@
         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
         <span id="progressText" class="progress-text">0%</span>
       </div>
-      <button id="updateDismissBtn" class="update-dismiss">
+      <button id="updateDismissBtn" class="update-dismiss" aria-label="Dismiss update notification">
         <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>

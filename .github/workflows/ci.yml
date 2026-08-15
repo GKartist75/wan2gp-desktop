@@ -38,6 +38,9 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: POSIX external-terminal smoke test
+        run: bash scripts/smoke-test-posix.sh
+
   build-windows:
     # Build + sign the installer on version tags (release-signing policy) and
     # on dev-branch pushes (test-signing policy), so the signing pipeline can
