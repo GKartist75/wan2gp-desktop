@@ -164,4 +164,14 @@ contextBridge.exposeInMainWorld('w2gp', {
     ipcRenderer.on('wangp-exit', h)
     return () => ipcRenderer.removeListener('wangp-exit', h)
   },
+
+  // Crash recovery: the renderer reports its UI mode so a later renderer crash
+  // can be undone (auto-reload + restore of the embedded view / browser mode).
+  uiModeSet: (mode) => ipcRenderer.invoke('ui-mode-set', mode),
+  getCrashRecoveryInfo: () => ipcRenderer.invoke('get-crash-recovery-info'),
+  onBvCrashRecovered: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('bv-crash-recovered', h)
+    return () => ipcRenderer.removeListener('bv-crash-recovered', h)
+  },
 })

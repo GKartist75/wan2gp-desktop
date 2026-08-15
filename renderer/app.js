@@ -311,6 +311,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
   const installed = await window.w2gp.checkInstalled()
 
+  // If the launcher renderer just crashed and was auto-reloaded, restore the
+  // UI state (embedded Wan2GP view / browser mode) instead of the bare dashboard.
+  await checkCrashRecovery()
+
   window.w2gp.getDesktopVersion().then(function(v) {
     if (!v) return
     document.title = 'Wan2GP Desktop Launcher v' + v
@@ -348,6 +352,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.w2gp.onSystemThemeChange(function(theme) {
     applyTheme(theme)
   })
+
+  // Embedded-Wan2GP view crashed and was auto-reloaded by the main process.
+  window.w2gp.onBvCrashRecovered(() => showToast('Wan2GP view reloaded after a crash'))
 
   loadHardware()
 
@@ -1146,6 +1153,7 @@ $('browserBtn').addEventListener('click', async () => {
     await window.w2gp.launchBrowser(result.url)
     browserRunning = true
     serverMode = 'browser'
+    window.w2gp.uiModeSet('browser')   // crash recovery: remember browser mode
     showBrowserRunningUI()
     btn.textContent = 'Open Wan2GP in Browser'
     $('browserNoGpuBtn').style.display = 'none'
@@ -1174,6 +1182,7 @@ $('browserNoGpuBtn').addEventListener('click', async () => {
     appendLog(`[*] Launched in browser with GPU disabled.`)
     browserRunning = true
     serverMode = 'browser'
+    window.w2gp.uiModeSet('browser')   // crash recovery: remember browser mode
     showBrowserRunningUI()
     $('browserBtn').textContent = 'Open Wan2GP in Browser'
     btn.textContent = 'Open in Chrome (no GPU)'
@@ -1200,6 +1209,7 @@ $('termBtn').addEventListener('click', async () => {
     // The generated .bat opens localhost itself (mirrors the desktop shortcut), so we don't double-open.
     browserRunning = true
     serverMode = 'browser'   // UI treatment identical to browser mode (running + Stop + re-open)
+    window.w2gp.uiModeSet('browser')   // crash recovery: remember browser mode
     showBrowserRunningUI()
     btn.textContent = 'Open Wan2GP in Browser'
     $('browserBtn').style.display = 'none'
@@ -1237,6 +1247,7 @@ $('appBtn').addEventListener('click', async () => {
     updateLed('running')
     updateFtStatus('running')
     serverMode = 'app'
+    window.w2gp.uiModeSet('app')   // crash recovery: remember we are in Desktop mode
     if (browserRunning) resetBrowserLaunchUI()
     // Open the floating terminal per the saved default dock (or stay minimised)
     const cfg = await window.w2gp.configLoad()
@@ -1279,10 +1290,67 @@ async function closeWebview() {
   $('dashBody').style.display = ''
   hideWebviewUI()
   serverMode = null   // webview UI is gone; a later server exit must not re-close it
+  window.w2gp.uiModeSet(null)
   appendLog('[*] Webview closed. Server still running.')
 }
 
 $('backToDashboardBtn').addEventListener('click', closeWebview)
+
+// ── Crash recovery: put the UI back where it was after a renderer crash ──
+// The main process auto-reloads the launcher renderer when it dies (usually a
+// GPU/display-driver hiccup during generation). On this fresh load we ask what
+// happened: if a crash just occurred and the Wan2GP server is still running,
+// re-open the embedded view (Desktop mode) or re-arm the browser-mode UI
+// instead of stranding the user on the bare dashboard.
+async function checkCrashRecovery() {
+  let info = null
+  try { info = await window.w2gp.getCrashRecoveryInfo() } catch { return }
+  if (!info || !info.pending) return
+  appendLog(info.serverRunning
+    ? `[i] Launcher UI recovered after a crash (${info.gpuProcessDied ? 'GPU/display-driver hiccup' : 'renderer crash'}). The Wan2GP server is still running.`
+    : '[i] Launcher UI recovered after a crash. The Wan2GP server is not running.')
+  if (info.serverRunning && info.mode === 'app' && info.url) {
+    try {
+      const created = await window.w2gp.createBrowserView(info.url)
+      if (!created || created.error) throw new Error(created && created.error ? created.error : 'failed to re-create embed')
+      $('dashBody').style.display = 'none'
+      $('webviewContainer').classList.remove('hidden')
+      showWebviewUI()
+      updateLed('running')
+      updateFtStatus('running')
+      serverMode = 'app'
+      window.w2gp.uiModeSet('app')
+      // Restore the floating console per the saved default dock, exactly like
+      // the normal Desktop launch does.
+      const cfg = await window.w2gp.configLoad()
+      const dock = cfg.termDockDefault || 'bottom'
+      if (dock === 'minimised') {
+        if (!$('floatingTerminal').classList.contains('hidden')) closeFloatingTerm()
+      } else {
+        if ($('floatingTerminal').classList.contains('hidden')) toggleFloatingTerm()
+        setFtDock(dock)
+      }
+      showToast('Launcher UI recovered — Wan2GP re-opened')
+    } catch (e) {
+      appendLog('[!] Could not re-open the embedded view after the crash: ' + e.message)
+      $('dashBody').style.display = ''
+      $('webviewContainer').classList.add('hidden')
+      hideWebviewUI()
+      serverMode = null
+      try { await window.w2gp.destroyBrowserView() } catch {}
+    }
+  } else if (info.serverRunning && info.mode === 'browser') {
+    browserRunning = true
+    serverMode = 'browser'
+    showBrowserRunningUI()
+    $('browserBtn').textContent = 'Open Wan2GP in Browser'
+    appendLog('[i] Browser-mode launch restored — server running.')
+  } else {
+    // Dashboard (or no server): detach any leftover BrowserView so it can't
+    // composite above the dashboard after the crash.
+    try { await window.w2gp.destroyBrowserView() } catch {}
+  }
+}
 
 // ── BrowserView navigation / zoom (relayed via main process) ──
 function updateNavButtons(state) {
@@ -1336,6 +1404,7 @@ function hideBrowserRunningUI() {
 function resetBrowserLaunchUI() {
   browserRunning = false
   serverMode = null
+  window.w2gp.uiModeSet(null)
   $('browserBtn').textContent = 'Launch Wan2GP in Browser'
   $('browserBtn').style.display = ''
   $('browserBtn').disabled = false
