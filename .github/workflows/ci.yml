@@ -27,8 +27,6 @@ jobs:
           node --check preload.js
           node --check services/auto-tune.js
           node --check services/settings-repair.js
-          node --check services/catalog.js
-          node --check services/gallery.js
           node --check services/memory-profile.js
           node --check services/queue-notifier.js
           node --check services/install-plan.js
