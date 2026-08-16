@@ -34,7 +34,9 @@ echo "  -> Build done. Artifacts in dist/"
 
 echo "==> 4. Tag and push (only after the build succeeded)"
 git tag "v$VERSION"
-git push origin main --tags
+# Push to the CURRENT branch only — never force main. dev and main are kept
+# strictly separate; releases are cut from whatever branch you run this on.
+git push origin HEAD --tags
 
 echo "==> 5. Create draft GitHub release"
 RESP=$(curl -fsS -X POST \

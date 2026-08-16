@@ -92,6 +92,15 @@ test('no failsafe flag → unchanged matrix behavior', () => {
   assert.strictEqual(r.vram_safety_coefficient, 0.70)
 })
 
+test('Detect leaves VAE on AUTO (0) for every normal tier', () => {
+  // The runtime picks tiling from actual VRAM (≥24GB→full, ≥8GB→256, else 128);
+  // Detect must not force a fixed tiling that wastes VRAM or adds banding.
+  for (const vramTier of ['low', 'tight', 'high']) {
+    const r = recommend({ vram_tier: vramTier, ram_tier: 'high', gpu_vram_gb: 24 })
+    assert.strictEqual(r.vae_config, 0, `VAE should be AUTO (0) for tier ${vramTier}`)
+  }
+})
+
 // ── Audio profile rule (wan2gp fast LM decoder gate) ──
 test('audio_profile is 3 for ≥12GB cards whose video profile is not 1 or 3', () => {
   // 12–23GB video P4/P4.5/P5 → audio must be 3 (engages vllm/cg LM decoders)

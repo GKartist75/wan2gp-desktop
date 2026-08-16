@@ -205,42 +205,6 @@ body {
 .spec-label { color: var(--text-secondary); }
 .spec-value { color: var(--text-primary); font-family: 'Geist Mono', 'SF Mono', monospace; font-weight: 500; }
 
-/* ── Profile Select (Auto-Tune) ── */
-.profile-select {
-  background: var(--bg-tertiary); color: var(--text-primary);
-  border: 1px solid var(--border); border-radius: 5px;
-  padding: 3px 20px 3px 8px; font-size: 0.6875rem;
-  font-family: 'Geist Mono', 'SF Mono', monospace;
-  cursor: pointer; min-width: 210px;
-  -webkit-appearance: none; -moz-appearance: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 6px center;
-  background-size: 8px 5px;
-}
-.profile-select:hover { border-color: var(--accent); }
-.profile-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
-.profile-select option { background: var(--bg-secondary); color: var(--text-primary); }
-
-/* ── Quant / VAE Selects (Auto-Tune) ── */
-.quant-select,
-.vae-select {
-  background: var(--bg-tertiary); color: var(--text-primary);
-  border: 1px solid var(--border); border-radius: 5px;
-  padding: 3px 20px 3px 8px; font-size: 0.6875rem;
-  font-family: 'Geist Mono', 'SF Mono', monospace;
-  cursor: pointer; min-width: 210px;
-  -webkit-appearance: none; -moz-appearance: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 6px center;
-  background-size: 8px 5px;
-}
-.quant-select:hover,
-.vae-select:hover { border-color: var(--accent); }
-.quant-select:focus,
-.vae-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
-.quant-select option,
-.vae-select option { background: var(--bg-secondary); color: var(--text-primary); }
-
 /* ── Profile Matrix Table (Auto-Tune) ── */
 .profile-matrix {
   width: 100%; border-collapse: collapse;
@@ -259,6 +223,47 @@ body {
 }
 .profile-matrix tr:last-child td {
   border-bottom: none;
+}
+
+/* ── Unified Auto-Tune Performance Settings panel ── */
+.mem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+.mem-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mem-field > label.token-hint {
+  margin-bottom: 0;
+}
+.mem-field .input {
+  width: 100%;
+}
+.mem-hint {
+  display: flex;
+  gap: 8px;
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+.tag-rec, .tag-saved {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-variant: tabular-nums;
+  white-space: nowrap;
+}
+.tag-rec {
+  background: #1E3A2E;
+  color: #6EE7B7;
+  border: 1px solid #2D5E47;
+}
+.tag-saved {
+  background: #2A2A3E;
+  color: #A9A9E6;
+  border: 1px solid #3E3E5E;
 }
 
 /* ── Compact Hardware Info (Auto-Tune) ── */
@@ -878,3 +883,16 @@ body {
   background: transparent;
 }
 .floating-term-resize:hover { background: var(--accent); }
+
+/* ── Installer: resolved stack (pre-flight) ── */
+.install-stack { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.istack-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin-top: 6px; }
+.istack-row { display: contents; }
+.istack-k { color: var(--text-tertiary); font-size: 0.7rem; }
+.istack-v { color: var(--text-primary); font-size: 0.7rem; font-family: 'Geist Mono', monospace; }
+.istack-warn { margin-top: 8px; }
+.istack-w { color: var(--signal-amber); font-size: 0.68rem; line-height: 1.45; margin-top: 4px; }
+.istack-ok { color: var(--signal-green); font-size: 0.68rem; margin-top: 4px; }
+.istack-hint { color: var(--text-tertiary); font-size: 0.62rem; margin-top: 4px; line-height: 1.4; }
+
+

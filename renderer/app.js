@@ -173,6 +173,14 @@ function initSettingsToggles() {
     await window.w2gp.setNotificationsEnabled(el.checked)
     showToast(el.checked ? 'Notifications enabled' : 'Notifications disabled')
   })
+  $('pulsebarToggle')?.addEventListener('change', async () => {
+    const el = $('pulsebarToggle')
+    const c = await window.w2gp.configLoad()
+    c.pulsebar = { enabled: el.checked }
+    await window.w2gp.configSave(c)
+    if (!el.checked) window.w2gp.pulsebarHide()
+    showToast(el.checked ? 'Floating progress bar enabled' : 'Floating progress bar disabled')
+  })
   $('autoUpdateToggle')?.addEventListener('change', async () => {
     const el = $('autoUpdateToggle')
     const c = await window.w2gp.configLoad()
@@ -187,6 +195,49 @@ function initSettingsToggles() {
     await window.w2gp.configSave(c)
     showToast(el.checked ? 'Share link enabled — Gradio will create a public tunnel on next launch' : 'Share link disabled')
   })
+
+  // ── Queue Notifier ──
+  const notifStatus = (msg, isErr) => {
+    const el = $('notifStatus')
+    if (!el) return
+    el.textContent = msg || ''
+    el.style.color = isErr ? 'var(--signal-red)' : 'var(--signal-green)'
+  }
+  const notifCollect = () => ({
+    enabled: $('notifEnabled')?.checked || false,
+    notifyOnComplete: $('notifOnComplete')?.checked || false,
+    notifyOnFail: $('notifOnFail')?.checked || false,
+    notifyOnProgress: $('notifOnProgress')?.checked || false,
+    progressStep: parseInt($('notifProgressStep')?.value || '25', 10) || 25,
+    url: ($('notifUrl')?.value || '').trim()
+  })
+  const notifApplyDom = (cfg) => {
+    if (!$('notifEnabled')) return
+    $('notifEnabled').checked = !!cfg.enabled
+    $('notifOnComplete').checked = cfg.notifyOnComplete !== false
+    $('notifOnFail').checked = cfg.notifyOnFail !== false
+    $('notifOnProgress').checked = !!cfg.notifyOnProgress
+    $('notifProgressStep').value = cfg.progressStep || 25
+    $('notifUrl').value = cfg.url || ''
+  }
+  window.w2gp.notifierConfig().then((r) => { if (r && r.ok) notifApplyDom(r.config) }).catch(() => {})
+  $('notifSaveBtn')?.addEventListener('click', async () => {
+    const r = await window.w2gp.notifierSet(notifCollect())
+    if (r && r.ok) { notifStatus('✓ Saved', false); if (r.config.enabled && r.config.url) window.w2gp.notifierEnsure().catch(() => {}) }
+    else notifStatus('✗ ' + ((r && r.error) || 'save failed'), true)
+  })
+  $('notifTestBtn')?.addEventListener('click', async () => {
+    const r = await window.w2gp.notifierTest(notifCollect())
+    if (r && r.ok) notifStatus('✓ Test sent', false)
+    else notifStatus('✗ ' + ((r && r.error) || 'test failed'), true)
+  })
+  $('notifEnsureBtn')?.addEventListener('click', async () => {
+    notifStatus('Installing Apprise…', false)
+    const r = await window.w2gp.notifierEnsure()
+    if (r && r.ok) notifStatus(r.already ? 'Apprise already present' : '✓ Apprise installed', false)
+    else notifStatus('✗ ' + ((r && r.error) || 'install failed'), true)
+  })
+  $('notifAppriseLink')?.addEventListener('click', (e) => { e.preventDefault(); window.w2gp.openExternal('https://github.com/caronc/apprise') })
 }
 
 function openSettings() {
@@ -216,6 +267,8 @@ function openSettings() {
     if (followTheme) followTheme.checked = cfg.themeFollowSystem === true
     const notifications = $('notificationsToggle')
     if (notifications) notifications.checked = cfg.notificationsEnabled !== false
+    const pulsebar = $('pulsebarToggle')
+    if (pulsebar) pulsebar.checked = !!(cfg.pulsebar && cfg.pulsebar.enabled)
     const autoUpdate = $('autoUpdateToggle')
     if (autoUpdate) autoUpdate.checked = cfg.autoUpdateEnabled !== false
     const share = $('shareToggle')
@@ -403,6 +456,41 @@ document.addEventListener('DOMContentLoaded', async () => {
       list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + escHtml(p) + '</span>' }).join('')
       $('installPkgs').style.display = ''
     })
+    // Pre-flight resolved stack (CUDA build, driver/disk gates) — audit hardening
+    window.w2gp.installPlan().then(function(r) {
+      if (!r || !r.ok) return
+      const grid = $('installStackGrid')
+      const warn = $('installStackWarn')
+      const stack = $('installStack')
+      if (!grid) return
+      const p = r.plan
+      const rows = [
+        ['GPU', p.gpuName || p.vendor],
+        ['CUDA build', p.cuda],
+        ['PyTorch', p.torch],
+        ['Python', p.python],
+        ['Env', p.envType],
+        ['Attention kernels', (p.attention && p.attention.length) ? p.attention.join(', ') : '—'],
+        ['Free disk', r.disk.freeGb + ' GB']
+      ]
+      grid.innerHTML = rows.map(function(row) {
+        return '<div class="istack-row"><span class="istack-k">' + escHtml(row[0]) + '</span><span class="istack-v">' + escHtml(row[1]) + '</span></div>'
+      }).join('')
+      const warns = []
+      if (p.driverWarning) warns.push(p.driverWarning)
+      if (r.disk && r.disk.warn) warns.push(r.disk.warn)
+      let warnHtml = warns.length ? warns.map(function(w) { return '<div class="istack-w">⚠ ' + escHtml(w) + '</div>' }).join('') : ''
+      if (r.softWarn) warnHtml += '<div class="istack-hint">This is a compatibility warning, not a hard block — install can continue but generation may fall back to CPU.</div>'
+      warn.innerHTML = warnHtml
+      stack.style.display = ''
+      // Block install only when a hard gate trips (old NVIDIA cu130 driver, or no disk).
+      const startBtn = $('installStartBtn')
+      if (startBtn && r.blocked) {
+        startBtn.disabled = true
+        startBtn.title = 'Resolve the warnings above before installing'
+        startBtn.textContent = 'Install blocked — see warnings'
+      }
+    }).catch(function() {})
   }
   } catch (e) {
     const el = $('splashError')
@@ -537,6 +625,27 @@ $('installStartBtn').addEventListener('click', startInstall)
 $('reinstallFreshBtn').addEventListener('click', () => doInstall(null, 'reinstall'))
 $('reinstallUpdateBtn').addEventListener('click', () => doInstall(null, 'update'))
 $('reinstallSkipBtn').addEventListener('click', () => doInstall(null, 'skip'))
+
+$('validateInstallBtn')?.addEventListener('click', async () => {
+  const btn = $('validateInstallBtn')
+  const warn = $('installStackWarn')
+  btn.disabled = true; btn.textContent = 'Validating…'
+  if (warn) warn.innerHTML = ''
+  try {
+    const r = await window.w2gp.validateInstall()
+    if (r && r.ok) {
+      const line = `✓ torch ${r.torch} · CUDA available: ${r.cudaAvailable} (${r.cudaVer})`
+      if (warn) warn.innerHTML = '<div class="istack-ok">⚡ ' + escHtml(line) + '</div>'
+      btn.textContent = 'Validated ✓'
+    } else {
+      if (warn) warn.innerHTML = '<div class="istack-w">✗ ' + escHtml((r && r.error) || 'validation failed') + '</div>'
+      btn.textContent = 'Validate failed'
+    }
+  } catch (e) {
+    if (warn) warn.innerHTML = '<div class="istack-w">✗ ' + escHtml(e.message) + '</div>'
+    btn.textContent = 'Validate failed'
+  }
+})
 
 $('browseAppDataPath')?.addEventListener('click', async () => {
   const folder = await window.w2gp.selectFolder()
@@ -728,6 +837,8 @@ async function doInstall(installed, mode) {
       appendLog(`[!] Failed to write model config: ${e.message}`)
     }
     taskComplete('done'); $('installSubtitle').textContent='Wan2GP is ready!'; appendLog('[*] Installation complete!')
+    const vb = $('validateInstallBtn')
+    if (vb) { vb.style.display = ''; vb.disabled = false; vb.textContent = 'Validate installation' }
     setTimeout(()=>{ show('dashboard'); refreshDashboard(); startMetricsPolling() }, 1200)
   } catch(e){ taskComplete('done',true); $('installSubtitle').textContent='Installation failed'; appendLog(`[ERROR] ${e.message}`) }
 }
@@ -1915,114 +2026,9 @@ function renderAutoTuneHardware(hw) {
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">' + badges.join('') + '</div>'
 }
 
-/** Render recommendation into the card with editable dropdowns. */
-function renderAutoTuneRecommendation(rec) {
-  var el = $('autotuneRecommendInfo')
-  var btn = $('autotuneApplyBtn')
-  if (!rec) {
-    el.innerHTML = '<p class="token-hint" style="margin:0">Run detection first.</p>'
-    btn.disabled = true
-    return
-  }
-
-  var unavailable = /unavailable/i.test(rec._recommendation_label || '')
-  var currentProf = rec.video_profile
-  var isP3plus = currentProf === 3.5
-  var isP4plus = currentProf === 4.5
-  var profDisp = isP3plus ? 'P3+' : isP4plus ? 'P4+' : 'P' + currentProf
-
-  el.innerHTML = [
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">',
-    '<strong>' + escHtml(rec._recommendation_label || 'Recommended settings') + '</strong>',
-    (unavailable ? '<span class="env-type-tag" style="background:#3A1E1E;color:#FCA5A5">unavailable on this hardware</span>' : '<span class="env-type-tag" style="background:#2D4A3E;color:#8AF8C5">estimated</span>'),
-    '</div>',
-    '<div class="spec-grid" style="margin-bottom:8px">',
-    '<div class="spec-row"><span class="spec-label">Video Profile</span><span class="spec-value">' + profileSelect('video_profile', rec.video_profile) + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Image Profile</span><span class="spec-value">' + profileSelect('image_profile', rec.image_profile) + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Audio Profile</span><span class="spec-value">' + profileSelect('audio_profile', rec.audio_profile) + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">Quantization</span><span class="spec-value">' + quantSelect(rec.transformer_quantization) + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">VAE Config</span><span class="spec-value">' + vaeSelect(rec.vae_config) + '</span></div>',
-    '<div class="spec-row"><span class="spec-label">VRAM Safety Coeff</span><span class="spec-value">' + rec.vram_safety_coefficient + '</span></div>',
-    '</div>',
-    '<p class="token-hint" style="margin:4px 0 0;color:var(--text-secondary)">' + escHtml(rec._recommendation_reason || '') + '</p>',
-    '<table class="profile-matrix" style="margin-top:6px">',
-    '<tr><th>VRAM \\ RAM</th><th style="text-align:center">high<br><span class="tier-range">≥64GB</span></th><th style="text-align:center">low<br><span class="tier-range">≥32GB</span></th><th style="text-align:center">very low<br><span class="tier-range"><32GB</span></th></tr>',
-    '<tr><td>high<br><span class="tier-range">≥24GB</span></td><td style="text-align:center;color:#6ee7b7">P1</td><td style="text-align:center">P3</td><td style="text-align:center;color:#67e8f9">P3+</td></tr>',
-    '<tr><td>low<br><span class="tier-range">12–23GB</span></td><td style="text-align:center">P2</td><td style="text-align:center">P4</td><td style="text-align:center;color:#f87171">P5</td></tr>',
-    '<tr><td>tight<br><span class="tier-range"><12GB</span></td><td style="text-align:center">P4</td><td style="text-align:center;color:#67e8f9">P4+</td><td style="text-align:center;color:#f87171">P5</td></tr>',
-    '</table>',
-    '<p class="token-hint" style="margin:4px 0 0;color:var(--text-tertiary);font-size:0.65rem">Detected profile <strong>' + profDisp + '</strong> highlighted. Modify any dropdown before applying. Higher profiles use less VRAM but may be slower. ' + (unavailable ? 'No CUDA-capable NVIDIA GPU was detected — applying has no effect. ' : '') + 'Changes take effect after Wan2GP is restarted.</p>'
-  ].join('\n')
-  btn.disabled = unavailable
-
-  // Wire dropdown changes to update the recommendation object
-  el.querySelectorAll('.profile-select').forEach(function(sel) {
-    sel.addEventListener('change', function() {
-      var key = sel.dataset.profileKey
-      _autotuneRecommendation[key] = parseFloat(sel.value)
-    })
-  })
-  el.querySelectorAll('.quant-select').forEach(function(sel) {
-    sel.addEventListener('change', function() {
-      _autotuneRecommendation.transformer_quantization = sel.value
-    })
-  })
-  el.querySelectorAll('.vae-select').forEach(function(sel) {
-    sel.addEventListener('change', function() {
-      _autotuneRecommendation.vae_config = parseFloat(sel.value)
-    })
-  })
-}
 
 // escHtml now comes from services/escape.js (loaded before app.js) so the
 // module's escaping logic is shared with the node --test suite.
-
-function profileSelect(name, selectedVal) {
-  var opts = ''
-  var items = [
-    { v: 1,   l: 'HighRAM · HighVRAM' },
-    { v: 2,   l: 'HighRAM · LowVRAM' },
-    { v: 3,   l: 'LowRAM · HighVRAM' },
-    { v: 3.5, l: 'VeryLowRAM · HighVRAM' },
-    { v: 4,   l: 'LowRAM · LowVRAM' },
-    { v: 4.5, l: 'LowRAM · LowVRAM+' },
-    { v: 5,   l: 'VerylowRAM · LowVRAM' }
-  ]
-  for (var i = 0; i < items.length; i++) {
-    var sel = items[i].v == selectedVal ? ' selected' : ''
-    var label = items[i].v === 3.5 ? 'P3+' : items[i].v === 4.5 ? 'P4+' : 'P' + items[i].v
-    opts += '<option value="' + items[i].v + '"' + sel + '>' + label + ' — ' + items[i].l + '</option>'
-  }
-  return '<select class="profile-select" data-profile-key="' + name + '">' + opts + '</select>'
-}
-function quantSelect(selectedVal) {
-  var opts = ''
-  var items = [
-    { v: 'int8',     l: 'Scaled Int8 ✅ recommended' },
-    { v: 'fp8',      l: 'FP8' },
-    { v: 'nvfp4',    l: 'NVFP4' },
-    { v: 'no_quant', l: 'None (no quantization)' }
-  ]
-  for (var i = 0; i < items.length; i++) {
-    var sel = items[i].v === selectedVal ? ' selected' : ''
-    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
-  }
-  return '<select class="quant-select" data-quant-key="transformer_quantization">' + opts + '</select>'
-}
-function vaeSelect(selectedVal) {
-  var opts = ''
-  var items = [
-    { v: 0, l: 'Auto ✅ recommended' },
-    { v: 1, l: 'Full (untiled) · high VRAM' },
-    { v: 2, l: 'Tiling 256px' },
-    { v: 3, l: 'Aggressive tiling 128px' }
-  ]
-  for (var i = 0; i < items.length; i++) {
-    var sel = items[i].v == selectedVal ? ' selected' : ''
-    opts += '<option value="' + items[i].v + '"' + sel + '>' + items[i].l + '</option>'
-  }
-  return '<select class="vae-select" data-vae-key="vae_config">' + opts + '</select>'
-}
 
 // ── Auto-Tune: Detect ──
 $('autotuneDetectBtn').addEventListener('click', async () => {
@@ -2038,9 +2044,10 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
     _autotuneHardware = hw
     const rec = await window.w2gp.autoTuneRecommend(hw, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
+    // Feed the manual VRAM/RAM Adjuster so the user can review/edit before Apply.
+    memProfileFromRecommendation(rec)
 
     renderAutoTuneHardware(_autotuneHardware)
-    renderAutoTuneRecommendation(_autotuneRecommendation)
 
     status.className = ''
     status.style.background = 'var(--bg-tertiary)'
@@ -2055,39 +2062,122 @@ $('autotuneDetectBtn').addEventListener('click', async () => {
   }
 })
 
-// ── Auto-Tune: Apply ──
-$('autotuneApplyBtn').addEventListener('click', async () => {
-  const btn = $('autotuneApplyBtn')
-  const status = $('autotuneStatus')
-  if (!_autotuneRecommendation) return
-
-  btn.disabled = true
-  btn.textContent = 'Applying\u2026'
-  status.classList.add('hidden')
-
-  try {
-    const result = await window.w2gp.autoTuneApply(_autotuneRecommendation)
-    if (result.success) {
-      status.className = ''
-      status.style.background = '#1E3A1E'
-      status.innerHTML = '\u2705 Applied to <code>' + escHtml(result.path) + '</code><br><small>Keys: ' + result.applied.join(', ') + '. Restart Wan2GP (or relaunch it from this Desktop app) for the new settings to take effect.</small>'
-    } else {
-      status.className = ''
-      status.style.background = '#3A1E1E'
-      status.innerHTML = '\u274c ' + escHtml(result.error || 'Unknown error')
-    }
-  } catch (e) {
-    status.className = ''
-    status.style.background = '#3A1E1E'
-    status.innerHTML = '\u274c Apply failed: ' + escHtml(e.message)
-  } finally {
-    btn.disabled = false
-    btn.textContent = 'Apply to Wan2GP'
+// ── Performance Settings (unified: Detect seeds dropdowns + rec tags; user overrides; saved tags from disk) ──
+function memProfileCollect() {
+  // Only include fields the user actually set (non-empty) — unset = leave existing config.
+  const s = {}
+  const vp = $('memVideoProfile').value
+  const ip = $('memImageProfile').value
+  const ap = $('memAudioProfile').value
+  const co = $('memCoeff').value
+  const ve = $('memVae').value
+  const q = $('memQuant').value
+  if (vp) s.video_profile = Number(vp)
+  if (ip) s.image_profile = Number(ip)
+  if (ap) s.audio_profile = Number(ap)
+  if (co) {
+    const n = Number(co)
+    if (!(n > 0 && n <= 1)) { setMemStatus('VRAM Safety Coeff must be between 0.1 and 1', true); return null }
+    s.vram_safety_coefficient = n
   }
+  if (ve !== '') s.vae_config = Number(ve)
+  if (q) s.transformer_quantization = q
+  return s
+}
+
+function setMemStatus(msg, isError) {
+  const el = $('memProfileStatus')
+  if (!el) return
+  el.textContent = msg || ''
+  el.style.color = isError ? 'var(--signal-red)' : 'var(--text-secondary)'
+}
+
+// Field metadata: maps the dropdown id to its rec/saved tag ids and a formatter.
+const MEM_FIELDS = {
+  video_profile: { sel: 'memVideoProfile', rec: 'recVideoProfile', saved: 'savedVideoProfile' },
+  image_profile: { sel: 'memImageProfile', rec: 'recImageProfile', saved: 'savedImageProfile' },
+  audio_profile: { sel: 'memAudioProfile', rec: 'recAudioProfile', saved: 'savedAudioProfile' },
+  vram_safety_coefficient: { sel: 'memCoeff', rec: 'recCoeff', saved: 'savedCoeff' },
+  vae_config: { sel: 'memVae', rec: 'recVae', saved: 'savedVae' },
+  transformer_quantization: { sel: 'memQuant', rec: 'recQuant', saved: 'savedQuant' }
+}
+function fmtVal(key, v) {
+  if (v == null || v === '') return '—'
+  if (key === 'vae_config') return v + (Number(v) === 0 ? ' (AUTO)' : '')
+  return String(v)
+}
+
+function memProfilePopulate(settings, opts = {}) {
+  if (!settings) return
+  // opts.mode: 'recommend' fills the dropdown + rec tags; 'saved' fills rec tags from detect AND saved tags from disk.
+  for (const key of Object.keys(MEM_FIELDS)) {
+    const f = MEM_FIELDS[key]
+    const v = settings[key]
+    if (opts.mode === 'recommend') {
+      // Seed the dropdown with the recommended value (user can override).
+      const sel = $(f.sel)
+      if (sel) sel.value = (v != null && v !== '') ? String(v) : (key === 'vae_config' ? '0' : '')
+      const rec = $(f.rec); if (rec) rec.textContent = 'rec: ' + fmtVal(key, v)
+    } else if (opts.mode === 'saved') {
+      // Show what's currently written to disk (preferred/saved).
+      const saved = $(f.saved); if (saved) saved.textContent = 'saved: ' + fmtVal(key, v)
+    }
+  }
+}
+
+// Feed the manual Adjuster from an Auto-Tune detection result: set the dropdown
+// defaults to the recommended values AND show the rec tags. The user can then
+// override any dropdown before pressing Apply.
+function memProfileFromRecommendation(rec) {
+  if (!rec) return
+  memProfilePopulate({
+    video_profile: rec.video_profile,
+    image_profile: rec.image_profile,
+    audio_profile: rec.audio_profile,
+    vram_safety_coefficient: rec.vram_safety_coefficient,
+    vae_config: rec.vae_config != null ? rec.vae_config : 0, // AUTO unless Detect set a fixed value
+    transformer_quantization: rec.transformer_quantization
+  }, { mode: 'recommend' })
+}
+
+async function memProfileLoad() {
+  try {
+    const res = await window.w2gp.memoryProfileRead()
+    if (res && res.ok) {
+      // Show the currently-saved (preferred) values from disk.
+      memProfilePopulate(res.settings, { mode: 'saved' })
+      // If a detection already populated the dropdowns, leave them; otherwise
+      // seed the dropdowns from the saved config too so the panel isn't empty.
+      const first = $('memVideoProfile')
+      if (first && first.value === '') memProfilePopulate(res.settings, { mode: 'recommend' })
+    } else setMemStatus((res && res.error) || 'Failed to read memory settings', true)
+  } catch (e) { setMemStatus(e.message, true) }
+}
+
+$('memProfileApplyBtn')?.addEventListener('click', async () => {
+  const btn = $('memProfileApplyBtn')
+  const s = memProfileCollect()
+  if (!s) return
+  if (Object.keys(s).length === 0) { setMemStatus('Set at least one field before applying.', true); return }
+  btn.disabled = true; btn.textContent = 'Applying…'; setMemStatus('')
+  try {
+    const res = await window.w2gp.memoryProfileApply(s)
+    if (res && res.ok) setMemStatus('✓ Applied: ' + res.applied.join(', ') + ' — restart Wan2GP to take effect.', false)
+    else setMemStatus('✗ ' + ((res && res.error) || 'apply failed'), true)
+  } catch (e) { setMemStatus('✗ ' + e.message, true) }
+  finally { btn.disabled = false; btn.textContent = 'Apply Overrides' }
 })
 
-// ── Auto-Tune: failsafe toggle → re-render recommendation live ──
-$('autotuneFailsafeChk').addEventListener('change', async () => {
+// Load current memory settings whenever the Auto-Tune tab is opened.
+const _origSettingsSwitch = window.__settingsSwitch
+document.querySelectorAll('.settings-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.getAttribute('data-tab') === 'autotune') setTimeout(memProfileLoad, 120)
+  })
+})
+
+  // ── Auto-Tune: failsafe toggle → re-render recommendation live ──
+  $('autotuneFailsafeChk').addEventListener('change', async () => {
   const status = $('autotuneStatus')
   if (!_autotuneHardware) {
     // Nothing detected yet — tell the user Detect will honor it.
@@ -2101,7 +2191,8 @@ $('autotuneFailsafeChk').addEventListener('change', async () => {
   try {
     const rec = await window.w2gp.autoTuneRecommend(_autotuneHardware, { failsafe: $('autotuneFailsafeChk').checked })
     _autotuneRecommendation = rec
-    renderAutoTuneRecommendation(rec)
+    // Re-seed the editable Adjuster fields with the (P5) recommendation.
+    memProfileFromRecommendation(rec)
     status.className = ''
     status.style.background = 'var(--bg-tertiary)'
     status.innerHTML = $('autotuneFailsafeChk').checked

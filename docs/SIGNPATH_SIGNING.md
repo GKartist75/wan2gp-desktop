@@ -46,18 +46,27 @@ unsigned-but-green until you configure the secrets below.
      exact repo above. This is the one that matters for releases.
 6. **Create an API token** for your user (or a dedicated CI user) — Settings →
    API tokens.
-7. **Add 5 GitHub secrets** to `GKartist75/wan2gp-desktop`:
+7. **Add GitHub secrets** to `GKartist75/wan2gp-desktop`:
    | Secret | Value |
    |---|---|
    | `SIGNPATH_API_TOKEN` | API token from step 6 |
    | `SIGNPATH_ORGANIZATION_ID` | your org id (GUID) |
    | `SIGNPATH_PROJECT_SLUG` | `wan2gp-desktop` |
-   | `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` (or `test-signing` to start) |
+   | `SIGNPATH_RELEASE_POLICY_SLUG` | `release-signing` (origin-verified; used on `v*` tag builds) |
+   | `SIGNPATH_TEST_POLICY_SLUG` | `test-signing` (auto-approved; used on `dev`-branch builds) |
    | `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | your artifact config slug (e.g. `wan2gp-exe`) |
 
    Secrets → Actions → New repository secret. Origin data
    (`GITHUB_REPOSITORY`, `GITHUB_REF_NAME`, `GITHUB_SHA`) is passed automatically
    by the hook on GitHub Actions.
+
+   **Branch strategy.** CI builds the Windows installer on `v*` tags **and** on
+   `dev`-branch pushes (see `.github/workflows/ci.yml`). Tag builds sign with
+   `SIGNPATH_RELEASE_POLICY_SLUG`; dev builds sign with `SIGNPATH_TEST_POLICY_SLUG`
+   (the workflow picks the policy by ref). That lets you validate the whole
+   signing pipeline on dev — signed artifacts, valid `latest.yml` hashes — before
+   any release, without ever burning release signatures on experiments. Dev
+   builds never publish (`--publish never`).
 
 8. **Trigger a Windows build** (push a `v*` tag) and verify in the CI log:
    `[signpath-sign] ✔ <file> signed (… bytes)` for each exe. Then verify locally:
@@ -70,8 +79,9 @@ unsigned-but-green until you configure the secrets below.
 ## Local builds
 
 `npm run build:win` / `scripts/release-win.sh` also pick up the signing hook.
-Export the same 5 env vars to sign locally; without them, the build is unsigned
-(no failure, just a log line).
+Export the same env vars to sign locally (for the policy, use
+`SIGNPATH_SIGNING_POLICY_SLUG` directly — locally there is no branch split);
+without them, the build is unsigned (no failure, just a log line).
 
 ## End-user remediation for previously shipped unsigned builds
 

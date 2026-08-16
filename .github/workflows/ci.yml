@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
   pull_request:
+    branches: [main, dev]
 
 jobs:
   check-and-test:
@@ -26,6 +27,9 @@ jobs:
           node --check preload.js
           node --check services/auto-tune.js
           node --check services/settings-repair.js
+          node --check services/memory-profile.js
+          node --check services/queue-notifier.js
+          node --check services/install-plan.js
           node --check scripts/signpath-sign.js
           node --check renderer/app.js
 
@@ -36,9 +40,11 @@ jobs:
         run: bash scripts/smoke-test-posix.sh
 
   build-windows:
-    # Build the installer on version tags so the release is reproducible and
-    # never depends on a maintainer's machine.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Build + sign the installer on version tags (release-signing policy) and
+    # on dev-branch pushes (test-signing policy), so the signing pipeline can
+    # be validated on dev before any release. --publish never keeps dev builds
+    # confined to CI artifacts — nothing is ever released from dev.
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/dev'
     runs-on: windows-latest
     needs: check-and-test
     steps:
@@ -57,10 +63,12 @@ jobs:
           # SignPath.io code signing (free OSS tier). Empty until the secrets
           # are added — the sign hook then logs and skips, keeping the build
           # unsigned-but-green. See docs/SIGNPATH_SIGNING.md.
+          # Policy: release-signing (origin-verified) on v* tags,
+          # test-signing (auto-approve) on dev-branch builds.
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
           SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ (startsWith(github.ref, 'refs/tags/v') && secrets.SIGNPATH_RELEASE_POLICY_SLUG) || secrets.SIGNPATH_TEST_POLICY_SLUG }}
           SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
         run: npx electron-builder --win --publish never --config electron-builder.yml
 
