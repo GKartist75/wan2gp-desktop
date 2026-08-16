@@ -1652,8 +1652,6 @@ ipcMain.handle('launch-webview', async () => {
 })
 
 ipcMain.handle('stop-wangp', () => { stopWangpServer() })
-ipcMain.handle('is-wangp-running', () => _wangpProc !== null || _currentPort > 0)
-
 // ── Phase 4: Pop-out webview ──
 let detachedWin = null
 ipcMain.handle('popout-webview', (_, url) => {
@@ -1747,11 +1745,6 @@ ipcMain.handle('create-browser-view', (_, url) => {
   } catch (e) { return { error: e.message } }
 })
 
-ipcMain.handle('show-browser-view', () => {
-  // Panel closed → Wan2GP takes the full area again
-  _panel = null
-  bvBounds()
-})
 ipcMain.handle('hide-browser-view', (_, panel) => {
   // Panel open → shrink Wan2GP to make room (no remove → no black flash)
   _panel = panel === 'manage' ? 'manage' : 'term'
@@ -1856,10 +1849,6 @@ ipcMain.handle('bv-navigate', (_, action) => {
   }
   // Update navigation state after a short delay to let Chromium process the navigation
   setTimeout(() => sendNavState(), 100)
-})
-ipcMain.handle('bv-nav-state', () => {
-  if (!_bv) return { canGoBack: false, canGoForward: false }
-  return { canGoBack: _bv.webContents.canGoBack(), canGoForward: _bv.webContents.canGoForward() }
 })
 
 function sendNavState() {
@@ -2056,41 +2045,9 @@ ipcMain.handle('manage-list', () => {
   } catch { return [] }
 })
 
-ipcMain.handle('manage-active', () => {
-  try {
-    if (!fs.existsSync(getEnvsFile())) return null
-    const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
-    return d.active || null
-  } catch { return null }
-})
-
 ipcMain.handle('manage-set-active', (_, name) => {
   const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
   d.active = name
-  fs.writeFileSync(getEnvsFile(), JSON.stringify(d, null, 4))
-  return true
-})
-
-ipcMain.handle('manage-delete', async (_, name) => {
-  const d = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
-  const entry = d.envs[name]
-  if (entry?.path && entry.type !== 'none') {
-    const envPath = path.isAbsolute(entry.path) ? entry.path : path.join(getRepoDir(), entry.path)
-    // Same containment guard uninstall-env applies: never rm -rf a path that
-    // resolves outside the repo (a corrupted envs.json entry must not be able
-    // to delete arbitrary folders).
-    if (!ensureInsideRepo(envPath)) {
-      return { error: 'Environment path outside repo — deletion blocked' }
-    }
-    if (fs.existsSync(envPath)) {
-      await runCmd(IS_WIN ? 'rmdir' : 'rm', IS_WIN ? ['/s', '/q', envPath] : ['-rf', envPath])
-    }
-  }
-  delete d.envs[name]
-  if (d.active === name) {
-    const keys = Object.keys(d.envs)
-    d.active = keys.length > 0 ? keys[0] : null
-  }
   fs.writeFileSync(getEnvsFile(), JSON.stringify(d, null, 4))
   return true
 })
@@ -2200,16 +2157,6 @@ ipcMain.handle('open-external', (_, url) => {
 ipcMain.handle('open-task-manager', () => {
   if (PLATFORM !== 'win32') return { error: 'Task Manager is Windows-only' }
   try { exec('taskmgr.exe') } catch { }
-})
-
-// Toggle Chromium DevTools. Prefers the embedded Wan2GP BrowserView when present,
-// otherwise the main window's webview. Hidden menu means this is the only devtools entry.
-ipcMain.handle('toggle-devtools', () => {
-  try {
-    if (_bv && mainWin.getBrowserViews().includes(_bv)) _bv.webContents.toggleDevTools()
-    else if (mainWin) mainWin.webContents.toggleDevTools()
-    return { success: true }
-  } catch (e) { return { error: e.message } }
 })
 
 // ── Browser detection + no-GPU launch ──
@@ -2431,7 +2378,6 @@ ipcMain.handle('get-install-paths', () => ({
   repo: getRepoDir(),
   config: getConfigFile()
 }))
-ipcMain.handle('get-data-dir', () => getDataDir())
 ipcMain.handle('set-data-dir', (_, dir) => {
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
   try {
@@ -3291,10 +3237,6 @@ ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
   return autoTune.recommend(data, opts)
 })
 
-ipcMain.handle('auto-tune:full-tune', async () => {
-  return autoTune.fullTune(getRepoDir(), getDataDir())
-})
-
 // ── Hardware profile: maps detected GPU → expected install packages ──
 ipcMain.handle('get-hardware-profile', () => {
   const profiles = {
@@ -3545,12 +3487,7 @@ function pulseHide() {
   if (_pulseWin) { try { _pulseWin.close() } catch {} _pulseWin = null }
 }
 
-ipcMain.handle('pulsebar-show', (_, { status, percent } = {}) => { pulseShow(status || 'Wan2GP', percent); return { ok: true } })
 ipcMain.handle('pulsebar-hide', () => { pulseHide(); return { ok: true } })
-ipcMain.handle('pulsebar-update', (_, { status, percent } = {}) => {
-  if (_pulseWin) { _pulseWin.webContents.send('pulse-update', { status, percent }); return { ok: true } }
-  return { ok: false }
-})
 
 // ── Desktop experience IPC handlers (tray, auto-start, notifications, theme) ──
 ipcMain.handle('set-auto-start', (_, enabled) => {
@@ -3580,10 +3517,6 @@ ipcMain.handle('set-theme-follow-system', (_, enabled) => {
 ipcMain.handle('set-notifications-enabled', (_, enabled) => {
   const cfg = loadConfig(); cfg.notificationsEnabled = enabled; saveConfig(cfg)
   return { success: true }
-})
-
-ipcMain.handle('quit-app', () => {
-  app.isQuitting = true; app.quit()
 })
 
 // ── Auto-updater ──

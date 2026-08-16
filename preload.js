@@ -20,19 +20,15 @@ contextBridge.exposeInMainWorld('w2gp', {
   launch: (mode) => ipcRenderer.invoke('launch', mode),
   launchWebview: () => ipcRenderer.invoke('launch-webview'),
   stopWangp: () => ipcRenderer.invoke('stop-wangp'),
-  isWangpRunning: () => ipcRenderer.invoke('is-wangp-running'),
   popoutWebview: (url) => ipcRenderer.invoke('popout-webview', url),
-  onWebviewReturned: (cb) => { const h = (_e) => cb(); ipcRenderer.on('webview-returned', h); return () => ipcRenderer.removeListener('webview-returned', h) },
 
   // BrowserView (in-app Wan2GP embed — renders reliably on Electron 40; intercepts /manifest.json)
   createBrowserView: (url) => ipcRenderer.invoke('create-browser-view', url),
-  showBrowserView: () => ipcRenderer.invoke('show-browser-view'),
   hideBrowserView: () => ipcRenderer.invoke('hide-browser-view'),
   destroyBrowserView: () => ipcRenderer.invoke('destroy-browser-view'),
   detachBrowserView: () => ipcRenderer.invoke('detach-browser-view'),
   reattachBrowserView: () => ipcRenderer.invoke('reattach-browser-view'),
   bvNavigate: (action) => ipcRenderer.invoke('bv-navigate', action),
-  bvNavState: () => ipcRenderer.invoke('bv-nav-state'),
   onBvNavState: (cb) => {
     const h = (_e, state) => cb(state)
     ipcRenderer.on('bv-nav-state', h)
@@ -58,13 +54,10 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Manage
   update: () => ipcRenderer.invoke('update'),
   manageList: () => ipcRenderer.invoke('manage-list'),
-  manageActive: () => ipcRenderer.invoke('manage-active'),
   manageSetActive: (name) => ipcRenderer.invoke('manage-set-active', name),
-  manageDelete: (name) => ipcRenderer.invoke('manage-delete', name),
   uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
-  toggleDevTools: () => ipcRenderer.invoke('toggle-devtools'),
   detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
   launchBrowser: (url) => ipcRenderer.invoke('launch-browser', url),
   launchBrowserNoGpu: (url) => ipcRenderer.invoke('launch-browser-no-gpu', url),
@@ -84,7 +77,6 @@ contextBridge.exposeInMainWorld('w2gp', {
   getInstallPaths: () => ipcRenderer.invoke('get-install-paths'),
   getDiskSpace: () => ipcRenderer.invoke('get-disk-space'),
   openFolder: (p) => ipcRenderer.invoke('open-folder', p),
-  getDataDir: () => ipcRenderer.invoke('get-data-dir'),
   setDataDir: (dir) => ipcRenderer.invoke('set-data-dir', dir),
   resetDataDir: () => ipcRenderer.invoke('reset-data-dir'),
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
@@ -102,7 +94,6 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Auto-Tune
   autoTuneDetect: () => ipcRenderer.invoke('auto-tune:detect'),
   autoTuneRecommend: (hw, opts) => ipcRenderer.invoke('auto-tune:recommend', hw, opts),
-  autoTuneFullTune: () => ipcRenderer.invoke('auto-tune:full-tune'),
 
   // Hardware
   detectHardware: () => ipcRenderer.invoke('detect-hardware'),
@@ -142,16 +133,13 @@ contextBridge.exposeInMainWorld('w2gp', {
   notifierEnsure: () => ipcRenderer.invoke('notifier-ensure'),
 
   // Pulsebar overlay
-  pulsebarShow: (opts) => ipcRenderer.invoke('pulsebar-show', opts),
   pulsebarHide: () => ipcRenderer.invoke('pulsebar-hide'),
-  pulsebarUpdate: (opts) => ipcRenderer.invoke('pulsebar-update', opts),
 
   // Install hardening
   installPlan: () => ipcRenderer.invoke('install-plan'),
   validateInstall: () => ipcRenderer.invoke('validate-install'),
   setThemeFollowSystem: (enabled) => ipcRenderer.invoke('set-theme-follow-system', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('set-notifications-enabled', enabled),
-  quitApp: () => ipcRenderer.invoke('quit-app'),
   onSystemThemeChange: (cb) => {
     const h = (_e, theme) => cb(theme)
     ipcRenderer.on('system-theme-changed', h)
