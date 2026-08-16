@@ -978,6 +978,14 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
     }
   } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
     send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
+  // Kernel-wheel verification (upstream parity): setup.py install normally
+  // installs GPU kernel wheels from setup_config.json — verify they landed and
+  // fix any silent mismatch (no-op when already current).
+  try {
+    await syncKernelWheels((t) => send('setup-output', t))
+  } catch (e) {
+    send('setup-output', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
   send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
   invalidateGitCache()
   return true
@@ -1632,7 +1640,7 @@ ipcMain.handle('launch-webview', async () => {
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
-  proc.stdout.on('data', d => { const s = d.toString(); if (s) send('launch-log', s) })
+  proc.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s); stampQueueActivity(s) } })
   proc.stderr.on('data', d => { 
     const s = d.toString();
     if (s) {
@@ -1658,6 +1666,9 @@ ipcMain.handle('popout-webview', (_, url) => {
   try {
     detachedWin = new BrowserWindow({
       width: 1280, height: 800, title: 'Wan2GP',
+      // Keep queue/timer updates flowing while the pop-out is minimized or
+      // occluded — same rationale as the embedded no-throttle BrowserView.
+      webPreferences: { backgroundThrottling: false },
     })
     detachedWin.loadURL(url)
     watchRenderer(detachedWin.webContents, 'pop-out', () => {
@@ -1705,7 +1716,12 @@ function bvBounds() {
 ipcMain.handle('create-browser-view', (_, url) => {
   try {
     if (!_bv) {
-      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true } })
+      // backgroundThrottling: false — while the launcher window is hidden/minimized
+      // (tray, alt-tab, covered), Chromium otherwise throttles timers in the embedded
+      // page, freezing the queue panel even though the server keeps processing.
+      // Without this, a big queue can finish server-side while the UI still shows it
+      // unfinished until a manual reload (see gradio_queue_focus_patch upstream).
+      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
       // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
       _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
         if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
@@ -1780,6 +1796,35 @@ ipcMain.handle('reattach-browser-view', () => {
     return { success: true }
   } catch (e) { return { error: e.message } }
 })
+
+// ── Embedded-view re-sync on window restore ──
+// With backgroundThrottling disabled the embedded page keeps receiving queue
+// updates while hidden, but a page suspended long enough (or whose SSE stream
+// hiccuped) can still fall behind the server: the queue panel then shows a
+// finished queue as "still running". On restore after a meaningful absence,
+// reload the embedded view so the queue re-syncs with the server — the server
+// itself is untouched, so a running generation is unaffected (same principle as
+// the crash-watchdog reload). Gated so we never reload a page the user was
+// actively typing into (only fires when a queue event was seen while hidden).
+let _winHiddenAt = 0
+const BV_RESYNC_MIN_HIDDEN_MS = 30 * 1000 // ignore quick alt-tab/minimize blips
+let _bvLastResync = 0
+
+function maybeResyncEmbeddedView() {
+  const now = Date.now()
+  const hiddenAt = _winHiddenAt
+  _winHiddenAt = 0
+  if (!hiddenAt || now - hiddenAt < BV_RESYNC_MIN_HIDDEN_MS) return
+  // Queue activity must have occurred while the window was away — otherwise the
+  // user was just idle (or typing) and a reload would discard their in-page state.
+  if (_lastQueueActivityAt < hiddenAt - 5000) return
+  if (!_bv || !_bvUrl || !mainWin || mainWin.isDestroyed()) return
+  if (!mainWin.getBrowserViews().includes(_bv)) return // only embedded (desktop) mode
+  if (now - _bvLastResync < 5000) return // never double-reload (restore+show can both fire)
+  _bvLastResync = now
+  send('launch-log', '[*] Launcher window restored — reloading embedded Wan2GP view to re-sync the queue.\n')
+  try { _bv.webContents.loadURL(_bvUrl) } catch (e) { logError('bv-resync', e) }
+}
 
 // ── Floating-terminal window (a SEPARATE, movable BrowserWindow) ──
 // For the 'floating' dock the console must be a real window so it can be dragged onto another
@@ -1861,6 +1906,113 @@ function sendNavState() {
 ipcMain.handle('bv-set-zoom', (_, factor) => {
   if (_bv) _bv.webContents.setZoomLevel(Math.log2(factor))
 })
+
+// ── Kernel wheel sync (upstream parity) ──
+// Wan2GP's GPU kernel wheels (nunchaku, light2xv, gguf) are installed only by
+// `setup.py install` (install_logic reads setup_config.json). `setup.py update`
+// reinstalls requirements.txt ONLY — kernel wheels are never refreshed, so an
+// upstream wheel bump (e.g. GGUF 1.0.7 -> 1.0.8) silently never lands in the
+// env even though the launcher's git reset pulled the new setup_config.json.
+// This sync reads the repo's OWN setup_config.json (the same source setup.py
+// installs from), resolves the GPU profile exactly like setup.py, and
+// pip-installs each kernel wheel whose version differs from what's installed.
+// No-op for GTX 10/16, AMD, Apple (their profiles carry no kernel wheels).
+function kernelProfileKey(gpu) {
+  const g = (gpu.name || '').toUpperCase()
+  const vendor = (gpu.vendor || '').toUpperCase()
+  if (vendor === 'APPLE') return 'MPS'
+  if (vendor === 'NVIDIA') {
+    if (/ (10|16)\d{2}/.test(g)) return 'GTX_10' // GTX 10/16 → cu128, no kernel wheels
+    if (g.includes('50')) return 'RTX_50'
+    if (g.includes('40')) return 'RTX_40'
+    if (g.includes('30')) return 'RTX_30'
+    if (g.includes('20') || g.includes('QUADRO')) return 'RTX_20'
+    return 'GTX_10'
+  }
+  if (vendor === 'AMD') {
+    if (/7600|7700|7800|7900/.test(g)) return 'AMD_GFX110X'
+    if (/7000|Z1|PHOENIX/.test(g)) return 'AMD_GFX1151'
+    if (/8000|STRIX|1201/.test(g)) return 'AMD_GFX1201'
+    return 'AMD_GFX110X'
+  }
+  return 'RTX_40' // setup.py default fallback for unknown/Intel
+}
+
+// Parse a wheel URL (`<dist>-<version>-cpNN-...-win_amd64.whl`) into
+// { dist, version } so a configured wheel can be compared with what's installed.
+function wheelDistVersion(url) {
+  try {
+    const base = url.split('/').pop().replace(/\.whl$/i, '')
+    const m = /^(.+?)-(\d[^-]*?)-(?:cp|py)\d/.exec(base)
+    if (!m) return null
+    return { dist: m[1].replace(/_/g, '-'), version: m[2] }
+  } catch { return null }
+}
+
+/** Installed version of a distribution via importlib.metadata, or null. */
+function installedPkgVersion(py, dist) {
+  return new Promise((resolve) => {
+    const code = 'import importlib.metadata as m\nprint(m.version(' + JSON.stringify(dist) + '))'
+    const proc = spawn(py, ['-c', code], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    proc.stdout.on('data', (d) => { out += d.toString() })
+    proc.on('close', () => resolve(out.trim() || null))
+    proc.on('error', () => resolve(null))
+  })
+}
+
+/**
+ * Sync GPU kernel wheels against the repo's setup_config.json.
+ * @param {(text:string)=>void} log line sink (defaults to launch-log)
+ */
+async function syncKernelWheels(log = (t) => send('launch-log', t)) {
+  const repo = getRepoDir()
+  const cfgPath = path.join(repo, 'setup_config.json')
+  if (!fs.existsSync(cfgPath)) { log('[*] setup_config.json not found — kernel wheel sync skipped.\n'); return }
+  let cfg
+  try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) } catch (e) { log(`[!] Cannot parse setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (!py) { log('[!] No active environment — kernel wheel sync skipped.\n'); return }
+  const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
+  const key = kernelProfileKey(gpu)
+  const profile = (cfg.gpu_profiles || {})[key]
+  const names = profile && Array.isArray(profile.kernels) ? profile.kernels : []
+  if (!names.length) { log(`[*] Kernel wheel sync: GPU profile ${key} has no kernel wheels — nothing to do.\n`); return }
+  const osKey = IS_WIN ? 'win' : 'linux'
+  log(`[*] Kernel wheel sync (GPU ${gpu.name || '?'}, profile ${key}): ${names.join(', ')}...\n`)
+  let updated = 0
+  for (const name of names) {
+    const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
+    const cmd = comp && comp.cmd && comp.cmd[osKey]
+    if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
+    const winfo = wheelDistVersion(cmd)
+    if (winfo) {
+      const have = await installedPkgVersion(py, winfo.dist)
+      if (have && have === winfo.version) { log(`[*] Kernel '${name}': ${winfo.dist} ${have} — already current.\n`); continue }
+      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...\n`)
+    } else {
+      log(`[*] Kernel '${name}': installing ${cmd}...\n`)
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        const proc = spawn(py, ['-m', 'pip', 'install', '--no-input', cmd], {
+          cwd: repo, windowsHide: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PIP_DISABLE_PIP_VERSION_CHECK: '1' }
+        })
+        proc.stdout.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+        proc.stderr.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+        proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`pip install ${name} exited code ${code}`)))
+        proc.on('error', reject)
+      })
+      updated++
+      log(`[*] Kernel '${name}' ready.\n`)
+    } catch (e) {
+      log(`[!] Kernel '${name}' install failed: ${e.message}\n`)
+    }
+  }
+  log(updated ? `[*] Kernel wheels synced (${updated} updated).\n` : '[*] Kernel wheels up to date.\n')
+}
 
 ipcMain.handle('update', async () => mutating('update', async () => {
   // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
@@ -2032,6 +2184,16 @@ ipcMain.handle('update', async () => mutating('update', async () => {
     }
   } catch (e) {
     send('launch-log', `[!] AMD numpy pin: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
+  // Kernel-wheel sync (upstream parity): setup.py update never reinstalls GPU
+  // kernel wheels — only requirements.txt — so a wheel bump in setup_config.json
+  // (e.g. GGUF 1.0.7 → 1.0.8) would silently never land in the env, even when
+  // the repo is already at the new commit. Compare what the env has against the
+  // (now current) setup_config.json and install any mismatch.
+  try {
+    await syncKernelWheels()
+  } catch (e) {
+    send('launch-log', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
   invalidateGitCache() // don't return stale pre-update hashes
   return true
@@ -3598,8 +3760,21 @@ function resolveApprise() {
   return 'apprise'
 }
 
+// Queue-activity stamp (independent of notifier/pulsebar config): every queue
+// progress/completion event updates this timestamp. The embedded-view re-sync
+// uses it to reload the Wan2GP page on window restore ONLY when a queue was
+// running while the window was hidden — never clobber a page the user may have
+// been typing a prompt into.
+let _lastQueueActivityAt = 0
+const _activityState = { lastPercent: null }
+function stampQueueActivity(text) {
+  const lines = String(text).split('\n')
+  if (queueNotifier.detectEvents(lines, _activityState).length > 0) _lastQueueActivityAt = Date.now()
+}
+
 // Fire notifications for notable Wan2GP log events (called from the launch-log stream).
 function notifyFromLog(text) {
+  stampQueueActivity(text)
   const cfg = getNotifierConfig()
   if (cfg.enabled && cfg.url) {
     const lines = String(text).split('\n')
@@ -4011,8 +4186,10 @@ function createWindow() {
   mainWin.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); app.quit() }
   })
-  mainWin.on('show', () => updateTrayMenu())
-  mainWin.on('hide', () => updateTrayMenu())
+  mainWin.on('show', () => { updateTrayMenu(); maybeResyncEmbeddedView() })
+  mainWin.on('hide', () => { updateTrayMenu(); _winHiddenAt = Date.now() })
+  mainWin.on('minimize', () => { _winHiddenAt = Date.now() })
+  mainWin.on('restore', () => maybeResyncEmbeddedView())
 
   mainWin.once('ready-to-show', () => {
     mainWin.show()

@@ -57,7 +57,10 @@ The launcher automates those steps and manages the environment for you.
 > installs get **PyTorch 2.10 + CUDA 13** with generation-aware acceleration —
 > SageAttention (2.2 on RTX 30/40, 1.0.6 on RTX 20), FlashAttention 2.8.3,
 > SpargeAttention on 30/40/50, and LightX2V kernels on RTX 50, alongside
-> Nunchaku + GGUF kernels on modern cards.
+> Nunchaku INT4/FP4 + **GGUF llama.cpp CUDA kernels 1.0.8** on modern cards
+> (accurate native BF16, lower VRAM, CUDA-graph-safe Stream-K). The launcher
+> installs the correct kernel wheels on **install and every update** — no stale
+> wheels when upstream bumps them.
 > GTX 10/16 stay on the legacy **CUDA 12.8** stack (no R580 driver required);
 > every other NVIDIA card needs an **R580+ driver** for the cu130 build, which
 > the launcher checks before installing.
@@ -125,6 +128,19 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **System tray** — minimize to tray, auto-start with Windows, notifications on server ready/stop.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
+
+> **New in v2.8.0** — **The queue keeps up with the queue, and kernel wheels
+> stay current.** A big queue finishing while the launcher window was hidden
+> used to look "still running" forever — Chromium throttles timers in the
+> embedded Wan2GP page when the window is in the background, so the queue panel
+> froze even though the server kept processing. The embedded page is no longer
+> throttled while hidden, and the queue panel re-syncs automatically when you
+> restore the window (only when a queue was actually running — it never reloads
+> over a page you're typing into). Upstream kernel-wheel bumps (like the GGUF
+> llama.cpp CUDA kernels **1.0.8** — accurate native BF16, lower VRAM,
+> CUDA-graph-safe Stream-K) are now pulled automatically on **install and
+> update**, so the correct wheels are always installed.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.0.md)
 
 > **New in v2.6.1** — **The GUI stops disappearing.** A Chromium renderer crash
 > (GPU/driver TDR under heavy load — a generation saturating the card) used to
@@ -267,6 +283,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.8.0** — **The queue keeps up with the queue, and kernel wheels stay current** — a big queue finishing while the launcher window was hidden used to look "still running": Chromium throttles timers in the embedded Wan2GP page whenever the window is in the background, so the queue panel froze while the server kept processing. The embedded BrowserView (and pop-out window) no longer throttle while hidden, so queue updates keep flowing, and on window restore after ≥30 s away with queue activity seen, the embedded view re-syncs itself once — the server is never touched, so a running generation is unaffected, and the reload never fires over a page the user was typing into. GPU kernel wheels (GGUF llama.cpp CUDA kernels **1.0.8**, Nunchaku, Lightx2v) are now synced from `setup_config.json` on **install and every update** — upstream wheel bumps land automatically instead of leaving a stale wheel behind. See [CHANGELOG-v2.8.0.md](changelogs/CHANGELOG-v2.8.0.md).
 - **v2.6.1** — **The GUI stops disappearing** — a renderer-crash watchdog on `render-process-gone` auto-reloads the launcher window when the Chromium renderer dies (GPU/driver TDR under heavy load during a generation), restores Desktop/Browser mode exactly where you were, self-heals the embedded Wan2GP view and floating consoles, diagnoses GPU-process deaths, and stops looping after repeated crashes with a pointer to disabling GPU acceleration. Generation is never touched — the server runs in its own process. See [CHANGELOG-v2.6.1.md](changelogs/CHANGELOG-v2.6.1.md).
 - **v2.6.0** — **No more install/update/uninstall freezes, VAE on Auto, deeper hardening** — the entire setup pipeline (Python/uv installs, git clone/fetch/reset, pip pins, xcopy backups, env removal) ran as blocking main-process calls that froze the window for minutes; everything is async now, so the UI stays responsive. Prerequisite installs (Git/Python/Miniconda) work again, orphaned servers from failed launches are killed with their process tree, duplicate console toggles and stale "running" states fixed, and install/reinstall/update/uninstall are serialized so rapid clicks can't interleave. Auto-Tune recommends the VAE config **Auto** for every tier (runtime picks tiling from real VRAM headroom). Hardened: launch URLs strictly validated (shell injection), pip option injection blocked (package names whitelisted), `manage-delete` path containment, `fetchUrl` redirects/16MB cap, release scripts build before pushing the tag, SignPath hook timeouts+PE validation. 51 tests. See [CHANGELOG-v2.6.0.md](changelogs/CHANGELOG-v2.6.0.md).
 - **v2.5.4** — **No more phantom "local changes" backups** — the `[!] Local changes... backup saved` warning used to fire for any untracked file (like `envs.json`) and saved an empty 0-byte patch, even though `git reset --hard` never touches untracked files; updates now warn and back up only for real edits to tracked files. See [CHANGELOG-v2.5.4.md](changelogs/CHANGELOG-v2.5.4.md).
