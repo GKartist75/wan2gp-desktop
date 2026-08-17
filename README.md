@@ -58,7 +58,9 @@ The launcher automates those steps and manages the environment for you.
 > SageAttention (2.2 on RTX 30/40, 1.0.6 on RTX 20), FlashAttention 2.8.3,
 > SpargeAttention on 30/40/50, and LightX2V kernels on RTX 50, alongside
 > Nunchaku INT4/FP4 + **GGUF llama.cpp CUDA kernels 1.0.8** on modern cards
-> (accurate native BF16, lower VRAM, CUDA-graph-safe Stream-K). The launcher
+> (accurate native BF16, lower VRAM, CUDA-graph-safe Stream-K), plus
+> **bitsandbytes 0.49.2** (NF4 kernels) for 4-bit/NF4 checkpoints since
+> v2.8.1. The launcher
 > installs the correct kernel wheels on **install and every update** — no stale
 > wheels when upstream bumps them.
 > GTX 10/16 stay on the legacy **CUDA 12.8** stack (no R580 driver required);
@@ -128,6 +130,24 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **System tray** — minimize to tray, auto-start with Windows, notifications on server ready/stop.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
+
+> **New in v2.8.1** — **AMD installs now match the AMD guide (and NF4 kernels
+> get installed).** An audit against upstream's `INSTALLATION.md` /
+> `AMD-INSTALLATION.md` found doc-covered situations that neither Wan2GP's setup
+> script nor the launcher handled: AMD machines now get the full ROCm session
+> environment at **every launch** (HSA override per GPU family read from the
+> repo's own `setup_config.json`, ROCM_HOME/llvm PATH forwarded from ROCM_ROOT,
+> and the guide's `clang-cl`/AOTriton/MIOpen flags) — no more custom `.bat`
+> needed. RX **9060/9070** detect as gfx1201 and RX 890M/Strix Halo as gfx1151
+> (previously missed → wrong/no HSA override). And **bitsandbytes==0.49.2** (NF4
+> kernels) is now installed for the modern NVIDIA stack on install/update — it
+> was in the docs but in neither `requirements.txt` nor `setup_config.json`, so
+> NF4 checkpoints silently ran slow CPU dequant.
+> ℹ️ **AMD testing note:** the author has no AMD machine — the AMD path was
+> implemented from the upstream docs, not from on-hardware testing. **Feedback
+> from AMD users is welcome** (what card you have + the launch-log HSA override
+> line) so the installer can be adjusted.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.1.md)
 
 > **New in v2.8.0** — **The queue keeps up with the queue, and kernel wheels
 > stay current.** A big queue finishing while the launcher window was hidden
@@ -283,6 +303,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.8.1** — **AMD installs now match the AMD guide (and NF4 kernels get installed)** — an audit against upstream's `INSTALLATION.md`/`AMD-INSTALLATION.md` found doc-covered situations neither Wan2GP's setup script nor the launcher handled: AMD machines now get the full ROCm session environment at every launch (HSA `HSA_OVERRIDE_GFX_VERSION` per GPU family read from the repo's own `setup_config.json` — upstream `setup.py` declares but never applies the field; ROCM_HOME/llvm PATH forwarded from ROCM_ROOT; the guide's `CC=CXX=clang-cl`, `DISTUTILS_USE_SDK=1`, `FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE`, `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`, `MIOPEN_FIND_MODE=FAST` flags), applied in-app, browser mode, external-terminal scripts and desktop shortcuts. AMD GPU-family detection fixed: RX 9060/9070 → AMD_GFX1201, RX 890M/Strix Halo → AMD_GFX1151 (previously fell back to GFX110X with no override). bitsandbytes==0.49.2 (NF4 kernels) now installs on the modern NVIDIA stack on install/update — it was in the docs but in neither `requirements.txt` nor `setup_config.json`, so NF4 checkpoints silently ran slow CPU dequant. ℹ️ The author has no AMD machine — the AMD path was implemented from the docs, so **AMD user feedback is welcome** to refine the installer. See [CHANGELOG-v2.8.1.md](changelogs/CHANGELOG-v2.8.1.md).
 - **v2.8.0** — **The queue keeps up with the queue, and kernel wheels stay current** — a big queue finishing while the launcher window was hidden used to look "still running": Chromium throttles timers in the embedded Wan2GP page whenever the window is in the background, so the queue panel froze while the server kept processing. The embedded BrowserView (and pop-out window) no longer throttle while hidden, so queue updates keep flowing, and on window restore after ≥30 s away with queue activity seen, the embedded view re-syncs itself once — the server is never touched, so a running generation is unaffected, and the reload never fires over a page the user was typing into. GPU kernel wheels (GGUF llama.cpp CUDA kernels **1.0.8**, Nunchaku, Lightx2v) are now synced from `setup_config.json` on **install and every update** — upstream wheel bumps land automatically instead of leaving a stale wheel behind. See [CHANGELOG-v2.8.0.md](changelogs/CHANGELOG-v2.8.0.md).
 - **v2.6.1** — **The GUI stops disappearing** — a renderer-crash watchdog on `render-process-gone` auto-reloads the launcher window when the Chromium renderer dies (GPU/driver TDR under heavy load during a generation), restores Desktop/Browser mode exactly where you were, self-heals the embedded Wan2GP view and floating consoles, diagnoses GPU-process deaths, and stops looping after repeated crashes with a pointer to disabling GPU acceleration. Generation is never touched — the server runs in its own process. See [CHANGELOG-v2.6.1.md](changelogs/CHANGELOG-v2.6.1.md).
 - **v2.6.0** — **No more install/update/uninstall freezes, VAE on Auto, deeper hardening** — the entire setup pipeline (Python/uv installs, git clone/fetch/reset, pip pins, xcopy backups, env removal) ran as blocking main-process calls that froze the window for minutes; everything is async now, so the UI stays responsive. Prerequisite installs (Git/Python/Miniconda) work again, orphaned servers from failed launches are killed with their process tree, duplicate console toggles and stale "running" states fixed, and install/reinstall/update/uninstall are serialized so rapid clicks can't interleave. Auto-Tune recommends the VAE config **Auto** for every tier (runtime picks tiling from real VRAM headroom). Hardened: launch URLs strictly validated (shell injection), pip option injection blocked (package names whitelisted), `manage-delete` path containment, `fetchUrl` redirects/16MB cap, release scripts build before pushing the tag, SignPath hook timeouts+PE validation. 51 tests. See [CHANGELOG-v2.6.0.md](changelogs/CHANGELOG-v2.6.0.md).

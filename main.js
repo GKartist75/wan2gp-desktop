@@ -78,6 +78,46 @@ function checkNvidiaDriver() {
 }
 
 
+// ── AMD session environment (upstream AMD-INSTALLATION.md parity) ──
+// The AMD guide requires a block of env vars at the start of every session
+// (ROCM toolchain, AOTriton, MIOpen fast mode) AND the per-architecture
+// HSA_OVERRIDE_GFX_VERSION that matches the GPU family — which upstream
+// setup.py never applies (it ignores the profile "env" field entirely).
+// The launcher computes that block automatically at launch on AMD machines:
+//   - HSA_OVERRIDE_GFX_VERSION from the repo's own setup_config.json profile
+//     (AMD_GFX110X → 11.0.0, AMD_GFX1151 → 11.5.1, AMD_GFX1201 → 12.0.1)
+//   - ROCM_HOME / llvm PATH from ROCM_ROOT (TheRock sets it in user env)
+//   - the guide's mandated session flags
+// Returns {} on non-AMD machines (NVIDIA/Apple/Intel launches untouched).
+function amdLaunchEnv() {
+  const gpu = getGpuInfo()
+  if ((gpu.vendor || '').toUpperCase() !== 'AMD') return {}
+  const env = {}
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(getRepoDir(), 'setup_config.json'), 'utf8'))
+    const key = kernelProfileKey({ name: gpu.name, vendor: 'AMD' })
+    const prof = (cfg.gpu_profiles || {})[key]
+    const override = prof && prof.env && prof.env.HSA_OVERRIDE_GFX_VERSION
+    if (override) env.HSA_OVERRIDE_GFX_VERSION = String(override)
+  } catch {}
+  // ROCm root passthrough (TheRock installs ROCM_ROOT/ROCM_BIN into user env)
+  if (process.env.ROCM_ROOT) {
+    env.ROCM_HOME = process.env.ROCM_ROOT
+    const llvm = path.join(process.env.ROCM_ROOT, 'lib', 'llvm', 'bin')
+    env.PATH = llvm + (process.env.ROCM_BIN ? ';' + process.env.ROCM_BIN : '') + ';' + (process.env.PATH || '')
+  } else if (process.env.ROCM_HOME && !process.env.ROCM_ROOT) {
+    env.ROCM_HOME = process.env.ROCM_HOME
+  }
+  // Mandated session flags from AMD-INSTALLATION.md
+  env.CC = 'clang-cl'
+  env.CXX = 'clang-cl'
+  env.DISTUTILS_USE_SDK = '1'
+  env.FLASH_ATTENTION_TRITON_AMD_ENABLE = 'TRUE'
+  env.TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL = '1'
+  env.MIOPEN_FIND_MODE = 'FAST'
+  return env
+}
+
 // ── Structured error logging (replaces silent catch blocks) ──
 function logError(context, err) {
   const msg = err ? (err.stack || err.message || String(err)) : String(err)
@@ -1331,6 +1371,14 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
 
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
+  // AMD session env (upstream AMD-INSTALLATION.md parity): HSA override from
+  // the repo's own setup_config.json profile + the guide's mandated ROCm
+  // session flags. Merged into every spawn AND baked into the generated
+  // .bat/.sh so external-terminal and desktop-shortcut launches get them too.
+  const amdEnv = amdLaunchEnv()
+  if (Object.keys(amdEnv).length) {
+    send('launch-log', `[*] AMD machine detected — applying ROCm session env: ${Object.keys(amdEnv).join(', ')}\n`)
+  }
 
   let child = null
   if (mode === 'terminal') {
@@ -1374,6 +1422,17 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         batLines.push('echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')')
         batLines.push(activateLine)
         if (setPathLine) batLines.push(setPathLine)
+        batLines.push('echo.')
+      }
+      // AMD ROCm session env (upstream AMD-INSTALLATION.md parity) — the guide
+      // says to set these at the start of every session; bake them into the
+      // generated .bat so external-terminal launches match the desktop ones.
+      if (Object.keys(amdEnv).length) {
+        batLines.push('echo Applying AMD ROCm session environment...')
+        for (const [k, v] of Object.entries(amdEnv)) {
+          // HSA/ROCM values may contain ; or % — use the safe batch escape
+          batLines.push('set ' + k + '=' + (String(v).replace(/%/g, '%%').replace(/\^/g, '^^')))
+        }
         batLines.push('echo.')
       }
       batLines.push('echo Starting wgp.py in background...')
@@ -1443,6 +1502,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         'export NO_PROXY=localhost,127.0.0.1,::1',
         ...(launchCfg.share ? ['export GRADIO_SHARE=true'] : []),
         ...(launchCfg.hfToken ? ['export HF_TOKEN=' + shq(launchCfg.hfToken), 'export HUGGINGFACE_HUB_TOKEN=' + shq(launchCfg.hfToken)] : []),
+        ...Object.entries(amdEnv).map(([k, v]) => 'export ' + k + '=' + shq(String(v))),
         'cd ' + shq(getRepoDir()),
         'echo "[Wan2GP Desktop Launcher]"',
         'echo "Starting Wan2GP on port ' + preferredPort + '..."',
@@ -1509,6 +1569,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
         TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
         NO_PROXY: 'localhost,127.0.0.1,::1',
+        ...amdEnv,
         ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
       }
@@ -1631,11 +1692,16 @@ ipcMain.handle('launch-webview', async () => {
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
+  const amdEnv = amdLaunchEnv()
+  if (Object.keys(amdEnv).length) {
+    send('launch-log', `[*] AMD machine detected — applying ROCm session env: ${Object.keys(amdEnv).join(', ')}\n`)
+  }
   const proc = spawn(py, ['-u', bootstrapScriptPath(), 'wgp.py', ...extraArgs], {
     cwd: getRepoDir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
       TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
       NO_PROXY: 'localhost,127.0.0.1,::1',
+      ...amdEnv,
       ...(cfg.share ? { GRADIO_SHARE: 'true' } : {}),
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
@@ -1930,9 +1996,14 @@ function kernelProfileKey(gpu) {
     return 'GTX_10'
   }
   if (vendor === 'AMD') {
-    if (/7600|7700|7800|7900/.test(g)) return 'AMD_GFX110X'
-    if (/7000|Z1|PHOENIX/.test(g)) return 'AMD_GFX1151'
-    if (/8000|STRIX|1201/.test(g)) return 'AMD_GFX1201'
+    // RDNA 3 desktop (gfx110X):
+    if (/7600|7700|7800|7900|780M/.test(g)) return 'AMD_GFX110X'
+    // RDNA 3.5 APUs (gfx1150/1151): Strix Halo, Strix Point 890M, Z1/Phoenix
+    // (matches AMD-INSTALLATION.md — RX 890M + Strix Halo are listed as supported)
+    if (/890M|STRIX|HALO|Z1|PHOENIX|7000/.test(g)) return 'AMD_GFX1151'
+    // RDNA 4 (gfx120X): RX 9060/9070 — upstream's old mapping missed these
+    // (they fell back to GFX110X, so no HSA override was applied)
+    if (/9000|9060|9070|8000|1201/.test(g)) return 'AMD_GFX1201'
     return 'AMD_GFX110X'
   }
   return 'RTX_40' // setup.py default fallback for unknown/Intel
@@ -2009,6 +2080,37 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
       log(`[*] Kernel '${name}' ready.\n`)
     } catch (e) {
       log(`[!] Kernel '${name}' install failed: ${e.message}\n`)
+    }
+  }
+  // bitsandbytes NF4 (upstream INSTALLATION.md parity): upstream docs tell users
+  // to install bitsandbytes==0.49.2 for 4-bit/NF4 checkpoints, but it is in
+  // NEITHER requirements.txt NOR setup_config.json — so no code path (setup.py,
+  // update, or the wheel sync above) ever installs it. Treat it like the other
+  // kernel wheels: compare against the installed version, install on mismatch.
+  // Modern NVIDIA stack only (the docs' INT4/FP4 section is py311/cu13; the
+  // legacy GTX 10/16 profile carries no accelerator kernels at all).
+  if ((gpu.vendor || '').toUpperCase() === 'NVIDIA' && key !== 'GTX_10') {
+    const have = await installedPkgVersion(py, 'bitsandbytes')
+    if (have !== '0.49.2') {
+      log(`[*] Kernel 'bitsandbytes': installing 0.49.2${have ? ` (had ${have})` : ''}...\n`)
+      try {
+        await new Promise((resolve, reject) => {
+          const proc = spawn(py, ['-m', 'pip', 'install', '--no-input', 'bitsandbytes==0.49.2'], {
+            cwd: repo, windowsHide: true,
+            env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PIP_DISABLE_PIP_VERSION_CHECK: '1' }
+          })
+          proc.stdout.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+          proc.stderr.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+          proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`pip install bitsandbytes exited code ${code}`)))
+          proc.on('error', reject)
+        })
+        updated++
+        log('[*] Kernel \'bitsandbytes\' ready.\n')
+      } catch (e) {
+        log(`[!] Kernel 'bitsandbytes' install failed: ${e.message}\n`)
+      }
+    } else {
+      log('[*] Kernel \'bitsandbytes\': 0.49.2 — already current.\n')
     }
   }
   log(updated ? `[*] Kernel wheels synced (${updated} updated).\n` : '[*] Kernel wheels up to date.\n')
@@ -2987,10 +3089,14 @@ ipcMain.handle('create-desktop-shortcut', () => {
       const hasMultiImg = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--multiple-images')
       const multiImgArg = hasMultiImg ? '' : ' --multiple-images'
       const escapedExtra = extraArgs ? ' ' + extraArgs.split(/\s+/).filter(Boolean).map(shq).join(' ') : ''
+      // AMD ROCm session env (upstream AMD-INSTALLATION.md parity) — bake the
+      // same vars into standalone launch shortcuts as the in-app launches use.
+      const amdEnv = amdLaunchEnv()
       const shContent = [
         '#!/usr/bin/env bash',
         'export PYTHONIOENCODING=utf-8',
         'export PYTHONUTF8=1',
+        ...Object.entries(amdEnv).map(([k, v]) => 'export ' + k + '=' + shq(String(v))),
         'cd ' + shq(repo),
         'echo "[Wan2GP Desktop Launcher]"',
         'echo "Starting Wan2GP on port ' + port + '..."',
@@ -3050,6 +3156,12 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'echo [Wan2GP Desktop Launcher]\n'
     batContent += 'echo Starting Wan2GP on port ' + port + '...\n'
     batContent += 'echo.\n'
+    // AMD ROCm session env (upstream parity) — same vars as in-app launches
+    const amdEnv = amdLaunchEnv()
+    for (const [k, v] of Object.entries(amdEnv)) {
+      batContent += 'set ' + k + '=' + String(v).replace(/%/g, '%%').replace(/\^/g, '^^') + '\n'
+    }
+    if (Object.keys(amdEnv).length) batContent += 'echo AMD ROCm session environment applied.\n'
     if (activate) {
       batContent += 'echo Activating environment: ' + escapeBat(env.name) + ' (' + escapeBat(env.type) + ')\n'
       batContent += activate + '\n'
