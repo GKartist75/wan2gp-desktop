@@ -282,6 +282,20 @@ try {
   }
 } catch (e) { logError('gpu-config', e) }
 
+// ── Manual GPU-off override (blank-screen recovery path) ──
+// The Settings → General toggle writes electronGpu:false into desktop-config.json,
+// but a user stuck on a permanently blank launcher can't reach Settings to set it.
+// So also honor a fixed file in the user's HOME that works no matter where the data
+// dir is redirected and before the window ever tries to paint. To recover a blank
+// launcher without opening it: create an empty file at
+//   Windows: %USERPROFILE%\.wan2gp-desktop-gpu-off
+//   macOS/Linux: ~/.wan2gp-desktop-gpu-off
+// and restart. The watchdog diagnostic below points users at this exact file.
+try {
+  const _gpuOffFlag = path.join(app.getPath('home'), '.wan2gp-desktop-gpu-off')
+  if (fs.existsSync(_gpuOffFlag)) app.disableHardwareAcceleration()
+} catch { /* home path unavailable — ignore, config flag path above still applies */ }
+
 const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-dir')
 
 // Original (unredirected) Electron userData, captured at module scope BEFORE
@@ -4263,6 +4277,54 @@ function createWindow() {
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+
+  // ── Blank-screen watchdog (renderer-never-paints recovery) ──
+  // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
+  // failures) the renderer never reaches first paint: with show:false +
+  // ready-to-show, the window then stays hidden or shows only the dark
+  // background — a silent blank screen with no error anywhere. Watch for
+  // that and (a) force-show the window after a grace period with a visible
+  // diagnostic, (b) surface load/preload/renderer errors into the splash
+  // error box instead of leaving them invisible, and (c) if the renderer or
+  // GPU process dies before first paint, auto-disable hardware acceleration
+  // and relaunch once (the standard cure for blank Electron windows — same
+  // setting the crash-recovery hint tells the user to flip manually).
+  let _painted = false
+  const _blankWatchdog = setTimeout(() => {
+    if (!mainWin || mainWin.isDestroyed() || _painted) return
+    console.error('[startup] renderer did not paint within 12s — forcing window show. Possible GPU/compositing failure.')
+    try { if (!mainWin.isVisible()) mainWin.show() } catch {}
+    try {
+      mainWin.webContents.send('splash-diagnostic',
+        'The launcher window did not finish rendering. This is usually a display/GPU compatibility issue.\n\n' +
+        'Fix without opening the launcher: create an empty file named\n' +
+        '  Windows:  %USERPROFILE%\\.wan2gp-desktop-gpu-off\n' +
+        '  macOS/Linux:  ~/.wan2gp-desktop-gpu-off\n' +
+        'then restart the launcher. (Equivalently: Settings → General → turn OFF “Enable GPU acceleration”.)')
+    } catch {}
+  }, 12000)
+  mainWin.webContents.once('did-finish-load', () => { _painted = true; clearTimeout(_blankWatchdog) })
+  mainWin.once('ready-to-show', () => { _painted = true; clearTimeout(_blankWatchdog) })
+
+  // Surface load failures (missing/corrupt files in the package) in the splash.
+  mainWin.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    if (code === -3) return // ERR_ABORTED — normal on in-page navigations
+    console.error(`[startup] did-fail-load ${code} ${desc} ${url}`)
+    try { mainWin.webContents.send('splash-diagnostic', `The launcher page failed to load (${desc}). Reinstall the launcher to repair missing files.`) } catch {}
+  })
+  // Preload errors (e.g. a broken preload.js) — without this, window.w2gp is
+  // undefined in the renderer and the UI dies with no visible cause.
+  mainWin.webContents.on('preload-error', (_e, _p, err) => {
+    console.error('[startup] preload error:', err)
+    try { mainWin.webContents.send('splash-diagnostic', `The launcher bridge failed to load (${err && err.message ? err.message : err}). Reinstall the launcher to repair it.`) } catch {}
+  })
+  // Renderer console errors → splash (catch the errors the page would otherwise swallow).
+  mainWin.webContents.on('console-message', (_e, level, message) => {
+    if (level === 'error' || level === 3) {
+      console.error('[renderer]', message)
+      try { mainWin.webContents.send('splash-diagnostic', 'Renderer error: ' + String(message).slice(0, 400)) } catch {}
+    }
+  })
 
   // Crash watchdog: a dead renderer blanked the window with no recovery.
   watchRenderer(mainWin.webContents, 'launcher', handleMainRendererGone)
