@@ -1131,6 +1131,10 @@ $('desktopRepoLink').addEventListener('click', (e) => {
   e.preventDefault()
   window.w2gp.openExternal('https://github.com/GKartist75/wan2gp-desktop')
 })
+$('discussionsLink').addEventListener('click', (e) => {
+  e.preventDefault()
+  window.w2gp.openExternal('https://github.com/GKartist75/wan2gp-desktop/discussions')
+})
 $('ytLink').addEventListener('click', (e) => {
   e.preventDefault()
   window.w2gp.openExternal('https://www.youtube.com/@GK-Artist')
