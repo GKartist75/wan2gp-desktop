@@ -32,6 +32,7 @@ Alternatively, grab the latest `.exe` from the
 
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)
 ![Launcher screenshot](screenshots/launcher-screenshot-2.png)
+![Launcher screenshot](screenshots/launcher-screenshot-3.png)
 
 ## Why a launcher
 
