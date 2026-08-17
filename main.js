@@ -4290,9 +4290,10 @@ function createWindow() {
   // and relaunch once (the standard cure for blank Electron windows — same
   // setting the crash-recovery hint tells the user to flip manually).
   let _painted = false
+  let _winShown = false
   const _blankWatchdog = setTimeout(() => {
     if (!mainWin || mainWin.isDestroyed() || _painted) return
-    console.error('[startup] renderer did not paint within 12s — forcing window show. Possible GPU/compositing failure.')
+    console.error('[startup] renderer did not paint within 4s — forcing window show. Possible GPU/compositing failure.')
     try { if (!mainWin.isVisible()) mainWin.show() } catch {}
     try {
       mainWin.webContents.send('splash-diagnostic',
@@ -4302,8 +4303,14 @@ function createWindow() {
         '  macOS/Linux:  ~/.wan2gp-desktop-gpu-off\n' +
         'then restart the launcher. (Equivalently: Settings → General → turn OFF “Enable GPU acceleration”.)')
     } catch {}
-  }, 12000)
-  mainWin.webContents.once('did-finish-load', () => { _painted = true; clearTimeout(_blankWatchdog) })
+  }, 4000)
+  mainWin.webContents.once('did-finish-load', () => {
+    _painted = true; clearTimeout(_blankWatchdog)
+    // Show the moment the HTML is parsed instead of waiting for the compositor's
+    // ready-to-show: on some drivers/RDP/VM the first present can stall ~5s and
+    // read as a blank screen. Showing now forces an early splash paint.
+    if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
+  })
   mainWin.once('ready-to-show', () => { _painted = true; clearTimeout(_blankWatchdog) })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.
@@ -4366,7 +4373,8 @@ function createWindow() {
   mainWin.on('restore', () => maybeResyncEmbeddedView())
 
   mainWin.once('ready-to-show', () => {
-    mainWin.show()
+    // Backup show path (did-finish-load usually already showed it).
+    if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
   })
   mainWin.on('closed', () => { mainWin = null })
 }
