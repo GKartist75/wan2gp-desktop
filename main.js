@@ -4345,7 +4345,8 @@ function createWindow() {
   mainWin.webContents.once('did-finish-load', () => { _bootMark('did-finish-load'); if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('boot-mark', 'did-finish-load') })
   mainWin.webContents.once('did-start-loading', () => _bootMark('did-start-loading'))
   mainWin.webContents.once('did-stop-loading', () => _bootMark('did-stop-loading'))
-  mainWin.webContents.on('paint', () => { if (!_bootLog._painted) { _bootLog._painted = true; _bootMark('first-paint') } })
+  let _didPaint = false
+  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; _bootMark('first-paint') } })
 
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
   // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
@@ -4359,7 +4360,11 @@ function createWindow() {
   let _painted = false
   let _winShown = false
   const _blankWatchdog = setTimeout(() => {
-    if (!mainWin || mainWin.isDestroyed() || _painted) return
+    // ponytail: key on REAL paint, not ready-to-show. ready-to-show can fire yet
+    // Chromium never commits a frame (issue #45 presentation class: first-paint
+    // never arrives, window shows only backgroundColor). Old check (_painted, set
+    // by ready-to-show) skipped the watchdog here and left a silent blank window.
+    if (!mainWin || mainWin.isDestroyed() || _didPaint) return
     _bootMark('watchdog: forcing show after 8s (no ready-to-show)')
     console.error('[startup] renderer did not paint within 8s — forcing window show. Possible GPU/compositing failure.')
     try { if (!mainWin.isVisible()) mainWin.show() } catch {}
@@ -4376,6 +4381,10 @@ function createWindow() {
     _painted = true; clearTimeout(_blankWatchdog)
     _bootMark('ready-to-show -> show()')
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
+    // ponytail: issue #45 presentation class — on some Win11/GPU stacks
+    // ready-to-show fires but Chromium never commits a frame (first-paint absent,
+    // window shows only backgroundColor). Force a compositor frame right after show.
+    try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
   })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.

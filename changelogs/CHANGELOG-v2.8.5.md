@@ -54,12 +54,42 @@ paths is safe.
 
 ## What this does NOT change
 
-- It does not touch the **GPU-compositor** black-screen class (issue #39) — the
-  `%USERPROFILE%\.wan2gp-desktop-gpu-off` override still fixes that.
-- It does not touch the **show-path** regression (issue #45) fixed in v2.8.3 —
-  the window still shows only on `ready-to-show`.
+- It does not touch the **show-path** regression fixed in v2.8.3 (window showed
+  ~0.5s then vanished) — the window still shows only on `ready-to-show`.
 - `autoUpdater` is still policy-driven (auto-update toggle respected); this
   only hardens the *teardown* around the swap, not the update policy.
+
+## Also fixed in 2.8.5: the presentation-class blank screen (issue #45, part 2)
+
+A separate, still-open failure in issue #45 (reporter `dummydumb64`, v2.8.4,
+Win11 + RTX 3060): the window shows and **stays**, title bar visible, content
+**never paints** — `boot.log` shows `ready-to-show -> show()` and
+`did-finish-load`, but **no `first-paint` mark**. CDP confirms the renderer is
+alive (DOM correct, rAF 60fps, zero JS errors) yet `captureScreenshot` returns
+only the body background. This is **not** the GPU-compositor class (the
+`%USERPROFILE%\.wan2gp-desktop-gpu-off` file does *not* help; it fails
+identically in swiftshader software rendering) — it is a **window-surface
+presentation failure**: `ready-to-show` fires but Chromium never commits a
+frame on that display stack.
+
+Root cause in the old code: the blank-screen watchdog keyed on `ready-to-show`
+(`_painted`), so once `ready-to-show` fired it considered the window "painted"
+and the watchdog **never ran** for this class — leaving a silent blank window
+with no diagnostic. Two changes:
+
+1. The watchdog now keys on **real paint** (`paint` event → `_didPaint`, i.e. an
+   actual `first-paint` mark), not on `ready-to-show`. If `first-paint` never
+   arrives within 8s, the watchdog force-shows + shows the GPU-off diagnostic,
+   exactly as intended.
+2. On `ready-to-show`, immediately after `show()`, the launcher calls
+   `webContents.invalidate()` to **force a compositor frame** — the proven
+   nudge that makes the first frame actually commit on the affected stacks
+   (the v2.8.2 show-on-`did-finish-load` path painted fine; the problem is only
+   the frame never being committed after a `show:false` + `ready-to-show`
+   sequence, which `invalidate()` resolves).
+
+The GPU-compositor class (issue #39) is unchanged and still fixed by the
+`%USERPROFILE%\.wan2gp-desktop-gpu-off` override.
 
 ## User-side recovery (if a prior update already blanked you)
 

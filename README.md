@@ -305,15 +305,19 @@ version worked):
    the swap. **Uninstall**, then reinstall the latest `.exe` from
    [Releases](https://github.com/GKartist75/wan2gp-desktop/releases) with the
    launcher **fully closed**.
-2. Still blank? It's a different class — create an empty file
-   `%USERPROFILE%\.wan2gp-desktop-gpu-off` and restart (disables hardware
-   acceleration; see v2.8.2 notes above).
-3. To tell which: open `%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log`. A
-   `did-fail-load` mark with no `first-paint` = corrupt bundle (update class).
-   A long stall, no paint = GPU class.
+2. Still blank? Open `%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log` to tell
+   the two remaining classes apart:
+   - **`ready-to-show -> show()` present, no `first-paint` mark** = presentation
+     class (issue #45, part 2). v2.8.5 force-commits a frame via
+     `webContents.invalidate()`; if it still fails, create an empty file
+     `%USERPROFILE%\.wan2gp-desktop-gpu-off` and restart (disables hardware
+     acceleration — the GPU-compositor class, issue #39).
+   - **`did-fail-load` mark, no `first-paint`** = corrupt bundle (update class),
+     reinstall as in step 1.
 
-v2.8.5+ prevents the update class at the source by releasing all handles
-before the installer swap runs.
+v2.8.5+ prevents the update class at the source (releases all handles before
+the installer swap) and force-commits the first frame so the presentation
+class paints.
 
 ## Build from source
 
