@@ -132,6 +132,9 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
+> **New in v2.8.6** — **Presentation-class blank screen, hardened.** v2.8.5 still blanked on some GPUs (e.g. RTX 3060 / Win11) — `ready-to-show` fired and the frame painted once, then reverted to black. A new **present hammer** keeps forcing the compositor to re-present the first frame (`focus()` + `invalidate()` + a 1px resize nudge every 500ms, self-stopping on the first real paint), so the window stays rendered instead of going dark. The 8s watchdog now force-presents + shows the GPU-off recovery if even that fails.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.6.md)
+
 > **New in v2.8.5** — **Blank-screen root causes fixed (update-corruption + presentation class).** Updating *within the app* used to leave a partial/corrupt `app.asar` (the NSIS swap ran while the app still held handles on its own install dir) → next launch blanked with title bar only. A single `forceTeardown()` now releases every handle **before** the swap. And the "window shows but content never paints" case (issue #45 pt2): the window shows **only on `ready-to-show`** (restored to the v2.6.0 path), `webContents.invalidate()` force-commits the first frame, and the blank-screen watchdog now keys on *real paint* (and is no longer cancelled by `ready-to-show`) so it force-shows + surfaces the GPU-off recovery if the frame still doesn't paint within 8s.
 > [Full changelog →](changelogs/CHANGELOG-v2.8.5.md)
 

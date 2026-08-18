@@ -4346,7 +4346,30 @@ function createWindow() {
   mainWin.webContents.once('did-start-loading', () => _bootMark('did-start-loading'))
   mainWin.webContents.once('did-stop-loading', () => _bootMark('did-stop-loading'))
   let _didPaint = false
-  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
+  let _presentHammer = null
+  const _stopHammer = () => { if (_presentHammer) { clearInterval(_presentHammer); _presentHammer = null } }
+  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; _stopHammer(); clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
+
+  // Force the compositor to (re)present the first frame. On some driver stacks
+  // (reported: RTX 3060 / Win11 26200, also reproduced on swiftshader and
+  // d3d11-direct-composition-off) a window created with show:false paints once
+  // then reverts to backgroundColor — the layer is created but never
+  // re-presented. focus() + invalidate() + a real 1px geometry nudge (which
+  // triggers a genuine resize → compositor re-present) is the reliable fix for
+  // this class (issue #45, reported by Marco). We keep nudging until a real
+  // paint event arrives or the hammer times out.
+  const _forcePresent = () => {
+    if (!mainWin || mainWin.isDestroyed()) return
+    try { mainWin.focus() } catch {}
+    try { mainWin.webContents.invalidate() } catch {}
+    try {
+      if (!mainWin.isMaximized()) {
+        const b = mainWin.getBounds()
+        mainWin.setSize(b.width + 1, b.height, false)
+        setTimeout(() => { try { if (mainWin && !mainWin.isDestroyed() && !mainWin.isMaximized()) mainWin.setSize(b.width, b.height, false) } catch {} }, 40)
+      }
+    } catch {}
+  }
 
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
   // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
@@ -4360,14 +4383,14 @@ function createWindow() {
   let _painted = false
   let _winShown = false
   const _blankWatchdog = setTimeout(() => {
-    // ponytail: key on REAL paint, not ready-to-show. ready-to-show can fire yet
-    // Chromium never commits a frame (issue #45 presentation class: first-paint
-    // never arrives, window shows only backgroundColor). Old check (_painted, set
-    // by ready-to-show) skipped the watchdog here and left a silent blank window.
+    // Key on REAL paint, not ready-to-show. ready-to-show can fire yet
+    // Chromium never commits a frame (issue #45 presentation class). Old check
+    // (_painted, set by ready-to-show) skipped the watchdog and left a silent
+    // blank window. If we reach here, the first frame truly never committed.
     if (!mainWin || mainWin.isDestroyed() || _didPaint) return
-    _bootMark('watchdog: forcing show after 8s (no ready-to-show)')
-    console.error('[startup] renderer did not paint within 8s — forcing window show. Possible GPU/compositing failure.')
-    try { if (!mainWin.isVisible()) mainWin.show() } catch {}
+    _bootMark('watchdog: forcing present after 8s (first frame never committed)')
+    console.error('[startup] renderer did not paint within 8s — forcing window present. Possible GPU/compositing failure.')
+    _forcePresent()
     try {
       mainWin.webContents.send('splash-diagnostic',
         'The launcher window did not finish rendering. This is usually a display/GPU compatibility issue.\n\n' +
@@ -4381,13 +4404,17 @@ function createWindow() {
     _painted = true
     _bootMark('ready-to-show -> show()')
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
-    // ponytail: issue #45 presentation class — on some Win11/GPU stacks
-    // ready-to-show fires but Chromium never commits a frame (first-paint absent,
-    // window shows only backgroundColor). Force a compositor frame right after show.
+    // issue #45 presentation class — on some Win11/GPU stacks ready-to-show
+    // fires but Chromium never commits a frame. Force a compositor frame right
+    // after show, then keep nudging the compositor until a real paint event or
+    // 15s (covers stacks where a single invalidate() paints once then reverts).
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
-    // NOTE: do NOT clearTimeout(_blankWatchdog) here — if invalidate() fails to
-    // commit a frame, the watchdog must still fire at 8s and surface the GPU-off
-    // diagnostic. The watchdog self-clears on real first-paint (see paint handler).
+    _forcePresent()
+    _presentHammer = setInterval(_forcePresent, 500)
+    setTimeout(_stopHammer, 15000)
+    // NOTE: do NOT clearTimeout(_blankWatchdog) here — if the frame still doesn't
+    // commit, the watchdog must fire at 8s and surface the GPU-off diagnostic.
+    // The watchdog self-clears on real first-paint (see paint handler).
   })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.
