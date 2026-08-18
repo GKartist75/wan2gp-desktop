@@ -295,6 +295,26 @@ For manual installation or troubleshooting of any prerequisite, see
 
 Optional: **Desktop Shortcut** creates `Launch Wan2GP.bat` to run without the launcher.
 
+## Troubleshooting — blank / black window after an in-app update
+
+If the launcher opens to a **title bar only, no content** right after using
+**Check for updates → Download → Install & Restart** (and a clean older
+version worked):
+
+1. The update likely left a partial `app.asar` because a file was locked during
+   the swap. **Uninstall**, then reinstall the latest `.exe` from
+   [Releases](https://github.com/GKartist75/wan2gp-desktop/releases) with the
+   launcher **fully closed**.
+2. Still blank? It's a different class — create an empty file
+   `%USERPROFILE%\.wan2gp-desktop-gpu-off` and restart (disables hardware
+   acceleration; see v2.8.2 notes above).
+3. To tell which: open `%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log`. A
+   `did-fail-load` mark with no `first-paint` = corrupt bundle (update class).
+   A long stall, no paint = GPU class.
+
+v2.8.5+ prevents the update class at the source by releasing all handles
+before the installer swap runs.
+
 ## Build from source
 
 ```bash
@@ -307,6 +327,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v2.8.5** — **In-app update no longer blanks the launcher.** Updating *within the app* (e.g. 2.6 → 2.8.4) could leave a partial/corrupt `app.asar` because `quitAndInstall()` ran the NSIS swap while the app still held handles (Wan2GP server, embedded BrowserView, pulse window) on its own install dir — the next launch then opened to a blank window (title bar only, no content). A new `forceTeardown()` now releases **every** handle **before** the swap, and a failed in-flight update clean-quits so a manual reinstall is never blocked by stale locks. Covers the update-installation class of blank screen; the GPU-compositor (`%USERPROFILE%\.wan2gp-desktop-gpu-off`) and show-path (v2.8.3) fixes are unchanged. See [CHANGELOG-v2.8.5.md](changelogs/CHANGELOG-v2.8.5.md).
 - **v2.8.4** — **`boot.log` now lives in the launcher's own folder.** It was being written via `getDataDir()`, which the data-dir override (`%USERPROFILE%\.wan2gp-desktop-data-dir`) can redirect to the user's home root — dumping `boot.log` (and `desktop-config.json`) into `C:\Users\<user>\`. The boot tracer is a launcher diagnostic, so it now writes to the launcher's own data dir (`%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log`) computed explicitly from `LOCALAPPDATA` + app name, independent of where Wan2GP core is installed or what the override says. The "Report an issue" bundle reads from the same place. The v2.8.3 black-screen fix is unchanged. See [CHANGELOG-v2.8.4.md](changelogs/CHANGELOG-v2.8.4.md).
 - **v2.8.3** — **Black-screen regression fixed (window showed then vanished).** v2.8.2's change to show the window on `did-finish-load` (instead of only on `ready-to-show`) caused a show/hide race that black-screened fresh installs on some GPUs/drivers — issue #45 (RTX 5050/4090, 9070XT, Win10/11). Reverted to the v2.6 show-on-`ready-to-show` path. Added a per-launch `<dataDir>/boot.log` tracing the exact show/hide/paint timeline (so black-screen reports are self-diagnosing without the blank UI), and the About → "Report an issue" bundle now includes `windowState` + the boot-log tail. The v2.8.2 GPU-off override remains the fix for the *compositor/present* class (issue #39); this release fixes the separate *show-path* regression. See [CHANGELOG-v2.8.3.md](changelogs/CHANGELOG-v2.8.3.md).
 - **v2.8.2** — **The launcher no longer black-screens** — a blank/black window on first launch (title bar only, content never appears) was a GPU-compositor first-present failure, not a setup problem. The window now shows the moment the HTML is parsed (no waiting on the compositor), a 4s watchdog force-shows it with a diagnostic if paint still fails, and a home-directory override file (`%USERPROFILE%\.wan2gp-desktop-gpu-off` on Windows, `~/.wan2gp-desktop-gpu-off` on macOS/Linux) disables hardware acceleration at module load so a black-screened user can recover without even opening Settings. Git reachability was ruled out as a cause — tested three ways with a deliberately broken git, the launcher painted every time. See [CHANGELOG-v2.8.2.md](changelogs/CHANGELOG-v2.8.2.md).
