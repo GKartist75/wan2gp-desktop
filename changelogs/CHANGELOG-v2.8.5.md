@@ -80,7 +80,11 @@ with no diagnostic. Two changes:
 1. The watchdog now keys on **real paint** (`paint` event → `_didPaint`, i.e. an
    actual `first-paint` mark), not on `ready-to-show`. If `first-paint` never
    arrives within 8s, the watchdog force-shows + shows the GPU-off diagnostic,
-   exactly as intended.
+   exactly as intended. **Crucially, the watchdog is no longer cancelled by
+   `ready-to-show`** — the original 2.8.5 cut cleared the timer in the
+   `ready-to-show` handler, which defeated it for this very class (the timer died
+   before the 8s grace period, so it could never fire). The timer now only clears
+   when a real frame paints (in the `paint` handler).
 2. On `ready-to-show`, immediately after `show()`, the launcher calls
    `webContents.invalidate()` to **force a compositor frame** — the proven
    nudge that makes the first frame actually commit on the affected stacks

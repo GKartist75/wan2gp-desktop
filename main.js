@@ -4346,7 +4346,7 @@ function createWindow() {
   mainWin.webContents.once('did-start-loading', () => _bootMark('did-start-loading'))
   mainWin.webContents.once('did-stop-loading', () => _bootMark('did-stop-loading'))
   let _didPaint = false
-  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; _bootMark('first-paint') } })
+  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
 
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
   // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
@@ -4378,13 +4378,16 @@ function createWindow() {
     } catch {}
   }, 8000)
   mainWin.once('ready-to-show', () => {
-    _painted = true; clearTimeout(_blankWatchdog)
+    _painted = true
     _bootMark('ready-to-show -> show()')
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
     // ponytail: issue #45 presentation class — on some Win11/GPU stacks
     // ready-to-show fires but Chromium never commits a frame (first-paint absent,
     // window shows only backgroundColor). Force a compositor frame right after show.
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
+    // NOTE: do NOT clearTimeout(_blankWatchdog) here — if invalidate() fails to
+    // commit a frame, the watchdog must still fire at 8s and surface the GPU-off
+    // diagnostic. The watchdog self-clears on real first-paint (see paint handler).
   })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.
