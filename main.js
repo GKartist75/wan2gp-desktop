@@ -4359,25 +4359,16 @@ function createWindow() {
   const _stopHammer = () => { if (_presentHammer) { clearInterval(_presentHammer); _presentHammer = null } }
   mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; _stopHammer(); clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
 
-  // Force the compositor to (re)present the first frame. On some driver stacks
-  // (reported: RTX 3060 / Win11 26200, also reproduced on swiftshader and
-  // d3d11-direct-composition-off) a window created with show:false paints once
-  // then reverts to backgroundColor — the layer is created but never
-  // re-presented. focus() + invalidate() + a real 1px geometry nudge (which
-  // triggers a genuine resize → compositor re-present) is the reliable fix for
-  // this class (issue #45, reported by Marco). We keep nudging until a real
-  // paint event arrives or the hammer times out.
+  // Force the compositor to (re)present the first frame. Historically a window
+  // created show:false could paint once then revert to backgroundColor on some
+  // driver stacks; focus() + invalidate() is the reliable nudge. The old 1px
+  // setSize resize-nudge was removed: it triggered a reflow jitter ("shake") on
+  // the now-correct position:absolute;inset:0 screens and is unnecessary now that
+  // the layout is structurally sound (issue #39/#45 root cause = nested .screen).
   const _forcePresent = () => {
     if (!mainWin || mainWin.isDestroyed()) return
     try { mainWin.focus() } catch {}
     try { mainWin.webContents.invalidate() } catch {}
-    try {
-      if (!mainWin.isMaximized()) {
-        const b = mainWin.getBounds()
-        mainWin.setSize(b.width + 1, b.height, false)
-        setTimeout(() => { try { if (mainWin && !mainWin.isDestroyed() && !mainWin.isMaximized()) mainWin.setSize(b.width, b.height, false) } catch {} }, 40)
-      }
-    } catch {}
   }
 
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
@@ -4390,7 +4381,6 @@ function createWindow() {
   // showing on did-finish-load caused issue #45 (window appeared then vanished
   // on some GPUs). The watchdog is a backstop, not the primary show path.
   let _painted = false
-  let _winShown = false
   const _blankWatchdog = setTimeout(() => {
     // Key on REAL paint, not ready-to-show. ready-to-show can fire yet
     // Chromium never commits a frame (issue #45 presentation class). Old check
@@ -4398,6 +4388,7 @@ function createWindow() {
     // blank window. If we reach here, the first frame truly never committed.
     if (!mainWin || mainWin.isDestroyed() || _didPaint) return
     _bootMark('watchdog: forcing present after 8s (first frame never committed)')
+    _measureContent()
     console.error('[startup] renderer did not paint within 8s — forcing window present. Possible GPU/compositing failure.')
     _forcePresent()
     try {
@@ -4409,14 +4400,54 @@ function createWindow() {
         'then restart the launcher. (Equivalently: Settings → General → turn OFF “Enable GPU acceleration”.)')
     } catch {}
   }, 8000)
+  // ── Content-layout diagnostic (ground-truth without vision) ──
+  // Measures the renderer's actual painted content size and writes it to boot.log.
+  // A 0-height #app / active-screen proves the layout-collapse class (the 100vh/
+  // 100% chain resolving to 0 on certain GPU stacks); a non-zero size but blank
+  // window proves a present-failure class instead. This is how we stop guessing.
+  const _measureContent = () => {
+    if (!mainWin || mainWin.isDestroyed()) return
+    try {
+      mainWin.webContents.executeJavaScript(`(function(){
+        var app = document.getElementById('app');
+        var ar = app ? app.getBoundingClientRect() : {width:0,height:0};
+        var active = document.querySelector('.screen.active');
+        var sr = active ? active.getBoundingClientRect() : {width:0,height:0};
+        var cs = active ? getComputedStyle(active) : null;
+        var app = document.getElementById('app');
+        var appCs = app ? getComputedStyle(app) : null;
+        var par = active ? active.parentElement : null;
+        var op = active ? active.offsetParent : null;
+        var body = document.body ? document.body.getBoundingClientRect() : {width:0,height:0};
+        return JSON.stringify({
+          appW: Math.round(ar.width), appH: Math.round(ar.height),
+          appPos: appCs ? appCs.position : null, appOH: app ? app.offsetHeight : null,
+          activeId: active ? active.id : null,
+          scrW: Math.round(sr.width), scrH: Math.round(sr.height),
+          csPos: cs ? cs.position : null, csDisp: cs ? cs.display : null,
+          csW: cs ? cs.width : null, csH: cs ? cs.height : null,
+          parentId: par ? (par.id || par.tagName) : null,
+          offsetParentId: op ? (op.id || op.tagName) : null,
+          bodyW: Math.round(body.width), bodyH: Math.round(body.height),
+          innerH: window.innerHeight, innerW: window.innerWidth
+        });
+      })()`).then(s => _bootMark('content-size: ' + s)).catch(() => {})
+    } catch {}
+  }
+  // Capture renderer console (the F12 view) into boot.log so CSS/JS errors are
+  // visible without DevTools — critical for diagnosing the blank-screen class.
+  mainWin.webContents.on('console-message', (_e, level, message, line, source) => {
+    try {
+      const tag = level === 1 ? 'warn' : level >= 2 ? 'ERROR' : 'log'
+      _bootMark(`console.${tag}: ${message}${source ? ' @ ' + source + ':' + line : ''}`)
+    } catch {}
+  })
+  // measure once layout has settled, and again if the watchdog fires
+  setTimeout(_measureContent, 2500)
   mainWin.once('ready-to-show', () => {
     _painted = true
     _bootMark('ready-to-show -> show()')
-    if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
-    // issue #45 presentation class — on some Win11/GPU stacks ready-to-show
-    // fires but Chromium never commits a frame. Force a compositor frame right
-    // after show, then keep nudging the compositor until a real paint event or
-    // 15s (covers stacks where a single invalidate() paints once then reverts).
+    if (mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} }
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
     _forcePresent()
     _presentHammer = setInterval(_forcePresent, 500)
