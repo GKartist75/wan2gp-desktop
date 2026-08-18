@@ -306,6 +306,14 @@ const DATA_DIR_OVERRIDE = path.join(app.getPath('home'), '.wan2gp-desktop-data-d
 // silently orphaned the user's existing install.
 const ORIGINAL_USER_DATA = app.getPath('userData')
 
+// Canonical launcher data folder, computed explicitly from LOCALAPPDATA + the
+// app product name. This is independent of the data-dir override (which can
+// redirect both getDataDir() AND Electron's userData to the user's home root),
+// so it is the reliable place for launcher-owned diagnostics like boot.log.
+const _LAUNCHER_DIR = (process.env.LOCALAPPDATA
+  ? path.join(process.env.LOCALAPPDATA, 'Wan2GP Desktop Launcher')
+  : path.join(os.homedir(), 'AppData', 'Local', 'Wan2GP Desktop Launcher'))
+
 // ── Mutation guard (replaces the old dead mutex()) ──
 // Serializes mutating operations (install / reinstall / update / uninstall /
 // launch). Two rapid IPC calls previously interleaved: double runSetup() spawns
@@ -3679,7 +3687,7 @@ ipcMain.handle('report-issue', async () => {
       lines.push('windowState: ' + JSON.stringify(cfg.windowState || null))
     } catch {}
     try {
-      const bl = path.join(ORIGINAL_USER_DATA, 'boot.log')
+      const bl = path.join(_LAUNCHER_DIR, 'boot.log')
       if (fs.existsSync(bl)) {
         const tb = fs.readFileSync(bl, 'utf8').trim().split('\n').slice(-25)
         lines.push('')
@@ -4303,7 +4311,7 @@ function createWindow() {
   // getDataDir() — getDataDir() can be redirected to the user's Wan2GP repo
   // folder via the data-dir override, which would dump boot.log into their home
   // root. Keeping it in the launcher folder keeps the diagnostic self-contained.
-  const _bootLogDir = ORIGINAL_USER_DATA
+  const _bootLogDir = _LAUNCHER_DIR
   const _bootMark = (m) => { _bootLog.push(((Date.now() - _bootT0) / 1000).toFixed(3) + 's ' + m); try { fs.mkdirSync(_bootLogDir, { recursive: true }); fs.writeFileSync(path.join(_bootLogDir, 'boot.log'), _bootLog.join('\n') + '\n', 'utf8') } catch {} }
   _bootMark('createWindow: dataDir=' + getDataDir() + ' windowState=' + JSON.stringify(savedState))
   mainWin.on('show', () => _bootMark('event: show'))
