@@ -353,8 +353,17 @@ function getDataDir() {
         const resolved = path.resolve(d)
         if (!path.isAbsolute(resolved) || path.normalize(resolved) !== resolved || resolved.includes('..')) {
           logError('getDataDir', 'Invalid DATA_DIR_OVERRIDE path: ' + d)
-        } else {
+        } else if (fs.existsSync(resolved) || fs.existsSync(path.join(resolved, 'Wan2GP'))) {
+          // Pinned dir (or its Wan2GP core) still exists — trust it.
           return resolved
+        } else {
+          // Stale override: the pinned folder was renamed/moved/deleted (e.g. the
+          // user renamed their Wan2GP folder, then reinstalled). A dead pin makes
+          // getRepoDir() resolve to a void and blanks the launcher (reported by
+          // JedsDeadBaby). Drop it; the default below + app.whenReady() re-pin to a
+          // valid location on this launch.
+          logError('getDataDir', 'Stale DATA_DIR_OVERRIDE (pinned dir missing): ' + d + ' — falling back to default')
+          try { fs.rmSync(DATA_DIR_OVERRIDE, { force: true }) } catch {}
         }
       }
     }
@@ -4346,7 +4355,30 @@ function createWindow() {
   mainWin.webContents.once('did-start-loading', () => _bootMark('did-start-loading'))
   mainWin.webContents.once('did-stop-loading', () => _bootMark('did-stop-loading'))
   let _didPaint = false
-  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
+  let _presentHammer = null
+  const _stopHammer = () => { if (_presentHammer) { clearInterval(_presentHammer); _presentHammer = null } }
+  mainWin.webContents.on('paint', () => { if (!_didPaint) { _didPaint = true; _stopHammer(); clearTimeout(_blankWatchdog); _bootMark('first-paint') } })
+
+  // Force the compositor to (re)present the first frame. On some driver stacks
+  // (reported: RTX 3060 / Win11 26200, also reproduced on swiftshader and
+  // d3d11-direct-composition-off) a window created with show:false paints once
+  // then reverts to backgroundColor — the layer is created but never
+  // re-presented. focus() + invalidate() + a real 1px geometry nudge (which
+  // triggers a genuine resize → compositor re-present) is the reliable fix for
+  // this class (issue #45, reported by Marco). We keep nudging until a real
+  // paint event arrives or the hammer times out.
+  const _forcePresent = () => {
+    if (!mainWin || mainWin.isDestroyed()) return
+    try { mainWin.focus() } catch {}
+    try { mainWin.webContents.invalidate() } catch {}
+    try {
+      if (!mainWin.isMaximized()) {
+        const b = mainWin.getBounds()
+        mainWin.setSize(b.width + 1, b.height, false)
+        setTimeout(() => { try { if (mainWin && !mainWin.isDestroyed() && !mainWin.isMaximized()) mainWin.setSize(b.width, b.height, false) } catch {} }, 40)
+      }
+    } catch {}
+  }
 
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
   // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
@@ -4360,14 +4392,14 @@ function createWindow() {
   let _painted = false
   let _winShown = false
   const _blankWatchdog = setTimeout(() => {
-    // ponytail: key on REAL paint, not ready-to-show. ready-to-show can fire yet
-    // Chromium never commits a frame (issue #45 presentation class: first-paint
-    // never arrives, window shows only backgroundColor). Old check (_painted, set
-    // by ready-to-show) skipped the watchdog here and left a silent blank window.
+    // Key on REAL paint, not ready-to-show. ready-to-show can fire yet
+    // Chromium never commits a frame (issue #45 presentation class). Old check
+    // (_painted, set by ready-to-show) skipped the watchdog and left a silent
+    // blank window. If we reach here, the first frame truly never committed.
     if (!mainWin || mainWin.isDestroyed() || _didPaint) return
-    _bootMark('watchdog: forcing show after 8s (no ready-to-show)')
-    console.error('[startup] renderer did not paint within 8s — forcing window show. Possible GPU/compositing failure.')
-    try { if (!mainWin.isVisible()) mainWin.show() } catch {}
+    _bootMark('watchdog: forcing present after 8s (first frame never committed)')
+    console.error('[startup] renderer did not paint within 8s — forcing window present. Possible GPU/compositing failure.')
+    _forcePresent()
     try {
       mainWin.webContents.send('splash-diagnostic',
         'The launcher window did not finish rendering. This is usually a display/GPU compatibility issue.\n\n' +
@@ -4381,13 +4413,17 @@ function createWindow() {
     _painted = true
     _bootMark('ready-to-show -> show()')
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
-    // ponytail: issue #45 presentation class — on some Win11/GPU stacks
-    // ready-to-show fires but Chromium never commits a frame (first-paint absent,
-    // window shows only backgroundColor). Force a compositor frame right after show.
+    // issue #45 presentation class — on some Win11/GPU stacks ready-to-show
+    // fires but Chromium never commits a frame. Force a compositor frame right
+    // after show, then keep nudging the compositor until a real paint event or
+    // 15s (covers stacks where a single invalidate() paints once then reverts).
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
-    // NOTE: do NOT clearTimeout(_blankWatchdog) here — if invalidate() fails to
-    // commit a frame, the watchdog must still fire at 8s and surface the GPU-off
-    // diagnostic. The watchdog self-clears on real first-paint (see paint handler).
+    _forcePresent()
+    _presentHammer = setInterval(_forcePresent, 500)
+    setTimeout(_stopHammer, 15000)
+    // NOTE: do NOT clearTimeout(_blankWatchdog) here — if the frame still doesn't
+    // commit, the watchdog must fire at 8s and surface the GPU-off diagnostic.
+    // The watchdog self-clears on real first-paint (see paint handler).
   })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.
@@ -4476,14 +4512,28 @@ app.whenReady().then(() => {
       fs.mkdirSync(d, { recursive: true })
       fs.writeFileSync(DATA_DIR_OVERRIDE, d)
     }
-    // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
+    // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir.
+    // Stale-override guard (reported by JedsDeadBaby): if the pinned data dir (or its
+    // Wan2GP core) no longer exists — e.g. the user renamed/moved the folder, then
+    // reinstalled — the dead pin blanks the launcher. Detect it, drop the stale
+    // override, re-derive the default (now the valid reinstalled location) and re-pin.
+    let _dataDir = null
     if (fs.existsSync(DATA_DIR_OVERRIDE)) {
       const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
-      if (d) {
-        const ed = path.join(d, '.electron')
-        fs.mkdirSync(ed, { recursive: true })
-        app.setPath('userData', ed)
+      if (d && (fs.existsSync(d) || fs.existsSync(path.join(d, 'Wan2GP')))) {
+        _dataDir = d
+      } else {
+        try { fs.rmSync(DATA_DIR_OVERRIDE, { force: true }) } catch {}
       }
+    }
+    if (!_dataDir) {
+      _dataDir = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+      try { fs.mkdirSync(_dataDir, { recursive: true }); fs.writeFileSync(DATA_DIR_OVERRIDE, _dataDir) } catch {}
+    }
+    if (_dataDir) {
+      const ed = path.join(_dataDir, '.electron')
+      fs.mkdirSync(ed, { recursive: true })
+      app.setPath('userData', ed)
     }
   } catch (e) { logError('data-dir-init', e) }
   createWindow()
