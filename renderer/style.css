@@ -88,7 +88,12 @@ body {
 #app { height: 100vh; display: flex; flex-direction: column; position: relative; background: var(--canvas); }
 
 /* ── Screens ── */
-.screen { display: none; height: 100%; flex-direction: column; }
+/* position:absolute; inset:0 (not height:100% as a flex child) so the active
+   screen ALWAYS fills #app regardless of flex percentage-height resolution
+   quirks. A flex child's height:100% can collapse to 0 on some Chromium/GPU
+   stacks (issue #39 / #45 — the active .screen reported 0x0 while #app was
+   full-size, leaving only the body background visible = "blank screen"). */
+.screen { display: none; position: absolute; inset: 0; flex-direction: column; overflow: auto; }
 .screen.active { display: flex; }
 
 /* ── Splash ── */
