@@ -353,8 +353,17 @@ function getDataDir() {
         const resolved = path.resolve(d)
         if (!path.isAbsolute(resolved) || path.normalize(resolved) !== resolved || resolved.includes('..')) {
           logError('getDataDir', 'Invalid DATA_DIR_OVERRIDE path: ' + d)
-        } else {
+        } else if (fs.existsSync(resolved) || fs.existsSync(path.join(resolved, 'Wan2GP'))) {
+          // Pinned dir (or its Wan2GP core) still exists — trust it.
           return resolved
+        } else {
+          // Stale override: the pinned folder was renamed/moved/deleted (e.g. the
+          // user renamed their Wan2GP folder, then reinstalled). A dead pin makes
+          // getRepoDir() resolve to a void and blanks the launcher (reported by
+          // JedsDeadBaby). Drop it; the default below + app.whenReady() re-pin to a
+          // valid location on this launch.
+          logError('getDataDir', 'Stale DATA_DIR_OVERRIDE (pinned dir missing): ' + d + ' — falling back to default')
+          try { fs.rmSync(DATA_DIR_OVERRIDE, { force: true }) } catch {}
         }
       }
     }
@@ -4503,14 +4512,28 @@ app.whenReady().then(() => {
       fs.mkdirSync(d, { recursive: true })
       fs.writeFileSync(DATA_DIR_OVERRIDE, d)
     }
-    // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir
+    // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir.
+    // Stale-override guard (reported by JedsDeadBaby): if the pinned data dir (or its
+    // Wan2GP core) no longer exists — e.g. the user renamed/moved the folder, then
+    // reinstalled — the dead pin blanks the launcher. Detect it, drop the stale
+    // override, re-derive the default (now the valid reinstalled location) and re-pin.
+    let _dataDir = null
     if (fs.existsSync(DATA_DIR_OVERRIDE)) {
       const d = fs.readFileSync(DATA_DIR_OVERRIDE, 'utf8').trim()
-      if (d) {
-        const ed = path.join(d, '.electron')
-        fs.mkdirSync(ed, { recursive: true })
-        app.setPath('userData', ed)
+      if (d && (fs.existsSync(d) || fs.existsSync(path.join(d, 'Wan2GP')))) {
+        _dataDir = d
+      } else {
+        try { fs.rmSync(DATA_DIR_OVERRIDE, { force: true }) } catch {}
       }
+    }
+    if (!_dataDir) {
+      _dataDir = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+      try { fs.mkdirSync(_dataDir, { recursive: true }); fs.writeFileSync(DATA_DIR_OVERRIDE, _dataDir) } catch {}
+    }
+    if (_dataDir) {
+      const ed = path.join(_dataDir, '.electron')
+      fs.mkdirSync(ed, { recursive: true })
+      app.setPath('userData', ed)
     }
   } catch (e) { logError('data-dir-init', e) }
   createWindow()

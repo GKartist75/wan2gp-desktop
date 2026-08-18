@@ -61,8 +61,26 @@ had fired).
   force-presents + surfaces the `%USERPROFILE%\.wan2gp-desktop-gpu-off` recovery
   steps.
 
+## Bug B — stale `DATA_DIR_OVERRIDE` blanked the launcher (reported by JedsDeadBaby)
+
+A *second*, deterministic blank-screen cause surfaced: the launcher pins its data
+dir once to `%USERPROFILE%\.wan2gp-desktop-data-dir` and never re-validates it.
+If the user renamed/moved their Wan2GP folder and reinstalled, the pinned path
+went stale → `getDataDir()` / `getRepoDir()` resolved to a missing folder → the
+backend couldn't find Wan2GP core → blank screen. Restoring the original folder
+name made the pinned path valid again, which is exactly the "rename → blank,
+restore → works" determinism the user reported.
+
+Fix: both `getDataDir()` and the `app.whenReady()` redirect now check that the
+pinned dir (or its `Wan2GP` core) still exists. If not, the stale override is
+dropped and the launcher re-derives the default (now the valid reinstalled
+location) and re-pins it — so a renamed/moved folder self-heals on next launch
+instead of blanking.
+
 ## Files changed
 
 - `main.js` — added `_forcePresent()` + `_presentHammer` interval (clears on real
   `paint`); watchdog now calls `_forcePresent()` and reports "first frame never
-  committed". Corrected the misleading "no ready-to-show" watchdog text.
+  committed". Corrected the misleading "no ready-to-show" watchdog text. Added a
+  stale-`DATA_DIR_OVERRIDE` guard in `getDataDir()` and `app.whenReady()` that
+  drops a dead pin and re-derives/re-pins the default data dir.
