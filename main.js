@@ -4329,6 +4329,14 @@ function createWindow() {
       contextIsolation: true, nodeIntegration: false,
     },
     show: false, backgroundColor: '#0f0f0f', maximizable: true,
+    // Issue #45 / #39: on some GPU stacks (RTX 3060, RTX 5070 Ti, driver 610.88,
+    // and others) a window created with show:false never commits its first frame
+    // after show() — the Chromium web-content layer simply isn't presented
+    // (boot.log shows ready-to-show -> show() but no first-paint; a CDP
+    // captureScreenshot returns only the html background). invalidate() + a resize
+    // nudge (the 2.8.6 hammer) was insufficient on those machines. The reliable fix:
+    // paint the hidden window offscreen so a committed frame exists when shown.
+    paintWhenInitiallyHidden: true,
   })
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
@@ -4412,11 +4420,11 @@ function createWindow() {
   mainWin.once('ready-to-show', () => {
     _painted = true
     _bootMark('ready-to-show -> show()')
+    // paintWhenInitiallyHidden:true already rasterized the content offscreen, so
+    // show() presents a committed frame even on GPU stacks where a normal
+    // show:false window would never present (issue #45 / #39). The hammer +
+    // watchdog below remain as backstops for the stubborn cases.
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
-    // issue #45 presentation class — on some Win11/GPU stacks ready-to-show
-    // fires but Chromium never commits a frame. Force a compositor frame right
-    // after show, then keep nudging the compositor until a real paint event or
-    // 15s (covers stacks where a single invalidate() paints once then reverts).
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
     _forcePresent()
     _presentHammer = setInterval(_forcePresent, 500)
