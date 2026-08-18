@@ -132,7 +132,16 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v2.8.2** — **The launcher no longer black-screens.** A blank window on first launch (title bar only, content never appears) was a GPU-compositor first-present failure, not a setup problem. The window now shows the instant the HTML is parsed, a 4s watchdog force-shows it with a diagnostic if paint still fails, and a home-directory override file (`%USERPROFILE%\.wan2gp-desktop-gpu-off` on Windows, `~/.wan2gp-desktop-gpu-off` on macOS/Linux) disables hardware acceleration at module load so a black-screened user can recover without even opening Settings.
+> **New in v2.8.5** — **Blank-screen root causes fixed (update-corruption + presentation class).** Updating *within the app* used to leave a partial/corrupt `app.asar` (the NSIS swap ran while the app still held handles on its own install dir) → next launch blanked with title bar only. A single `forceTeardown()` now releases every handle **before** the swap. And the "window shows but content never paints" case (issue #45 pt2): the window shows **only on `ready-to-show`** (restored to the v2.6.0 path), `webContents.invalidate()` force-commits the first frame, and the blank-screen watchdog now keys on *real paint* (and is no longer cancelled by `ready-to-show`) so it force-shows + surfaces the GPU-off recovery if the frame still doesn't paint within 8s.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.5.md)
+
+> **New in v2.8.4** — **`boot.log` now lives in the launcher's own folder.** It was being written via `getDataDir()`, which the data-dir override (`%USERPROFILE%\.wan2gp-desktop-data-dir`) can redirect to the user's home root. The boot tracer is a launcher diagnostic, so it now writes to `%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log`, independent of where Wan2GP core is installed.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.4.md)
+
+> **New in v2.8.3** — **Black-screen regression fixed (window showed then vanished).** v2.8.2's change to show the window on `did-finish-load` caused a show/hide race that black-screened fresh installs on some GPUs (issue #45). Reverted to the v2.6 show-on-`ready-to-show` path, and added a per-launch `boot.log` tracing the exact show/hide/paint timeline so black-screen reports are self-diagnosing.
+> [Full changelog →](changelogs/CHANGELOG-v2.8.3.md)
+
+> **New in v2.8.2** — **The launcher no longer black-screens.** A blank/black window on first launch (title bar only, content never appears) was a GPU-compositor first-present failure, not a setup problem. A 4s watchdog force-shows the window with a diagnostic if paint still fails, and a home-directory override file (`%USERPROFILE%\.wan2gp-desktop-gpu-off` on Windows, `~/.wan2gp-desktop-gpu-off` on macOS/Linux) disables hardware acceleration at module load so a black-screened user can recover without even opening Settings. (Note: v2.8.3 later restored the show-on-`ready-to-show` path after v2.8.2's `did-finish-load` show caused a show-then-vanish regression.)
 > [Full changelog →](changelogs/CHANGELOG-v2.8.2.md)
 
 > **New in v2.8.1** — **AMD installs now match the AMD guide (and NF4 kernels

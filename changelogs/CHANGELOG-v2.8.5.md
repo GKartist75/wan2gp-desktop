@@ -103,9 +103,12 @@ The GPU-compositor class (issue #39) is unchanged and still fixed by the
 2. If a clean install *still* blanks → it's the GPU class, not the update class:
    create an empty file `%USERPROFILE%\.wan2gp-desktop-gpu-off` and restart.
 3. To diagnose which class: open `%LOCALAPPDATA%\Wan2GP Desktop Launcher\boot.log`
-   after a blank launch. `first-paint` / `ready-to-show` **absent** + a
-   `did-fail-load` mark = corrupt bundle (update class, fixed here). A long
-   stall with no paint = GPU class (override file).
+   after a blank launch. `ready-to-show -> show()` **present** but **no
+   `first-paint`** + a `did-fail-load` mark = corrupt bundle (update class, fixed
+   here). `ready-to-show -> show()` present but **no `first-paint`** and no
+   `did-fail-load` = presentation class (v2.8.5 force-commits the frame via
+   `invalidate()`; the GPU-off file is the fallback). A long stall with no paint
+   and `did-fail-load` = GPU class (override file).
 
 ## Files changed
 
