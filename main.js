@@ -4328,14 +4328,18 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
     },
-    show: false, backgroundColor: '#0f0f0f', maximizable: true,
-    // Issue #45 / #39: on some GPU stacks (RTX 3060, RTX 5070 Ti, driver 610.88,
-    // and others) a window created with show:false never commits its first frame
-    // after show() — the Chromium web-content layer simply isn't presented
-    // (boot.log shows ready-to-show -> show() but no first-paint; a CDP
-    // captureScreenshot returns only the html background). invalidate() + a resize
-    // nudge (the 2.8.6 hammer) was insufficient on those machines. The reliable fix:
-    // paint the hidden window offscreen so a committed frame exists when shown.
+    show: true, backgroundColor: '#0f0f0f', maximizable: true,
+    // ISSUE #39 / #45 ROOT CAUSE (and the real cause of every 2.8.x blank bug):
+    // a BrowserWindow created `show:false` seeds its layout viewport at 0 height
+    // on certain GPU/compositor stacks (RTX 3060 / RTX 5070 Ti, driver 610.88).
+    // The entire UI height chain is viewport-derived (html/body/#app/.screen all
+    // use 100vh/100%), so a 0-height hidden viewport collapses every .screen to
+    // 0x0 -> only the body background paints (rgb 26,26,26), no content. This is
+    // NOT a present-failure (invalidate()/paintWhenInitiallyHidden can't help a
+    // 0-height layer) and it has existed since v2.0.0 (incl. 2.6.0). The fix is to
+    // never create the window hidden: with show:true the viewport is real from
+    // frame 0, 100vh resolves correctly, and the hidden-layout race is gone.
+    // (paintWhenInitiallyHidden kept as a harmless extra safeguard.)
     paintWhenInitiallyHidden: true,
   })
   // Hide the default Electron menu (File/Edit/View/Window) — this app has its own UI.
@@ -4398,7 +4402,6 @@ function createWindow() {
   // showing on did-finish-load caused issue #45 (window appeared then vanished
   // on some GPUs). The watchdog is a backstop, not the primary show path.
   let _painted = false
-  let _winShown = false
   const _blankWatchdog = setTimeout(() => {
     // Key on REAL paint, not ready-to-show. ready-to-show can fire yet
     // Chromium never commits a frame (issue #45 presentation class). Old check
@@ -4419,12 +4422,11 @@ function createWindow() {
   }, 8000)
   mainWin.once('ready-to-show', () => {
     _painted = true
-    _bootMark('ready-to-show -> show()')
-    // paintWhenInitiallyHidden:true already rasterized the content offscreen, so
-    // show() presents a committed frame even on GPU stacks where a normal
-    // show:false window would never present (issue #45 / #39). The hammer +
-    // watchdog below remain as backstops for the stubborn cases.
-    if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
+    _bootMark('ready-to-show (window already visible via show:true)')
+    // Window is created show:true, so the layout viewport is real from frame 0 and
+    // the 0-height-hidden-layout collapse (issue #39 / #45 root cause) cannot occur.
+    // The hammer + watchdog below are now pure backstops: if some other stack still
+    // fails to paint, the 8s watchdog surfaces the GPU-off diagnostic.
     try { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.invalidate() } catch {}
     _forcePresent()
     _presentHammer = setInterval(_forcePresent, 500)
