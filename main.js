@@ -3672,6 +3672,21 @@ ipcMain.handle('report-issue', async () => {
     lines.push('GPU: ' + (gpu.name || 'unknown') + ' (' + (gpu.vendor || '?') + ', ' + (gpu.vramMB || 0) + ' MB)')
     lines.push('OS: ' + os.platform() + ' ' + os.release() + ' arch=' + os.arch())
     lines.push('RAM: ' + gb(os.totalmem()) + ' GB total, ' + gb(os.freemem()) + ' GB free')
+    // issue #45: capture the boot timeline + window geometry so black-screen
+    // reports are self-diagnosing even when the window is blank.
+    try {
+      const cfg = loadConfig()
+      lines.push('windowState: ' + JSON.stringify(cfg.windowState || null))
+    } catch {}
+    try {
+      const bl = path.join(getDataDir(), 'boot.log')
+      if (fs.existsSync(bl)) {
+        const tb = fs.readFileSync(bl, 'utf8').trim().split('\n').slice(-25)
+        lines.push('')
+        lines.push('── boot.log (last ' + tb.length + ' marks) ──')
+        lines.push(...tb)
+      }
+    } catch {}
     lines.push('')
     lines.push('── Last ' + _logHistory.length + ' log line(s) ──')
     for (const h of _logHistory.slice(-300)) {
@@ -4278,22 +4293,38 @@ function createWindow() {
   if (PLATFORM !== 'darwin') Menu.setApplicationMenu(null)
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'))
 
+  // ── Boot tracer (issue #45: window shows then vanishes ~0.5s later) ──
+  // Writes a boot.log on EVERY launch so a black-screened user can send us the
+  // exact show/hide/paint timeline without needing the (blank) UI. Regression
+  // between 2.6 and 2.8.2 was in the window show path, so we trace it precisely.
+  const _bootLog = []
+  const _bootT0 = Date.now()
+  const _bootMark = (m) => { _bootLog.push(((Date.now() - _bootT0) / 1000).toFixed(3) + 's ' + m); try { fs.writeFileSync(path.join(getDataDir(), 'boot.log'), _bootLog.join('\n') + '\n', 'utf8') } catch {} }
+  _bootMark('createWindow: dataDir=' + getDataDir() + ' windowState=' + JSON.stringify(savedState))
+  mainWin.on('show', () => _bootMark('event: show'))
+  mainWin.on('hide', () => _bootMark('event: hide'));
+  mainWin.on('close', () => _bootMark('event: close'));
+  mainWin.on('closed', () => _bootMark('event: closed'))
+  mainWin.webContents.once('did-finish-load', () => { _bootMark('did-finish-load'); if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('boot-mark', 'did-finish-load') })
+  mainWin.webContents.once('did-start-loading', () => _bootMark('did-start-loading'))
+  mainWin.webContents.once('did-stop-loading', () => _bootMark('did-stop-loading'))
+  mainWin.webContents.on('paint', () => { if (!_bootLog._painted) { _bootLog._painted = true; _bootMark('first-paint') } })
+
   // ── Blank-screen watchdog (renderer-never-paints recovery) ──
   // On some machines (certain iGPUs/drivers, RDP/VM sessions, GPU-process
   // failures) the renderer never reaches first paint: with show:false +
   // ready-to-show, the window then stays hidden or shows only the dark
   // background — a silent blank screen with no error anywhere. Watch for
-  // that and (a) force-show the window after a grace period with a visible
-  // diagnostic, (b) surface load/preload/renderer errors into the splash
-  // error box instead of leaving them invisible, and (c) if the renderer or
-  // GPU process dies before first paint, auto-disable hardware acceleration
-  // and relaunch once (the standard cure for blank Electron windows — same
-  // setting the crash-recovery hint tells the user to flip manually).
+  // that and force-show the window after a grace period with a visible
+  // diagnostic. NOTE: we deliberately show ONLY on ready-to-show (as 2.6 did);
+  // showing on did-finish-load caused issue #45 (window appeared then vanished
+  // on some GPUs). The watchdog is a backstop, not the primary show path.
   let _painted = false
   let _winShown = false
   const _blankWatchdog = setTimeout(() => {
     if (!mainWin || mainWin.isDestroyed() || _painted) return
-    console.error('[startup] renderer did not paint within 4s — forcing window show. Possible GPU/compositing failure.')
+    _bootMark('watchdog: forcing show after 8s (no ready-to-show)')
+    console.error('[startup] renderer did not paint within 8s — forcing window show. Possible GPU/compositing failure.')
     try { if (!mainWin.isVisible()) mainWin.show() } catch {}
     try {
       mainWin.webContents.send('splash-diagnostic',
@@ -4303,15 +4334,12 @@ function createWindow() {
         '  macOS/Linux:  ~/.wan2gp-desktop-gpu-off\n' +
         'then restart the launcher. (Equivalently: Settings → General → turn OFF “Enable GPU acceleration”.)')
     } catch {}
-  }, 4000)
-  mainWin.webContents.once('did-finish-load', () => {
+  }, 8000)
+  mainWin.once('ready-to-show', () => {
     _painted = true; clearTimeout(_blankWatchdog)
-    // Show the moment the HTML is parsed instead of waiting for the compositor's
-    // ready-to-show: on some drivers/RDP/VM the first present can stall ~5s and
-    // read as a blank screen. Showing now forces an early splash paint.
+    _bootMark('ready-to-show -> show()')
     if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
   })
-  mainWin.once('ready-to-show', () => { _painted = true; clearTimeout(_blankWatchdog) })
 
   // Surface load failures (missing/corrupt files in the package) in the splash.
   mainWin.webContents.on('did-fail-load', (_e, code, desc, url) => {
@@ -4372,10 +4400,6 @@ function createWindow() {
   mainWin.on('minimize', () => { _winHiddenAt = Date.now() })
   mainWin.on('restore', () => maybeResyncEmbeddedView())
 
-  mainWin.once('ready-to-show', () => {
-    // Backup show path (did-finish-load usually already showed it).
-    if (!_winShown && mainWin && !mainWin.isDestroyed()) { try { mainWin.show() } catch {} _winShown = true }
-  })
   mainWin.on('closed', () => { mainWin = null })
 }
 
