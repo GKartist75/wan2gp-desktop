@@ -236,6 +236,19 @@ function stopWangpServer() {
   return false
 }
 
+// ponytail: single full teardown so quitAndInstall / updater errors never leave a
+// process or handle holding the install dir (partial NSIS swap = blank screen).
+// Reuses stopWangpServer + killProcessTree; idempotent so before-quit can call it too.
+function forceTeardown() {
+  try { killProcessTree(setupProc); setupProc = null } catch {}
+  try { stopWangpServer() } catch {}
+  try { if (_bv && mainWin && mainWin.getBrowserViews().includes(_bv)) mainWin.removeBrowserView(_bv) } catch {}
+  try { if (_pulseWin && !_pulseWin.isDestroyed()) _pulseWin.destroy() } catch {}
+  try { if (mainWin && mainWin.webContents.isDevToolsOpened()) mainWin.webContents.closeDevTools() } catch {}
+  try { if (_bv && mainWin && mainWin.getBrowserViews().includes(_bv) && _bv.webContents.isDevToolsOpened()) _bv.webContents.closeDevTools() } catch {}
+  try { if (tray) { tray.destroy(); tray = null } } catch {}
+}
+
 // Find the running Wan2GP python PID (used to make external-terminal Stop bulletproof).
 // Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a cmd CommandLine filter.
 // Windows: Uses Get-CimInstance (modern WMI) instead of deprecated wmic.
@@ -468,6 +481,7 @@ if (WSL_LEGACY) {
 }
 
 let mainWin = null, setupProc = null, _wangpProc = null
+let _updateActive = false  // ponytail: true once a download/install is underway so updater errors can clean-quit
 let _terminalTitle = null   // set when launched in external-terminal mode (tracked by title for Stop)
 let _terminalPidFile = null // temp file holding the python PID for a bulletproof kill
 let _terminalScriptFile = null // temp .bat (Windows) / .sh (POSIX) launched in the external terminal
@@ -3851,7 +3865,12 @@ autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update avail
 autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date'); send('update-status', { status: 'up-to-date' }) })
 autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
-autoUpdater.on('error', (err) => { console.log('[DEBUG] Update error:', err.message); send('update-status', { status: 'error', message: err.message || err.toString() }) })
+autoUpdater.on('error', (err) => {
+  console.log('[DEBUG] Update error:', err.message); send('update-status', { status: 'error', message: err.message || err.toString() })
+  // ponytail: a failed in-flight update can leave the install dir half-swapped with
+  // locks held — clean-quit so a manual reinstall/update isn't blocked by stale handles.
+  if (_updateActive) { forceTeardown(); setTimeout(() => { try { app.quit() } catch {} }, 1000) }
+})
 
 // ── VRAM / RAM Adjuster (manual memory-profile overrides) ──
 ipcMain.handle('memory-profile:read', async () => {
@@ -4104,10 +4123,15 @@ ipcMain.handle('check-update', async (_, opts) => {
 })
 
 ipcMain.handle('download-update', async () => {
+  _updateActive = true
   try { await autoUpdater.downloadUpdate() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
 
-ipcMain.handle('install-update', async () => autoUpdater.quitAndInstall())
+ipcMain.handle('install-update', async () => {
+  _updateActive = true
+  forceTeardown()  // ponytail: release all handles BEFORE the NSIS swap, not racing it
+  return autoUpdater.quitAndInstall()
+})
 
 // ── Webview native context menu (copy/paste/select all) + DevTools lifecycle ──
 app.on('web-contents-created', (_event, contents) => {
@@ -4496,10 +4520,5 @@ app.on('window-all-closed', () => {
 app.on('activate', () => { if (!mainWin) createWindow() })
 app.on('before-quit', () => {
   app.isQuitting = true
-  killProcessTree(setupProc); setupProc = null
-  stopWangpServer()
-  // Close any open DevTools to prevent orphan renderer processes
-  try { if (mainWin) { if (mainWin.webContents.isDevToolsOpened()) mainWin.webContents.closeDevTools(); if (_bv && mainWin.getBrowserViews().includes(_bv) && _bv.webContents.isDevToolsOpened()) _bv.webContents.closeDevTools() } } catch {}
-  // Destroy tray so the icon doesn't linger in notification area
-  try { if (tray) { tray.destroy(); tray = null } } catch {}
+  forceTeardown()  // ponytail: one path releases every handle, incl. _bv/_pulseWin the old inline code missed
 })
