@@ -3679,7 +3679,7 @@ ipcMain.handle('report-issue', async () => {
       lines.push('windowState: ' + JSON.stringify(cfg.windowState || null))
     } catch {}
     try {
-      const bl = path.join(getDataDir(), 'boot.log')
+      const bl = path.join(ORIGINAL_USER_DATA, 'boot.log')
       if (fs.existsSync(bl)) {
         const tb = fs.readFileSync(bl, 'utf8').trim().split('\n').slice(-25)
         lines.push('')
@@ -4299,7 +4299,12 @@ function createWindow() {
   // between 2.6 and 2.8.2 was in the window show path, so we trace it precisely.
   const _bootLog = []
   const _bootT0 = Date.now()
-  const _bootMark = (m) => { _bootLog.push(((Date.now() - _bootT0) / 1000).toFixed(3) + 's ' + m); try { fs.writeFileSync(path.join(getDataDir(), 'boot.log'), _bootLog.join('\n') + '\n', 'utf8') } catch {} }
+  // boot.log goes in the launcher's OWN userData dir (ORIGINAL_USER_DATA), NOT
+  // getDataDir() — getDataDir() can be redirected to the user's Wan2GP repo
+  // folder via the data-dir override, which would dump boot.log into their home
+  // root. Keeping it in the launcher folder keeps the diagnostic self-contained.
+  const _bootLogDir = ORIGINAL_USER_DATA
+  const _bootMark = (m) => { _bootLog.push(((Date.now() - _bootT0) / 1000).toFixed(3) + 's ' + m); try { fs.mkdirSync(_bootLogDir, { recursive: true }); fs.writeFileSync(path.join(_bootLogDir, 'boot.log'), _bootLog.join('\n') + '\n', 'utf8') } catch {} }
   _bootMark('createWindow: dataDir=' + getDataDir() + ' windowState=' + JSON.stringify(savedState))
   mainWin.on('show', () => _bootMark('event: show'))
   mainWin.on('hide', () => _bootMark('event: hide'));
