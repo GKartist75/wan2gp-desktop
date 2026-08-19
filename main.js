@@ -1757,7 +1757,7 @@ ipcMain.handle('launch-webview', async () => {
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
-  proc.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s); stampQueueActivity(s) } })
+  proc.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s) } })
   proc.stderr.on('data', d => { 
     const s = d.toString();
     if (s) {
@@ -1913,35 +1913,6 @@ ipcMain.handle('reattach-browser-view', () => {
     return { success: true }
   } catch (e) { return { error: e.message } }
 })
-
-// ── Embedded-view re-sync on window restore ──
-// With backgroundThrottling disabled the embedded page keeps receiving queue
-// updates while hidden, but a page suspended long enough (or whose SSE stream
-// hiccuped) can still fall behind the server: the queue panel then shows a
-// finished queue as "still running". On restore after a meaningful absence,
-// reload the embedded view so the queue re-syncs with the server — the server
-// itself is untouched, so a running generation is unaffected (same principle as
-// the crash-watchdog reload). Gated so we never reload a page the user was
-// actively typing into (only fires when a queue event was seen while hidden).
-let _winHiddenAt = 0
-const BV_RESYNC_MIN_HIDDEN_MS = 30 * 1000 // ignore quick alt-tab/minimize blips
-let _bvLastResync = 0
-
-function maybeResyncEmbeddedView() {
-  const now = Date.now()
-  const hiddenAt = _winHiddenAt
-  _winHiddenAt = 0
-  if (!hiddenAt || now - hiddenAt < BV_RESYNC_MIN_HIDDEN_MS) return
-  // Queue activity must have occurred while the window was away — otherwise the
-  // user was just idle (or typing) and a reload would discard their in-page state.
-  if (_lastQueueActivityAt < hiddenAt - 5000) return
-  if (!_bv || !_bvUrl || !mainWin || mainWin.isDestroyed()) return
-  if (!mainWin.getBrowserViews().includes(_bv)) return // only embedded (desktop) mode
-  if (now - _bvLastResync < 5000) return // never double-reload (restore+show can both fire)
-  _bvLastResync = now
-  send('launch-log', '[*] Launcher window restored — reloading embedded Wan2GP view to re-sync the queue.\n')
-  try { _bv.webContents.loadURL(_bvUrl) } catch (e) { logError('bv-resync', e) }
-}
 
 // ── Floating-terminal window (a SEPARATE, movable BrowserWindow) ──
 // For the 'floating' dock the console must be a real window so it can be dragged onto another
@@ -3945,21 +3916,8 @@ function resolveApprise() {
   return 'apprise'
 }
 
-// Queue-activity stamp (independent of notifier/pulsebar config): every queue
-// progress/completion event updates this timestamp. The embedded-view re-sync
-// uses it to reload the Wan2GP page on window restore ONLY when a queue was
-// running while the window was hidden — never clobber a page the user may have
-// been typing a prompt into.
-let _lastQueueActivityAt = 0
-const _activityState = { lastPercent: null }
-function stampQueueActivity(text) {
-  const lines = String(text).split('\n')
-  if (queueNotifier.detectEvents(lines, _activityState).length > 0) _lastQueueActivityAt = Date.now()
-}
-
 // Fire notifications for notable Wan2GP log events (called from the launch-log stream).
 function notifyFromLog(text) {
-  stampQueueActivity(text)
   const cfg = getNotifierConfig()
   if (cfg.enabled && cfg.url) {
     const lines = String(text).split('\n')
@@ -4519,10 +4477,9 @@ function createWindow() {
   mainWin.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); app.quit() }
   })
-  mainWin.on('show', () => { updateTrayMenu(); maybeResyncEmbeddedView() })
-  mainWin.on('hide', () => { updateTrayMenu(); _winHiddenAt = Date.now() })
-  mainWin.on('minimize', () => { _winHiddenAt = Date.now() })
-  mainWin.on('restore', () => maybeResyncEmbeddedView())
+  mainWin.on('show', () => { updateTrayMenu() })
+  mainWin.on('hide', () => { updateTrayMenu() })
+  mainWin.on('minimize', () => {})
 
   mainWin.on('closed', () => { mainWin = null })
 }
