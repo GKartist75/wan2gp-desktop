@@ -2420,22 +2420,32 @@ ipcMain.handle('uninstall-env', async (_, name) => {
           if (listing.trim()) send('setup-output', `[${name}] contents:\n${listing}\n`)
         }
       } catch {}
-      // Delete the whole env tree with a single recursive rm.
-      // fs.rmSync is a real fs API — no shell, no PATH lookup — so it does not
-      // hit the "spawn rmdir ENOENT" failure (rmdir is a cmd.exe internal, not an
-      // executable). maxRetries/retryDelay self-heal transiently-locked files
-      // (e.g. a bin/ exe or .lock held by another process) so you don't have to
-      // close other apps first.
+      // Delete the whole env tree. fs.rmSync is a real fs API — no shell, no
+      // PATH lookup — so it never hits the old "spawn rmdir ENOENT" failure
+      // (rmdir is a cmd.exe internal, not an executable). maxRetries/retryDelay
+      // self-heal transiently-locked files (a bin/ exe or .lock held by another
+      // process) so you don't have to close other apps first.
+      const removeEnvTree = (p) => {
+        // 1) Best-effort recursive rm with generous retry backoff.
+        try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }) } catch {}
+        if (!fs.existsSync(p)) return true
+        // 2) If a locked subdir survived, sweep its entries individually so one
+        //    stubborn handle can't leave a dirty shell behind.
+        try {
+          for (const ent of fs.readdirSync(p, { withFileTypes: true })) {
+            const ep = path.join(p, ent.name)
+            try { fs.rmSync(ep, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }) } catch {}
+          }
+        } catch {}
+        try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }) } catch {}
+        return !fs.existsSync(p)
+      }
       try {
-        fs.rmSync(envPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 400 })
-        if (!fs.existsSync(envPath)) {
+        const gone = removeEnvTree(envPath)
+        if (gone) {
           send('setup-output', `[${name}] folder removed\n`)
         } else {
-          send('setup-output', ` [${name}] could not remove some files; retrying with bulk delete\n`)
-          await runCmd(IS_WIN ? 'cmd' : 'rm',
-            IS_WIN ? ['/c', 'rmdir', '/s', '/q', `"${envPath}"`] : ['-rf', envPath],
-            { timeout: 120000 })
-          if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
+          send('setup-output', ` [${name}] some files are locked by another process (close it / retry); remaining: ${envPath}\n`)
         }
       } catch (delErr) {
         send('setup-output', ` error: ${delErr.message}\n`)
