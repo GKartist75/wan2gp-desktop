@@ -509,6 +509,20 @@ body {
   background: var(--surface); border: 1px solid var(--border);
   color: var(--text-primary); white-space: nowrap;
 }
+/* Distinct GPU Kernel Wheels group in the install preview */
+.install-kernels {
+  background: color-mix(in srgb, var(--accent) 8%, var(--canvas));
+  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 10px;
+}
+.ikernels-list { display: flex; flex-direction: column; gap: 4px; }
+.ikernel-item {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 0.62rem; padding: 3px 8px; border-radius: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.ikernel-label { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.ikernel-dist { color: var(--text-secondary); font-family: var(--font-mono, monospace); }
 
 .env-type-select {
   display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
@@ -907,4 +921,22 @@ body {
 .istack-ok { color: var(--signal-green); font-size: 0.68rem; margin-top: 4px; }
 .istack-hint { color: var(--text-tertiary); font-size: 0.62rem; margin-top: 4px; line-height: 1.4; }
 
+/* ── Installer + Dashboard: GPU Profile Overview (mirrors gpu_profiles) ── */
+.install-profile-overview {
+  background: var(--canvas); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 10px;
+}
+.ipo-header {
+  font-size: 0.65rem; font-weight: 600; color: var(--text-secondary);
+  margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;
+  display: flex; align-items: center; gap: 8px;
+}
+.ipo-profile-badge { font-weight: 400; text-transform: none; color: var(--accent); }
+.ipo-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
+.ipo-row { display: contents; }
+.ipo-k { color: var(--text-tertiary); font-size: 0.68rem; }
+.ipo-v { color: var(--text-primary); font-size: 0.68rem; font-family: var(--font-mono, monospace); }
 
+/* ── Settings: GGUF CUDA Kernel card ── */
+.settings-section .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; color: var(--text-secondary); margin-top: 6px; cursor: pointer; }
+.settings-section .token-field select.input { max-width: 220px; margin-top: 4px; }

@@ -273,6 +273,12 @@ function openSettings() {
     if (autoUpdate) autoUpdate.checked = cfg.autoUpdateEnabled !== false
     const share = $('shareToggle')
     if (share) share.checked = cfg.share === true
+    // GGUF CUDA kernel controls
+    const g = cfg.ggufEnv || { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false }
+    if ($('ggufEnabled')) $('ggufEnabled').checked = g.enabled !== false
+    if ($('ggufMatmulMode')) $('ggufMatmulMode').value = g.matmulMode || 'auto'
+    if ($('ggufStreamK')) $('ggufStreamK').checked = g.streamK !== false
+    if ($('ggufBf16Fp16')) $('ggufBf16Fp16').checked = g.bf16Fp16 === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
     loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
     // Bind Address picker: reflect saved choice (default localhost)
@@ -450,12 +456,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.env-type-btn').forEach(b => b.disabled = false)
     // Show expected packages for this hardware
     window.w2gp.getHardwareProfile().then(function(hp) {
+      if (!hp) return
       var list = $('installPkgsList')
       var header = $('installPkgsProfile')
-      if (!list || !hp || !hp.packages || !hp.packages.length) return
-      if (header) header.textContent = '(' + hp.profile.replace(/_/g,' ') + ')'
-      list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + escHtml(p) + '</span>' }).join('')
-      $('installPkgs').style.display = ''
+      if (list && hp.packages && hp.packages.length) {
+        if (header) header.textContent = '(' + hp.profile.replace(/_/g,' ') + ')'
+        list.innerHTML = hp.packages.map(function(p) { return '<span class="ipkg-item">' + escHtml(p) + '</span>' }).join('')
+        $('installPkgs').style.display = ''
+      }
+      // Distinct kernel-wheels group (so the wheels are clearly visible pre-install)
+      var klist = $('installKernelsList')
+      var kheader = $('installKernelsProfile')
+      if (klist && hp.kernels && hp.kernels.length) {
+        if (kheader) kheader.textContent = '(' + hp.profile.replace(/_/g,' ') + ')'
+        klist.innerHTML = hp.kernels.map(function(k) {
+          return '<div class="ikernel-item"><span class="ikernel-label">' + escHtml(k.label) + '</span><span class="ikernel-dist">' + escHtml(k.dist) + '</span></div>'
+        }).join('')
+        $('installKernels').style.display = ''
+      }
+      // GPU Profile Overview (mirrors setup_config.json gpu_profiles) — installer
+      renderProfileOverview(hp.detail, {
+        box: 'installProfileOverview', profile: 'ipoProfile',
+        python: 'ipoPython', torch: 'ipoTorch', triton: 'ipoTriton',
+        sage: 'ipoSage', sparge: 'ipoSparge', flash: 'ipoFlash', kernels: 'ipoKernels'
+      })
+      // GPU Profile Overview — dashboard (same data, same layout)
+      renderProfileOverview(hp.detail, {
+        box: 'dashProfileOverview', profile: 'dashProfileTag',
+        python: 'dashPoPython', torch: 'dashPoTorch', triton: 'dashPoTriton',
+        sage: 'dashPoSage', sparge: 'dashPoSparge', flash: 'dashPoFlash', kernels: 'dashPoKernels'
+      })
     })
     // Pre-flight resolved stack (CUDA build, driver/disk gates) — audit hardening
     window.w2gp.installPlan().then(function(r) {
@@ -991,6 +1021,26 @@ function renderKernelWheels(wheels, kernelProfile, osKey) {
     row.appendChild(label); row.appendChild(dot); row.appendChild(val)
     box.appendChild(row)
   })
+}
+
+// ── GPU Profile Overview (mirrors setup_config.json gpu_profiles) ──
+// Renders the resolved profile's python/torch/attention-kernel matrix in BOTH
+// the installer and the dashboard from a single `detail` object, so the two
+// views can never disagree. `ids` maps each field to a DOM element id.
+function renderProfileOverview(detail, ids) {
+  const box = $(ids.box)
+  if (!box) return
+  if (!detail) { box.style.display = 'none'; return }
+  box.style.display = ''
+  if (ids.profile) { const t = $(ids.profile); if (t) t.textContent = (detail.profile || '').replace(/_/g, ' ') }
+  const set = (id, val) => { const el = $(id); if (el) el.textContent = val || '—' }
+  set(ids.python, detail.python)
+  set(ids.torch, detail.torch)
+  set(ids.triton, detail.triton)
+  set(ids.sage, detail.sage)
+  set(ids.sparge, detail.sparge)
+  set(ids.flash, detail.flash)
+  set(ids.kernels, (detail.kernels && detail.kernels.length) ? detail.kernels.join(', ') : '—')
 }
 
 // ── Env unlink button visibility ──
@@ -1910,6 +1960,17 @@ $('launchArgsSaveBtn')?.addEventListener('click', async () => {
   cfg.launchArgs = args.trim()
   await window.w2gp.configSave(cfg)
   showToast('Extra launch args saved')
+})
+$('ggufSaveBtn')?.addEventListener('click', async () => {
+  const cfg = await window.w2gp.configLoad()
+  cfg.ggufEnv = {
+    enabled: $('ggufEnabled')?.checked !== false,
+    matmulMode: $('ggufMatmulMode')?.value || 'auto',
+    streamK: $('ggufStreamK')?.checked !== false,
+    bf16Fp16: $('ggufBf16Fp16')?.checked === true,
+  }
+  await window.w2gp.configSave(cfg)
+  showToast('GGUF CUDA kernel settings saved — applies on next launch')
 })
 $('portSaveBtn')?.addEventListener('click', async () => {
   const val = parseInt($('portInput')?.value) || 7860

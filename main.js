@@ -79,6 +79,31 @@ function checkNvidiaDriver() {
 }
 
 
+// ── GGUF llama.cpp CUDA kernel env (docs/INSTALLATION.md parity) ──
+// The GGUF CUDA wheel reads these at package load:
+//   WGP_GGUF_LLAMACPP_CUDA         0 disables the GGUF CUDA kernels entirely
+//   WGP_GGUF_LLAMACPP_CUDA_MATMUL_MODE  auto | fast | low_vram
+//   WGP_GGUF_LLAMACPP_CUDA_STREAM_K      0 disables Stream-K (1 enables; default on)
+//   WGP_GGUF_LLAMACPP_CUDA_BF16_FP16    1 restores legacy BF16→FP16 cuBLAS path
+// The launcher surfaces these as the "GGUF CUDA Kernel" settings card and bakes
+// them into every wgp.py launch so users get the documented behaviour without
+// hand-editing env vars. `matmulMode: 'auto'` emits nothing (lets the wheel's
+// default policy run). Returns {} when GGUF is disabled or no knob is set.
+function ggufLaunchEnv(cfg) {
+  const g = (cfg && cfg.ggufEnv) || {}
+  if (g.enabled === false) return { WGP_GGUF_LLAMACPP_CUDA: '0' }
+  const env = {}
+  if (g.matmulMode && g.matmulMode !== 'auto') {
+    // 'fast' / 'low_vram' are valid values; anything else falls back to auto (omit)
+    if (g.matmulMode === 'fast' || g.matmulMode === 'low_vram') {
+      env.WGP_GGUF_LLAMACPP_CUDA_MATMUL_MODE = g.matmulMode
+    }
+  }
+  if (g.streamK === false) env.WGP_GGUF_LLAMACPP_CUDA_STREAM_K = '0'
+  if (g.bf16Fp16 === true) env.WGP_GGUF_LLAMACPP_CUDA_BF16_FP16 = '1'
+  return env
+}
+
 // ── AMD session environment (upstream AMD-INSTALLATION.md parity) ──
 // The AMD guide requires a block of env vars at the start of every session
 // (ROCM toolchain, AOTriton, MIOpen fast mode) AND the per-architecture
@@ -568,7 +593,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function saveConfig(cfg) {
@@ -1651,6 +1676,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0',
         NO_PROXY: 'localhost,127.0.0.1,::1',
         ...amdEnv,
+        ...ggufLaunchEnv(loadConfig()),
         ...(launchCfg.share ? { GRADIO_SHARE: 'true' } : {}),
         ...(launchCfg.hfToken ? { HF_TOKEN: launchCfg.hfToken, HUGGINGFACE_HUB_TOKEN: launchCfg.hfToken } : {})
       }
@@ -2078,19 +2104,24 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
   let updated = 0
   for (const name of names) {
     const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
-    const cmd = comp && comp.cmd && comp.cmd[osKey]
+    let cmd = comp && comp.cmd && comp.cmd[osKey]
     if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
-    const winfo = wheelDistVersion(cmd)
+    // GGUF → 1.0.11 (docs/INSTALLATION.md target). setup_config.json pins 1.0.8
+    // (suffix cu13); the published 1.0.11 wheel uses suffix cu130 — so we map to
+    // the full known-good URL via the profile's torch code, not a version bump.
+    const torchCode = (profile && profile.torch) || null
+    const installCmd = kernelResolver.applyGgufOverride(name, cmd, torchCode)
+    const winfo = wheelDistVersion(installCmd)
     if (winfo) {
       const have = await installedPkgVersion(py, winfo.dist)
       if (have && have === winfo.version) { log(`[*] Kernel '${name}': ${winfo.dist} ${have} — already current.\n`); continue }
-      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...\n`)
+      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (doc target 1.0.11)' : ''}\n`)
     } else {
-      log(`[*] Kernel '${name}': installing ${cmd}...\n`)
+      log(`[*] Kernel '${name}': installing ${installCmd}...\n`)
     }
     try {
       await new Promise((resolve, reject) => {
-        const proc = spawn(py, ['-m', 'pip', 'install', '--no-input', cmd], {
+        const proc = spawn(py, ['-m', 'pip', 'install', '--no-input', installCmd], {
           cwd: repo, windowsHide: true,
           env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PIP_DISABLE_PIP_VERSION_CHECK: '1' }
         })
@@ -2389,32 +2420,25 @@ ipcMain.handle('uninstall-env', async (_, name) => {
           if (listing.trim()) send('setup-output', `[${name}] contents:\n${listing}\n`)
         }
       } catch {}
-      // Delete each top-level item with visible progress
+      // Delete the whole env tree with a single recursive rm.
+      // fs.rmSync is a real fs API — no shell, no PATH lookup — so it does not
+      // hit the "spawn rmdir ENOENT" failure (rmdir is a cmd.exe internal, not an
+      // executable). maxRetries/retryDelay self-heal transiently-locked files
+      // (e.g. a bin/ exe or .lock held by another process) so you don't have to
+      // close other apps first.
       try {
-        var items = fs.readdirSync(envPath)
-        for (var i = 0; i < items.length; i++) {
-          var itemPath = path.join(envPath, items[i])
-          var label = items[i]
-          if (fs.statSync(itemPath).isDirectory()) label += '/'  // mark dirs
-          send('setup-output', `[${name}] removing ${label}\n`)
-          if (IS_WIN) {
-            if (fs.statSync(itemPath).isDirectory()) {
-              await runCmd('rmdir', ['/s', '/q', itemPath])
-            } else {
-              fs.unlinkSync(itemPath)
-            }
-          } else {
-            await runCmd('rm', ['-rf', itemPath])
-          }
+        fs.rmSync(envPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 400 })
+        if (!fs.existsSync(envPath)) {
+          send('setup-output', `[${name}] folder removed\n`)
+        } else {
+          send('setup-output', ` [${name}] could not remove some files; retrying with bulk delete\n`)
+          await runCmd(IS_WIN ? 'cmd' : 'rm',
+            IS_WIN ? ['/c', 'rmdir', '/s', '/q', `"${envPath}"`] : ['-rf', envPath],
+            { timeout: 120000 })
+          if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
         }
-        // Remove the now-empty env dir itself
-        fs.rmdirSync(envPath)
-        send('setup-output', `[${name}] folder removed\n`)
       } catch (delErr) {
         send('setup-output', ` error: ${delErr.message}\n`)
-        // Fallback: try bulk delete
-        await runCmd(IS_WIN ? 'rmdir' : 'rm', IS_WIN ? ['/s', '/q', envPath] : ['-rf', envPath])
-        if (!fs.existsSync(envPath)) send('setup-output', `[${name}] folder removed\n`)
       }
     } else {
       send('setup-output', `[${name}] folder not found on disk, removing from registry\n`)
@@ -3547,7 +3571,7 @@ ipcMain.handle('get-hardware-profile', () => {
     MPS:     { python: '3.11.14', torch: 'MPS',          triton: null, sage: null, sparge: null, flash: null, kernels: [] },
     AMD:     { python: '3.11.14', torch: 'ROCm 6.5',     triton: null, sage: null, sparge: null, flash: null, kernels: [] },
   }
-  const result = { profile: 'STANDARD', packages: [] }
+  const result = { profile: 'STANDARD', packages: [], kernels: [], detail: null }
   try {
     const out = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0].trim().toUpperCase()
     if (out.includes('RTX')) {
@@ -3561,6 +3585,18 @@ ipcMain.handle('get-hardware-profile', () => {
   } catch {
     // Fallback MPS/AMD — keep STANDARD
   }
+  // Friendly labels for the profile's component keys (mirrors setup_config.json
+  // component ids). Keeps the installer/dashboard overview in lockstep with the
+  // real gpu_profiles matrix the user pasted.
+  const COMP_LABEL = {
+    cu128: 'PyTorch 2.7.1 + CUDA 12.8', cu130: 'PyTorch 2.10.0 + CUDA 13.0',
+    rocm65: 'PyTorch (ROCm 6.5)', mps: 'PyTorch (MPS)',
+    v33: 'Triton < 3.3', v34: 'Triton < 3.4', latest: 'Triton (latest)',
+    v1: 'Sage Attention 1.0.6', v211: 'Sage Attention 2.1.1',
+    v220: 'Sage Attention 2.2.0', v220_cu13: 'Sage Attention 2.2.0 (CUDA 13)',
+    v010_cu128: 'Sparge 0.1.0 (CUDA 12.8)', v010_cu13: 'Sparge 0.1.0 (CUDA 13)',
+    v210: 'Flash Attention 2.8.3',
+  }
   if (profiles[result.profile]) {
     const p = profiles[result.profile]
     if (p.python) result.packages.push('🐍 Python ' + p.python)
@@ -3569,10 +3605,25 @@ ipcMain.handle('get-hardware-profile', () => {
     if (p.sage) result.packages.push('🌀 Sage Attn ' + p.sage)
     if (p.sparge) result.packages.push('🌊 Sparge Attn ' + p.sparge)
     if (p.flash) result.packages.push('💥 Flash Attn ' + p.flash)
-    for (const k of p.kernels) {
-      const labels = { nunchaku: '🔩 Nunchaku INT4/FP4', lightx2v: '⚡ Lightx2v NVFP4', gguf: '📦 GGUF llama.cpp' }
-      result.packages.push(labels[k] || k)
+    // Structured detail for the GPU Profile Overview (installer + dashboard).
+    const detail = {
+      profile: result.profile,
+      python: p.python || '—',
+      torch: COMP_LABEL[p.torch] || p.torch || '—',
+      triton: p.triton ? (COMP_LABEL[p.triton] || p.triton) : '—',
+      sage: p.sage ? (COMP_LABEL[p.sage] || p.sage) : '—',
+      sparge: p.sparge ? (COMP_LABEL[p.sparge] || p.sparge) : '—',
+      flash: p.flash ? (COMP_LABEL[p.flash] || p.flash) : '—',
     }
+    // Kernel wheels as a distinct, clearly-labeled group. Uses kernel-resolver
+    // as the single source of truth for labels + resolved dist names so the
+    // pre-install preview matches the post-install overview card and the sync.
+    for (const k of p.kernels) {
+      const meta = kernelResolver.KERNEL_DISPLAY[k] || { label: k, pipName: k }
+      result.kernels.push({ key: k, label: meta.label, dist: meta.pipName })
+      detail.kernels = (detail.kernels || []).concat(meta.label)
+    }
+    result.detail = detail
     // All profiles get requirements.txt
     result.packages.push('📋 50+ reqs (diffusers, gradio, opencv, moviepy…)')
   }

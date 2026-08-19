@@ -64,6 +64,51 @@ function wheelDistVersion(url) {
 }
 
 /**
+ * GGUF llama.cpp CUDA kernel target version.
+ *
+ * The doc (docs/INSTALLATION.md) documents 1.0.11 as the current wheel. The
+ * wheel IS published — but its build suffix differs from the 1.0.8 entry that
+ * setup_config.json carries: 1.0.8 uses `torch210cu13py311`, 1.0.11 uses
+ * `torch210cu130py311` (CUDA 13.0, not "cu13"). A naive version-number bump on
+ * the URL therefore 404s. So we map to the FULL published URLs (verified 302)
+ * keyed by the profile's torch code, rather than string-surgerying the version.
+ *
+ * @type {string}
+ */
+const GGUF_TARGET_VERSION = '1.0.11'
+
+// Full published wheel URLs for GGUF_TARGET_VERSION, keyed by torch code from
+// setup_config.json's gpu_profiles (cu130 / cu128). Verified live 302 (exists).
+// RTX 20/30/40/50 → cu130; legacy GTX 10/16 → cu128. AMD/Apple have no GGUF wheel.
+const GGUF_TARGET_URLS = {
+  cu130: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.11+torch210cu130py311-cp311-cp311',
+  cu128: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.11+torch271cu128py310-cp310-cp310',
+}
+
+/**
+ * Resolve the GGUF wheel URL for the target version, preserving the platform
+ * suffix (win_amd64 / linux_x86_64) of the profile's own URL.
+ *
+ * @param {string} key kernel profile key (e.g. 'gguf')
+ * @param {string} cmd the setup_config.json wheel URL (e.g. ...1.0.8+torch210cu13py311-...-win_amd64.whl)
+ * @param {string} torchCode profile torch code (e.g. 'cu130', 'cu128'); when
+ *                 omitted, inferred from the cmd URL's `torchNNNcuXXX` segment.
+ * @returns {string} a 1.0.11 URL with the same platform suffix, or the original
+ *          cmd on any mismatch (so install never 404s on an unknown profile).
+ */
+function applyGgufOverride(key, cmd, torchCode) {
+  if (key !== 'gguf' || typeof cmd !== 'string') return cmd
+  const code = torchCode
+    || (/(torch\d+)(cu\d+)/.exec(cmd) && RegExp.$2)
+    || ''
+  const base = GGUF_TARGET_URLS[code]
+  if (!base) return cmd // unknown torch code → fall back to profile's own URL
+  const ext = /\.whl$/i.test(cmd) ? '.whl' : ''
+  const plat = (/-win_amd64/.test(cmd) && 'win_amd64') || (/-linux_x86_64/.test(cmd) && 'linux_x86_64') || 'win_amd64'
+  return `${base}-${plat}${ext}`
+}
+
+/**
  * Resolve the kernel wheels expected for a GPU from setup_config.json.
  *
  * @param {object} cfg parsed setup_config.json
@@ -79,11 +124,17 @@ function resolveKernelWheels(cfg, gpu) {
 
 // pip distribution name → friendly display label + pip install token.
 // `pipName` is what `pip install` / importlib.metadata use (underscores kept).
+// Keys MUST match setup_config.json's gpu_profiles[].kernels entries.
+// nunchaku_cu13 + light2xv are the real keys upstream uses (not bare
+// "nunchaku"/"lightx2v"). pipName is the importlib dist name used to detect
+// the installed version (wheels: nunchaku-1.2.1..., lightx2v_kernel-0.0.2...).
 const KERNEL_DISPLAY = {
+  nunchaku_cu13:       { label: 'Nunchaku',        pipName: 'nunchaku' },
   nunchaku:            { label: 'Nunchaku',        pipName: 'nunchaku' },
   gguf:                { label: 'GGUF (llamacpp)', pipName: 'llamacpp_gguf_cuda' },
   llamacpp_gguf_cuda:  { label: 'GGUF (llamacpp)', pipName: 'llamacpp_gguf_cuda' },
-  lightx2v:            { label: 'LightX2V',        pipName: 'lightx2v' },
+  light2xv:            { label: 'LightX2V',        pipName: 'lightx2v_kernel' },
+  lightx2v_kernel:     { label: 'LightX2V',        pipName: 'lightx2v_kernel' },
   sageattention:       { label: 'SageAttention',   pipName: 'sageattention' },
   spas_sage_attn:      { label: 'Sparge (Sage)',   pipName: 'spas_sage_attn' },
   flash_attn:          { label: 'FlashAttention',  pipName: 'flash_attn' },
@@ -103,13 +154,16 @@ const KERNEL_DISPLAY = {
  */
 function buildOverviewWheels(cfg, gpu, osKey) {
   const { profileKey, kernels } = resolveKernelWheels(cfg, gpu)
+  const profile = (cfg && cfg.gpu_profiles && cfg.gpu_profiles[profileKey]) || null
+  const torchCode = (profile && profile.torch) || null
   const components = (cfg && cfg.components && cfg.components.kernels) || {}
   return kernels.map((name) => {
     const def = KERNEL_DISPLAY[name] || { label: name, pipName: name }
     const cmd = components[name] && components[name].cmd && components[name].cmd[osKey]
+    const url = applyGgufOverride(name, cmd, torchCode) // GGUF → 1.0.11 (doc target)
     let configured = null
-    if (cmd) {
-      const wi = wheelDistVersion(cmd)
+    if (url) {
+      const wi = wheelDistVersion(url)
       if (wi) configured = wi.version
     }
     return { key: name, label: def.label, pipName: def.pipName, configured }
@@ -121,5 +175,7 @@ module.exports = {
   wheelDistVersion,
   resolveKernelWheels,
   buildOverviewWheels,
+  applyGgufOverride,
+  GGUF_TARGET_VERSION,
   KERNEL_DISPLAY,
 }

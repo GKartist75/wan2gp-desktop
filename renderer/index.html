@@ -122,6 +122,22 @@
           <button class="btn btn-primary small" id="xetInstallBtn">Install hf_xet</button>
         </div>
         <div class="settings-section">
+          <h3>GGUF CUDA Kernel</h3>
+          <p class="token-hint">Controls for the <code>llamacpp_gguf_cuda</code> wheel (GGUF models). Applies on next launch. <em>Matmul mode</em> picks the FP16/BF16 multiply policy; <em>Stream-K</em> (default on) enables CUDA-graph-safe Stream-K; <em>BF16→FP16</em> restores the legacy path; <em>Disable</em> turns the GGUF CUDA kernels off entirely.</p>
+          <label class="toggle-row"><input type="checkbox" id="ggufEnabled"> <span>Enable GGUF CUDA kernels</span></label>
+          <div class="token-field" style="margin-top:8px">
+            <label class="token-hint" style="display:block;margin-bottom:4px">Matmul mode</label>
+            <select id="ggufMatmulMode" class="input">
+              <option value="auto">auto (wheel default)</option>
+              <option value="fast">fast</option>
+              <option value="low_vram">low_vram</option>
+            </select>
+          </div>
+          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="ggufStreamK"> <span>Enable Stream-K (CUDA graphs)</span></label>
+          <label class="toggle-row"><input type="checkbox" id="ggufBf16Fp16"> <span>BF16 → FP16 (legacy cuBLAS path)</span></label>
+          <button class="btn btn-primary small" id="ggufSaveBtn" style="margin-top:8px">Save GGUF settings</button>
+        </div>
+        <div class="settings-section">
           <h3>Repair Settings</h3>
           <p class="token-hint">If saving settings in Wan2GP fails with <em>"Value: N is not in the list of choices: [0, 1]"</em>, a saved value is out of range for a dropdown (usually from an older version or imported settings). This scans <code>models/_settings.json</code> and all <code>*_settings.json</code> files and resets out-of-range values to valid ones. Originals are backed up as <code>*.bak-repair</code>.</p>
           <button class="btn btn-primary small" id="repairSettingsBtn" style="margin-top:8px">Scan & Repair Settings</button>
@@ -468,6 +484,22 @@
               <div class="spec-row kernel-empty"><span class="spec-value">No kernel wheels for this GPU profile.</span></div>
             </div>
           </div>
+          <!-- GPU Profile Overview (mirrors setup_config.json gpu_profiles) -->
+          <div class="card kernel-wheels-card" id="dashProfileOverview" style="margin-top:6px">
+            <div class="card-header">
+              <span class="card-title">GPU Profile Overview</span>
+              <span class="env-type-tag" id="dashProfileTag"></span>
+            </div>
+            <div class="env-specs" id="dashProfileGrid">
+              <div class="spec-row"><span class="spec-label">Python</span><span class="spec-value" id="dashPoPython">—</span></div>
+              <div class="spec-row"><span class="spec-label">Torch / CUDA</span><span class="spec-value" id="dashPoTorch">—</span></div>
+              <div class="spec-row"><span class="spec-label">Triton</span><span class="spec-value" id="dashPoTriton">—</span></div>
+              <div class="spec-row"><span class="spec-label">Sage Attn</span><span class="spec-value" id="dashPoSage">—</span></div>
+              <div class="spec-row"><span class="spec-label">Sparge Attn</span><span class="spec-value" id="dashPoSparge">—</span></div>
+              <div class="spec-row"><span class="spec-label">Flash Attn</span><span class="spec-value" id="dashPoFlash">—</span></div>
+              <div class="spec-row"><span class="spec-label">Kernel Wheels</span><span class="spec-value" id="dashPoKernels">—</span></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -653,10 +685,30 @@
         </div>
       </div>
 
+      <!-- GPU Profile Overview (mirrors setup_config.json gpu_profiles) -->
+      <div class="install-profile-overview" id="installProfileOverview" style="display:none">
+        <div class="ipo-header">GPU Profile Overview <span id="ipoProfile" class="ipo-profile-badge"></span></div>
+        <div class="ipo-grid">
+          <div class="ipo-row"><span class="ipo-k">Python</span><span class="ipo-v" id="ipoPython">—</span></div>
+          <div class="ipo-row"><span class="ipo-k">Torch / CUDA</span><span class="ipo-v" id="ipoTorch">—</span></div>
+          <div class="ipo-row"><span class="ipo-k">Triton</span><span class="ipo-v" id="ipoTriton">—</span></div>
+          <div class="ipo-row"><span class="ipo-k">Sage Attn</span><span class="ipo-v" id="ipoSage">—</span></div>
+          <div class="ipo-row"><span class="ipo-k">Sparge Attn</span><span class="ipo-v" id="ipoSparge">—</span></div>
+          <div class="ipo-row"><span class="ipo-k">Flash Attn</span><span class="ipo-v" id="ipoFlash">—</span></div>
+          <div class="ipo-row ipo-kernels"><span class="ipo-k">Kernel Wheels</span><span class="ipo-v" id="ipoKernels">—</span></div>
+        </div>
+      </div>
+
       <!-- Expected packages -->
       <div class="install-pkgs" id="installPkgs" style="display:none">
         <div class="ipkgs-header">Will be installed for your hardware <span id="installPkgsProfile"></span></div>
         <div class="ipkgs-list" id="installPkgsList"></div>
+      </div>
+
+      <!-- Expected kernel wheels (distinct, clearly labeled) -->
+      <div class="install-kernels" id="installKernels" style="display:none">
+        <div class="ipkgs-header">GPU Kernel Wheels <span id="installKernelsProfile"></span></div>
+        <div class="ikernels-list" id="installKernelsList"></div>
       </div>
 
       <!-- Resolved stack (pre-flight) -->

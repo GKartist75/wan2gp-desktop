@@ -13,21 +13,23 @@ const assert = require('node:assert')
 const k = require('../services/kernel-resolver.js')
 
 // Minimal upstream-shaped setup_config.json (only the bits we read).
+// Keys match the REAL upstream gpu_profiles[].kernels entries (nunchaku_cu13,
+// light2xv) — not the bare names the dashboard display layer also accepts.
 const CFG = {
   gpu_profiles: {
-    RTX_20:  { kernels: ['nunchaku', 'gguf'] },
-    RTX_30:  { kernels: ['nunchaku', 'gguf'] },
-    RTX_40:  { kernels: ['nunchaku', 'gguf'] },
-    RTX_50:  { kernels: ['nunchaku', 'lightx2v', 'gguf'] },
-    GTX_10:  { kernels: [] },
+    RTX_20:  { torch: 'cu130', kernels: ['nunchaku_cu13', 'gguf'] },
+    RTX_30:  { torch: 'cu130', kernels: ['nunchaku_cu13', 'gguf'] },
+    RTX_40:  { torch: 'cu130', kernels: ['nunchaku_cu13', 'gguf'] },
+    RTX_50:  { torch: 'cu130', kernels: ['nunchaku_cu13', 'light2xv', 'gguf'] },
+    GTX_10:  { torch: 'cu128', kernels: [] },
     AMD_GFX110X: { kernels: [] },
     MPS:     { kernels: [] },
   },
   components: {
     kernels: {
-      nunchaku:           { cmd: { win: 'https://x/nunchaku-1.2.1+cu130torch2.10-cp311-cp311-win_amd64.whl' } },
-      gguf:               { cmd: { win: 'https://x/llamacpp_gguf_cuda-1.0.11-cp311-cp311-win_amd64.whl' } },
-      lightx2v:           { cmd: { win: 'https://x/lightx2v-0.0.2-cp311-cp311-win_amd64.whl' } },
+      nunchaku_cu13:      { cmd: { win: 'https://x/nunchaku-1.2.1+cu130torch2.10-cp311-cp311-win_amd64.whl' } },
+      gguf:               { cmd: { win: 'https://x/llamacpp_gguf_cuda-1.0.8-cp311-cp311-win_amd64.whl' } },
+      light2xv:           { cmd: { win: 'https://x/lightx2v_kernel-0.0.2-cp311-abi3-win_amd64.whl' } },
     },
   },
 }
@@ -62,19 +64,19 @@ test('wheelDistVersion parses a normal wheel', () => {
 })
 
 // ── buildOverviewWheels: profile-driven, real dist names ──
-test('RTX 50 overview lists nunchaku + lightx2v + gguf with configured versions', () => {
+test('RTX 50 overview lists nunchaku_cu13 + light2xv + gguf with configured versions', () => {
   const wheels = k.buildOverviewWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 5090' }, 'win')
   const keys = wheels.map(w => w.key)
-  assert.deepStrictEqual(keys, ['nunchaku', 'lightx2v', 'gguf'])
+  assert.deepStrictEqual(keys, ['nunchaku_cu13', 'light2xv', 'gguf'])
   const gguf = wheels.find(w => w.key === 'gguf')
   assert.strictEqual(gguf.pipName, 'llamacpp_gguf_cuda', 'uses the CUDA kernel dist, not the `gguf` quant tool')
-  assert.strictEqual(gguf.configured, '1.0.11')
+  assert.ok(gguf.configured.startsWith('1.0.11'), `GGUF shows 1.0.11 (got ${gguf.configured})`)
   assert.strictEqual(gguf.label, 'GGUF (llamacpp)')
 })
 
-test('RTX 40 overview omits lightx2v (RTX 50-only NVFP4 kernel)', () => {
+test('RTX 40 overview omits light2xv (RTX 50-only NVFP4 kernel)', () => {
   const wheels = k.buildOverviewWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 4080' }, 'win')
-  assert.deepStrictEqual(wheels.map(w => w.key), ['nunchaku', 'gguf'])
+  assert.deepStrictEqual(wheels.map(w => w.key), ['nunchaku_cu13', 'gguf'])
 })
 
 test('GTX 10 / AMD / Apple overview is empty (no kernel section shown)', () => {
@@ -92,5 +94,29 @@ test('GTX 10 / AMD / Apple overview is empty (no kernel section shown)', () => {
 test('resolveKernelWheels returns profile key + ordered kernel names', () => {
   const r = k.resolveKernelWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 5090' })
   assert.strictEqual(r.profileKey, 'RTX_50')
-  assert.deepStrictEqual(r.kernels, ['nunchaku', 'lightx2v', 'gguf'])
+  assert.deepStrictEqual(r.kernels, ['nunchaku_cu13', 'light2xv', 'gguf'])
+})
+
+// ── GGUF 1.0.11 override (docs/INSTALLATION.md target) ──
+test('applyGgufOverride maps GGUF to full 1.0.11 URL by torch code, leaves others untouched', () => {
+  const gguf = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.8+torch210cu13py311-cp311-cp311-win_amd64.whl'
+  const win = k.applyGgufOverride('gguf', gguf, 'cu130')
+  assert.ok(win.includes('llamacpp_gguf_cuda-1.0.11+torch210cu130py311'), 'GGUF win URL → 1.0.11 cu130')
+  assert.ok(win.endsWith('-win_amd64.whl'), 'platform suffix preserved')
+  const linux = k.applyGgufOverride('gguf', gguf, 'cu130')
+  // linux source → linux suffix
+  const linuxSrc = gguf.replace('win_amd64', 'linux_x86_64')
+  assert.ok(k.applyGgufOverride('gguf', linuxSrc, 'cu130').endsWith('-linux_x86_64.whl'), 'linux suffix preserved')
+  // cu128 legacy profile
+  const legacy = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.8+torch271cu128py310-cp310-cp310-win_amd64.whl'
+  assert.ok(k.applyGgufOverride('gguf', legacy, 'cu128').includes('1.0.11+torch271cu128py310'), 'cu128 → 1.0.11 cu128')
+  assert.strictEqual(k.GGUF_TARGET_VERSION, '1.0.11')
+  const nunchaku = 'https://github.com/nunchaku-ai/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu13.0torch2.10-cp311-cp311-win_amd64.whl'
+  assert.strictEqual(k.applyGgufOverride('nunchaku_cu13', nunchaku, 'cu130'), nunchaku, 'non-GGUF kernel unchanged')
+})
+
+test('buildOverviewWheels reports GGUF configured version as 1.0.11 (doc target)', () => {
+  const wheels = k.buildOverviewWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 5090' }, 'win')
+  const gguf = wheels.find(w => w.key === 'gguf')
+  assert.ok(gguf.configured.startsWith('1.0.11'), 'overview shows doc-target 1.0.11, not the 1.0.8 profile pin')
 })
