@@ -919,6 +919,9 @@ async function refreshDashboard(){
     setSpec('specBits','dotBits', status.versions?.bitsandbytes, 'bitsandbytes')
     setSpec('specNumpy','dotNumpy', status.versions?.numpy)
     setSpec('specTokenizers','dotTokenizers', status.versions?.tokenizers)
+
+    // ── GPU Kernel Wheels (profile-driven) ──
+    renderKernelWheels(status.kernelWheels, status.kernelProfile, status.osKey)
   }
   const list=$('envList'); list.innerHTML=''
   envs.forEach(e=>{
@@ -951,6 +954,43 @@ async function refreshDashboard(){
     if (btn) btn.disabled = !available
     if (hint) hint.style.display = available ? 'none' : 'block'
   })()
+}
+
+// ── GPU Kernel Wheels card (profile-driven) ──
+// Renders the wheels resolved from setup_config.json for the active GPU:
+// each row shows ✓ (current) / ⚠ (installed, mismatch) / ✗ (not installed).
+// GTX 10/16, AMD, Apple profiles carry no kernels → the whole card hides.
+function renderKernelWheels(wheels, kernelProfile, osKey) {
+  const card = $('kernelWheelsCard')
+  const box = $('kernelWheels')
+  const tag = $('kernelProfileTag')
+  if (!card || !box) return
+  const list = Array.isArray(wheels) ? wheels : []
+  if (!list.length) {
+    card.style.display = 'none'
+    return
+  }
+  card.style.display = ''
+  if (tag && kernelProfile) tag.textContent = kernelProfile
+  box.innerHTML = ''
+  list.forEach(w => {
+    const row = document.createElement('div')
+    row.className = 'spec-row'
+    const dot = document.createElement('span')
+    dot.className = 'spec-dot'
+    const state = w.state || (w.installed ? (w.installed === w.configured ? 'ok' : 'mismatch') : 'missing')
+    dot.classList.add(state === 'ok' ? 'installed' : (state === 'mismatch' ? 'error' : ''))
+    const label = document.createElement('span')
+    label.className = 'spec-label'
+    label.textContent = w.label
+    const val = document.createElement('span')
+    val.className = 'spec-value'
+    if (state === 'ok') val.textContent = w.installed
+    else if (state === 'mismatch') val.textContent = `${w.installed} → ${w.configured}`
+    else val.textContent = `not installed (want ${w.configured || '?'})`
+    row.appendChild(label); row.appendChild(dot); row.appendChild(val)
+    box.appendChild(row)
+  })
 }
 
 // ── Env unlink button visibility ──
@@ -1082,6 +1122,26 @@ $('checkPkgUpdatesBtn').addEventListener('click', async function() {
     }
   })
   showToast(updateCount > 0 ? updateCount + ' updates available' : 'All packages up to date')
+})
+
+// ── GPU Kernel Wheels: Sync button ──
+// Reinstalls every kernel wheel the active GPU's profile declares. Streams to
+// the Console; refreshes the dashboard when done so versions update live.
+$('syncKernelsBtn')?.addEventListener('click', async function() {
+  if (this.disabled) return
+  this.disabled = true
+  this.textContent = 'Syncing...'
+  try {
+    const r = await window.w2gp.syncKernels()
+    if (r && r.success) showToast('✓ Kernel wheels synced')
+    else showToast('✗ Sync failed: ' + (r && r.error ? r.error : 'unknown'))
+  } catch (e) {
+    showToast('✗ Sync failed: ' + e.message)
+  } finally {
+    this.disabled = false
+    this.textContent = '↻ Sync'
+    setTimeout(refreshDashboard, 1500)
+  }
 })
 
 async function loadModelPaths() {

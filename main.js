@@ -12,6 +12,7 @@ const autoTune = require('./services/auto-tune.js')
 const memoryProfile = require('./services/memory-profile.js')
 const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
+const kernelResolver = require('./services/kernel-resolver.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -1311,9 +1312,11 @@ ipcMain.handle('get-status', async () => {
       'import sys, importlib.metadata',
       "aliases = {'triton': 'triton-windows', 'opencv-python': 'opencv',",
       "          'spas_sage_attn': 'spas-sage-attn', 'huggingface_hub': 'huggingface-hub'}",
+      "# Kernel wheels queried by REAL importlib.dist names (not the PyPI `gguf` quant-tool alias): GGUF's CUDA kernel is llamacpp_gguf_cuda.",
       "pkgs = ['python','torch','triton','sageattention','spas_sage_attn','flash_attn',",
+      "        'nunchaku','llamacpp_gguf_cuda','lightx2v',",
       "        'diffusers','transformers','gradio','accelerate','onnxruntime','xformers',",
-      "        'nunchaku','gguf','mmgp','moviepy','opencv-python','insightface',",
+      "        'mmgp','moviepy','opencv-python','insightface',",
       "        'peft','timm','vector_quantize_pytorch','torchcodec','torchaudio',",
       "        'huggingface_hub','bitsandbytes','numpy','sentencepiece','open_clip_torch',",
       "        'imageio','einops','librosa','soundfile','tokenizers','av']",
@@ -1338,9 +1341,39 @@ ipcMain.handle('get-status', async () => {
     const parts = out.split('||')
     const versions = {}
     parts.forEach(p => { const [k, v] = p.split('='); versions[k] = v })
-    return { env, versions }
-  } catch (e) { return { env, versions: { error: e.message } } }
+    // Profile-driven kernel-wheel overview: derive the expected kernels from the
+    // SAME setup_config.json the installer uses, so the dashboard can never drift
+    // from what's actually installed. GTX 10/16, AMD, Apple profiles carry no
+    // kernels → kernelWheels is [] and the UI hides the whole section.
+    let kernelWheels = []
+    let kernelProfile = null
+    try {
+      const cfgPath = path.join(getRepoDir(), 'setup_config.json')
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+        const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
+        kernelProfile = kernelResolver.kernelProfileKey(gpu)
+        kernelWheels = kernelResolver.buildOverviewWheels(cfg, gpu, IS_WIN ? 'win' : 'linux')
+        // Annotate each wheel with what's actually installed (if anything).
+        for (const w of kernelWheels) {
+          const have = await installedPkgVersion(py, w.pipName).catch(() => null)
+          w.installed = have
+          w.state = have ? (have === w.configured ? 'ok' : 'mismatch') : 'missing'
+        }
+      }
+    } catch (e) { console.warn('[get-status] kernel overview failed:', e.message) }
+    return { env, versions, kernelWheels, kernelProfile, osKey: IS_WIN ? 'win' : 'linux' }
+  } catch (e) { return { env, versions: { error: e.message }, kernelWheels: [], kernelProfile: null } }
 })
+
+// Self-healing kernel sync: (re)install every kernel wheel the active GPU's
+// profile declares in setup_config.json. Mirrors the install-time syncKernelWheels
+// but is user-triggered from the dashboard. Streams progress to the Console.
+ipcMain.handle('sync-kernels', async () => mutating('sync-kernels', async () => {
+  const log = (m) => send('launch-log', m.endsWith('\n') ? m : m + '\n')
+  await syncKernelWheels(log)
+  return { success: true }
+}))
 
 // Quick port check — true if something is listening
 function checkPort(host, port, timeoutMs = 2000) {
@@ -2005,42 +2038,10 @@ ipcMain.handle('bv-set-zoom', (_, factor) => {
 // installs from), resolves the GPU profile exactly like setup.py, and
 // pip-installs each kernel wheel whose version differs from what's installed.
 // No-op for GTX 10/16, AMD, Apple (their profiles carry no kernel wheels).
-function kernelProfileKey(gpu) {
-  const g = (gpu.name || '').toUpperCase()
-  const vendor = (gpu.vendor || '').toUpperCase()
-  if (vendor === 'APPLE') return 'MPS'
-  if (vendor === 'NVIDIA') {
-    if (/ (10|16)\d{2}/.test(g)) return 'GTX_10' // GTX 10/16 → cu128, no kernel wheels
-    if (g.includes('50')) return 'RTX_50'
-    if (g.includes('40')) return 'RTX_40'
-    if (g.includes('30')) return 'RTX_30'
-    if (g.includes('20') || g.includes('QUADRO')) return 'RTX_20'
-    return 'GTX_10'
-  }
-  if (vendor === 'AMD') {
-    // RDNA 3 desktop (gfx110X):
-    if (/7600|7700|7800|7900|780M/.test(g)) return 'AMD_GFX110X'
-    // RDNA 3.5 APUs (gfx1150/1151): Strix Halo, Strix Point 890M, Z1/Phoenix
-    // (matches AMD-INSTALLATION.md — RX 890M + Strix Halo are listed as supported)
-    if (/890M|STRIX|HALO|Z1|PHOENIX|7000/.test(g)) return 'AMD_GFX1151'
-    // RDNA 4 (gfx120X): RX 9060/9070 — upstream's old mapping missed these
-    // (they fell back to GFX110X, so no HSA override was applied)
-    if (/9000|9060|9070|8000|1201/.test(g)) return 'AMD_GFX1201'
-    return 'AMD_GFX110X'
-  }
-  return 'RTX_40' // setup.py default fallback for unknown/Intel
-}
-
-// Parse a wheel URL (`<dist>-<version>-cpNN-...-win_amd64.whl`) into
-// { dist, version } so a configured wheel can be compared with what's installed.
-function wheelDistVersion(url) {
-  try {
-    const base = url.split('/').pop().replace(/\.whl$/i, '')
-    const m = /^(.+?)-(\d[^-]*?)-(?:cp|py)\d/.exec(base)
-    if (!m) return null
-    return { dist: m[1].replace(/_/g, '-'), version: m[2] }
-  } catch { return null }
-}
+// kernelProfileKey + wheelDistVersion now live in services/kernel-resolver.js
+// (single source of truth, unit-tested). Re-exported here so the rest of main.js
+// keeps calling them under the same names.
+const { kernelProfileKey, wheelDistVersion } = kernelResolver
 
 /** Installed version of a distribution via importlib.metadata, or null. */
 function installedPkgVersion(py, dist) {

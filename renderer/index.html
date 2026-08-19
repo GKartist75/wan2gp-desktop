@@ -456,6 +456,18 @@
             <input type="text" id="pipInput" class="pip-input" placeholder="package name (e.g. triton)" spellcheck="false">
             <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
           </div>
+          <!-- GPU Kernel Wheels: profile-driven (RTX 20-50 show nunchaku/gguf,
+               RTX 50 adds lightx2v; GTX10/AMD/Apple show no section). -->
+          <div class="card kernel-wheels-card" id="kernelWheelsCard" style="margin-top:6px">
+            <div class="card-header">
+              <span class="card-title">GPU Kernel Wheels</span>
+              <span class="env-type-tag" id="kernelProfileTag"></span>
+              <button class="btn btn-ghost small" id="syncKernelsBtn" title="Reinstall all kernel wheels for this GPU" style="margin-left:auto">↻ Sync</button>
+            </div>
+            <div class="env-specs" id="kernelWheels">
+              <div class="spec-row kernel-empty"><span class="spec-value">No kernel wheels for this GPU profile.</span></div>
+            </div>
+          </div>
         </div>
       </div>
 

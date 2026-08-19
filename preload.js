@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Status
   getStatus: () => ipcRenderer.invoke('get-status'),
+  syncKernels: () => ipcRenderer.invoke('sync-kernels'),
 
   // Run
   launch: (mode) => ipcRenderer.invoke('launch', mode),
