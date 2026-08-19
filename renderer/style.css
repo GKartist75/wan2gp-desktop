@@ -287,20 +287,19 @@ body {
 }
 .spec-free { font-size: 0.55rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; margin-left: 2px; }
 
-/* ── Dashboard Layout ── */
+/* ── Dashboard Layout ──
+   Flexbox (not grid) for the two columns: flex items physically cannot
+   overlap or escape their track, which is the most robust two-column that
+   survives any child overflow. Each column clips its own overflow. */
 .dash-body {
-  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 14px; padding: 14px; overflow: hidden; min-height: 0;
+  flex: 1; display: flex; gap: 14px; padding: 14px; overflow: hidden; min-height: 0;
 }
-/* Hard clip each column to its own grid track so no child can bleed into the
-   neighbour (the "2nd column behind 1st" overlap). overflow-x:hidden is the
-   definitive guard; overflow-y:auto keeps long content scrollable. */
 .col-left, .col-right {
   display: flex; flex-direction: column; gap: 10px;
   min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
 }
-.col-left { gap: 10px; }
-.col-right { gap: 6px; }
+.col-left  { flex: 1 1 33%; }
+.col-right { flex: 2 1 66%; gap: 6px; }
 .col-left > .card, .col-right > .card { min-width: 0; }
 
 /* ── Env Card ── */

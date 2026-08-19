@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../renderer/style.css"></head>
+<body>
+<div id="app">
+  <div id="dashboard" class="screen active">
+    <div class="topbar"></div>
+    <div class="dash-body" id="dashBody">
+      <div class="col-left">
+        <div class="card"><div class="card-header"><span class="card-title">System</span></div><div class="spec-grid"></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">Paths</span></div><div class="paths-grid"></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">Model Folders</span></div><div class="paths-grid"></div></div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Active Environment</span></div>
+          <div class="env-detail"><div class="env-name-row"><span class="env-name">env_uv</span></div>
+            <div class="env-specs" id="envSpecs"></div></div>
+          <div class="env-subsection" id="kernelWheelsSubsection"><div class="subsection-header"><span class="subsection-title">GPU Kernel Wheels</span></div><div class="env-specs" id="kernelWheels"></div></div>
+          <div class="env-subsection" id="dashProfileOverview"><div class="subsection-header"><span class="subsection-title">GPU Profile Overview</span></div><div class="env-specs" id="dashProfileGrid"></div></div>
+        </div>
+        <div class="env-list" id="envList"></div>
+        <div class="pip-install-row"><input class="pip-input"><button class="pip-install-btn">pip install</button></div>
+      </div>
+      <div class="col-right">
+        <button class="launch-btn launch-amber" id="browserBtn">Launch</button>
+        <div class="card changelog-card"><div class="card-header"><span class="card-title">Updates</span></div><div class="changelog-list" id="updatesList"></div></div>
+        <div class="links-bar"></div>
+        <div class="card dash-term-card" id="dashTermCard" style="flex:1;display:flex;flex-direction:column"><div class="card-header"><span class="card-title">Console</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const db = document.getElementById('dashBody').getBoundingClientRect();
+  const L = document.querySelector('.col-left').getBoundingClientRect();
+  const R = document.querySelector('.col-right').getBoundingClientRect();
+  const out = {
+    dashBody: {x:Math.round(db.x),w:Math.round(db.width)},
+    colLeft:  {x:Math.round(L.x),w:Math.round(L.w),right:Math.round(L.right)},
+    colRight: {x:Math.round(R.x),w:Math.round(R.w),left:Math.round(R.left),right:Math.round(R.right)},
+    overlap: L.right > R.left && R.left < L.right
+  };
+  window.__LAYOUT__ = out;
+  document.title = 'RESULT:' + JSON.stringify(out);
+</script>
+</body></html>
