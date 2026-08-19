@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/settings-repair.test.js tests/auto-tune.test.js tests/signpath-sign.test.js tests/escape.test.js tests/memory-profile.test.js tests/queue-notifier.test.js tests/install-plan.test.js tests/kernel-resolver.test.js",
+    "test": "node --test tests/*.test.js",
+    "test:renderer": "node --test tests/renderer-html.test.js tests/renderer-contract.test.js",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "publish:win": "electron-builder --win --publish always",
@@ -22,7 +23,8 @@
   },
   "devDependencies": {
     "electron": "^40.4.1",
-    "electron-builder": "^26.7.0"
+    "electron-builder": "^26.7.0",
+    "jsdom": "^30.0.1"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
