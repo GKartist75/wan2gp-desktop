@@ -1155,7 +1155,7 @@ async function forceRemoveRepo(repo, log, keepFolders) {
   const rmRetry = async (p) => {
     let lastErr = null
     for (let i = 0; i < 20; i++) {
-      try { fs.rmSync(p, { recursive: true, force: true }); return null } catch (e) { lastErr = e }
+      try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); return null } catch (e) { lastErr = e }
       // Antivirus scanning a freshly installed venv can hold a directory for
       // several seconds — wait it out instead of giving up. A killed process can
       // also be slow to release its handles; re-poll it here too.
@@ -1164,6 +1164,22 @@ async function forceRemoveRepo(repo, log, keepFolders) {
       }
       await sleep(1000)
     }
+    // One stubborn locked SUBDIR (e.g. .git with an index/lock held by an AV or
+    // a lingering git process) must not fail the whole item. Sweep the entry's
+    // children individually so a single locked handle can't block the rest.
+    try {
+      const entries = fs.readdirSync(p, { withFileTypes: true })
+      for (const ent of entries) {
+        const ep = path.join(p, ent.name)
+        for (let i = 0; i < 10; i++) {
+          try { fs.rmSync(ep, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); break } catch { await sleep(600) }
+        }
+      }
+      // Re-attempt the container now that children are gone.
+      for (let i = 0; i < 10; i++) {
+        try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); return null } catch { await sleep(600) }
+      }
+    } catch (e) { lastErr = e }
     return lastErr
   }
   let ok = true
