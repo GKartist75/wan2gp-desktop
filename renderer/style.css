@@ -289,11 +289,12 @@ body {
 
 /* ── Dashboard Layout ── */
 .dash-body {
-  flex: 1; display: grid; grid-template-columns: 1fr 2fr;
+  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: 14px; padding: 14px; overflow: hidden; min-height: 0;
 }
-.col-left { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
-.col-right { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; }
+.col-left { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-width: 0; }
+.col-right { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; min-width: 0; }
+.col-left > .card, .col-right > .card { min-width: 0; }
 
 /* ── Env Card ── */
 .env-detail { margin-top: 10px; }
