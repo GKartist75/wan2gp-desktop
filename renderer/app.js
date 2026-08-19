@@ -275,6 +275,9 @@ function openSettings() {
     if (share) share.checked = cfg.share === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
     loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
+    // Bind Address picker: reflect saved choice (default localhost)
+    const sn = $('serverNameSelect')
+    if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
   })
   loadBrowserList()
   // Check hf_xet install status
@@ -1904,6 +1907,14 @@ $('gpuDeviceSaveBtn')?.addEventListener('click', async () => {
   cfg.gpuDevice = val
   await window.w2gp.configSave(cfg)
   showToast(val === 'auto' ? 'GPU device set to Auto' : 'GPU device set to ' + val + ' (applies on next launch)')
+})
+// Bind Address picker — mirror of gpuDevice picker
+$('serverNameSaveBtn')?.addEventListener('click', async () => {
+  const val = $('serverNameSelect')?.value || 'localhost'
+  const cfg = await window.w2gp.configLoad()
+  cfg.serverName = val
+  await window.w2gp.configSave(cfg)
+  showToast('Bind address set to ' + val + ' (applies on next launch)')
 })
 $('cliDocsLink')?.addEventListener('click', (e) => {
   e.preventDefault()
