@@ -378,8 +378,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (verEl) verEl.textContent = v
     var appVerEl = $('appVersionTag')
     if (appVerEl) appVerEl.textContent = 'v' + v
-    var desktopVerEl = $('desktopVersionNum')
-    if (desktopVerEl) desktopVerEl.textContent = v
   })
   setupScrollUnfollow('termBody','dashTermFollowBtn')
   setupScrollUnfollow('installTermBody','installFollowBtn')
@@ -940,7 +938,6 @@ async function refreshDashboard(){
   })
   loadWangpChangelog()
   loadPaths()
-  loadDesktopInfo()
   loadModelPaths()
   document.querySelectorAll('.env-detail .spec-row').forEach(function(r) { r.classList.remove('has-update','up-to-date') })
   $('checkPkgUpdatesBtn').textContent = '↻ Check Updates'
@@ -1112,23 +1109,6 @@ $('dashBrowseOutput').addEventListener('click', async () => {
   $('dashOutputPath').textContent = breakPath(dir); $('dashOutputPath').title = dir
   await window.w2gp.writeWgpConfig({ savePath: dir })
 })
-
-async function loadDesktopInfo() {
-  const info = await window.w2gp.getDesktopGitInfo()
-  const hashEl = $('desktopLocalCommit')
-  const msgEl = $('desktopCommitMsg')
-  if (info && info.hash) {
-    if (hashEl) hashEl.textContent = info.hash
-    if (msgEl) msgEl.textContent = info.message || ''
-  } else {
-    if (hashEl) hashEl.textContent = '(not in git)'
-    if (msgEl) msgEl.textContent = ''
-  }
-  window.w2gp.getDesktopVersion().then(function(v) {
-    var verEl = $('desktopVersionNum')
-    if (verEl && v) verEl.textContent = v
-  })
-}
 
 $('desktopRepoLink').addEventListener('click', (e) => {
   e.preventDefault()
