@@ -275,6 +275,9 @@ function openSettings() {
     if (share) share.checked = cfg.share === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
     loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
+    // Bind Address picker: reflect saved choice (default localhost)
+    const sn = $('serverNameSelect')
+    if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
   })
   loadBrowserList()
   // Check hf_xet install status
@@ -375,8 +378,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (verEl) verEl.textContent = v
     var appVerEl = $('appVersionTag')
     if (appVerEl) appVerEl.textContent = 'v' + v
-    var desktopVerEl = $('desktopVersionNum')
-    if (desktopVerEl) desktopVerEl.textContent = v
   })
   setupScrollUnfollow('termBody','dashTermFollowBtn')
   setupScrollUnfollow('installTermBody','installFollowBtn')
@@ -937,7 +938,6 @@ async function refreshDashboard(){
   })
   loadWangpChangelog()
   loadPaths()
-  loadDesktopInfo()
   loadModelPaths()
   document.querySelectorAll('.env-detail .spec-row').forEach(function(r) { r.classList.remove('has-update','up-to-date') })
   $('checkPkgUpdatesBtn').textContent = '↻ Check Updates'
@@ -1109,23 +1109,6 @@ $('dashBrowseOutput').addEventListener('click', async () => {
   $('dashOutputPath').textContent = breakPath(dir); $('dashOutputPath').title = dir
   await window.w2gp.writeWgpConfig({ savePath: dir })
 })
-
-async function loadDesktopInfo() {
-  const info = await window.w2gp.getDesktopGitInfo()
-  const hashEl = $('desktopLocalCommit')
-  const msgEl = $('desktopCommitMsg')
-  if (info && info.hash) {
-    if (hashEl) hashEl.textContent = info.hash
-    if (msgEl) msgEl.textContent = info.message || ''
-  } else {
-    if (hashEl) hashEl.textContent = '(not in git)'
-    if (msgEl) msgEl.textContent = ''
-  }
-  window.w2gp.getDesktopVersion().then(function(v) {
-    var verEl = $('desktopVersionNum')
-    if (verEl && v) verEl.textContent = v
-  })
-}
 
 $('desktopRepoLink').addEventListener('click', (e) => {
   e.preventDefault()
@@ -1904,6 +1887,14 @@ $('gpuDeviceSaveBtn')?.addEventListener('click', async () => {
   cfg.gpuDevice = val
   await window.w2gp.configSave(cfg)
   showToast(val === 'auto' ? 'GPU device set to Auto' : 'GPU device set to ' + val + ' (applies on next launch)')
+})
+// Bind Address picker — mirror of gpuDevice picker
+$('serverNameSaveBtn')?.addEventListener('click', async () => {
+  const val = $('serverNameSelect')?.value || 'localhost'
+  const cfg = await window.w2gp.configLoad()
+  cfg.serverName = val
+  await window.w2gp.configSave(cfg)
+  showToast('Bind address set to ' + val + ' (applies on next launch)')
 })
 $('cliDocsLink')?.addEventListener('click', (e) => {
   e.preventDefault()

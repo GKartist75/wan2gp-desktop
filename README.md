@@ -173,9 +173,10 @@ generation uses. Explicit values in Extra Launch Args always win.
 > used to look "still running" forever — Chromium throttles timers in the
 > embedded Wan2GP page when the window is in the background, so the queue panel
 > froze even though the server kept processing. The embedded page is no longer
-> throttled while hidden, and the queue panel re-syncs automatically when you
-> restore the window (only when a queue was actually running — it never reloads
-> over a page you're typing into). Upstream kernel-wheel bumps (like the GGUF
+> throttled while hidden, so the queue panel updates live even when the window
+> is in the background — and the page is never auto-reloaded, so your in-progress
+> inputs (prompt, reference media, settings) are never lost on window restore.
+> Upstream kernel-wheel bumps (like the GGUF
 > llama.cpp CUDA kernels **1.0.8** — accurate native BF16, lower VRAM,
 > CUDA-graph-safe Stream-K) are now pulled automatically on **install and
 > update**, so the correct wheels are always installed.

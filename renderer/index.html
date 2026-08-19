@@ -136,7 +136,7 @@
         <div class="settings-section">
           <h3>Share Link</h3>
           <label class="toggle-row"><input type="checkbox" id="shareToggle"> <span>Enable public share link (<code>--share</code>)</span></label>
-          <p class="token-hint">When localhost is not accessible (e.g., due to proxy/VPN), Gradio requires <code>share=True</code> to create a publicly accessible tunnel URL via Gradio's servers. Enable this if you see the error "<em>When localhost is not accessible, a shareable link must be created</em>" when launching. <strong>Note:</strong> This makes your server accessible from the internet.</p>
+          <p class="token-hint">If you see the error "<em>When localhost is not accessible, a shareable link must be created</em>" when launching, that is Gradio's IPv4/IPv6 self-check failing — fix it first with <strong>Bind Address &rarr; localhost</strong> (below) or by adding <code>--server-name localhost</code> to Extra Launch Args. Only if that does not help, enable this to create a public Gradio tunnel (your server becomes reachable from the internet).</p>
         </div>
         <div class="settings-section">
           <h3>Extra Launch Args</h3>
@@ -161,6 +161,17 @@
               <button class="btn btn-primary small" id="gpuDeviceSaveBtn">Save</button>
             </div>
             <p class="token-hint">On machines with multiple GPUs (integrated + dedicated, or dual NVIDIA), choose which one runs generation. Passed as <code>--gpu cuda:N</code> on launch. Changes apply on next launch.</p>
+          </div>
+          <div class="settings-section" style="margin-top:12px">
+            <h3>Bind Address</h3>
+            <div class="token-field">
+              <select id="serverNameSelect" class="input" style="max-width:360px">
+                <option value="localhost">localhost (recommended)</option>
+                <option value="127.0.0.1">127.0.0.1 (IPv4 only)</option>
+              </select>
+              <button class="btn btn-primary small" id="serverNameSaveBtn">Save</button>
+            </div>
+            <p class="token-hint">Address Wan2GP binds and connects to. <code>localhost</code> resolves to whatever your PC uses (IPv4 or IPv6) and matches Gradio's own startup check — use it if you saw "When localhost is not accessible…". <code>127.0.0.1</code> is a strict-IPv4 fallback for proxy/VPN setups. Changes apply on next launch.</p>
           </div>
           <p class="token-hint">Arguments passed to <code>wgp.py</code> on launch. See <a href="#" id="cliDocsLink">CLI docs</a> for all options. Changes apply on next launch.</p>
           <details class="launch-args-help">
@@ -510,25 +521,13 @@
           </div>
         </div>
 
-        <!-- Desktop App Info -->
-        <div class="card changelog-card">
-          <div class="card-header">
-            <span class="card-title">Desktop App</span>
-            <span class="local-commit">v<span id="desktopVersionNum">—</span> <span id="desktopLocalCommit"></span></span>
-          </div>
-          <div class="changelog-list" id="desktopUpdatesList">
-            <div class="cl-item">
-              <span class="cl-date">Commit</span>
-              <span class="cl-msg" id="desktopCommitMsg">—</span>
-            </div>
-            <div class="changelog-footer">
-              <a href="#" id="desktopRepoLink" class="changelog-link">GKartist75/wan2gp-desktop →</a>
-              <span class="changelog-sep">·</span>
-              <a href="#" id="discussionsLink" class="changelog-link">💬 Discussions</a>
-              <span class="changelog-sep">·</span>
-              <a href="#" id="ytLink" class="changelog-link">▶ YouTube</a>
-            </div>
-          </div>
+        <!-- Desktop links bar (relocated from removed Desktop App info card) -->
+        <div class="links-bar">
+          <a href="#" id="desktopRepoLink" class="changelog-link">GKartist75/wan2gp-desktop →</a>
+          <span class="changelog-sep">·</span>
+          <a href="#" id="discussionsLink" class="changelog-link">💬 Discussions</a>
+          <span class="changelog-sep">·</span>
+          <a href="#" id="ytLink" class="changelog-link">▶ YouTube</a>
         </div>
 
         <!-- Terminal card - fills remaining space (sibling of Desktop App card) -->

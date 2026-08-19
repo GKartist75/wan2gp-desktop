@@ -567,7 +567,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true }
 }
 
 function saveConfig(cfg) {
@@ -1376,11 +1376,14 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   // Ensure --server-port in args
   const hasPort = extraArgs.some(a => a === '--server-port')
   if (!hasPort) { extraArgs.push('--server-port', String(preferredPort)) }
-  // Ensure --server-name is set (default 127.0.0.1 to avoid proxy/DNS issues that
-  // cause Gradio 5.x to raise "When localhost is not accessible, a shareable link
-  // must be created…" — see gradio-app/gradio#4046)
+  // Ensure --server-name is set. Default 'localhost' (user-selectable in Manage →
+  // Launch → Bind Address) so the bind address matches Gradio's own self-check
+  // target on every machine — including IPv6-first boxes where 'localhost' resolves
+  // to ::1 first. A literal 127.0.0.1 bind fails Gradio's localhost check there
+  // ("When localhost is not accessible…"). User-supplied --server-name (in Extra
+  // Launch Args) always wins over this default.
   const hasServerName = extraArgs.some(a => a === '--server-name')
-  if (!hasServerName) { extraArgs.push('--server-name', '127.0.0.1') }
+  if (!hasServerName) { extraArgs.push('--server-name', (cfg.serverName || 'localhost')) }
   // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
   if (cfg.share && !extraArgs.some(a => a === '--share')) {
     extraArgs.push('--share')
@@ -1406,7 +1409,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   // If already running (e.g. from Desktop mode), just connect
   if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Opening browser...\n`)
-    return { url: `http://127.0.0.1:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
   }
 
   send('launch-log', '[*] Starting Wan2GP...\n')
@@ -1693,7 +1696,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         sock.connect(port, '127.0.0.1')
       }, 8000)
     }
-    return { url: `http://127.0.0.1:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
   } catch (err) {
     // Never leave an orphaned server process holding the port: waitForPort
     // threw before the close handler could reap the child (browser mode).
@@ -1713,7 +1716,10 @@ ipcMain.handle('launch-webview', async () => {
   let port = cfg.serverPort || 7860
   const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
   if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
-  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', '127.0.0.1')
+  // Bind address: user-selectable (cfg.serverName, default 'localhost'). 'localhost'
+  // matches Gradio's localhost self-check target on both IPv4-first and IPv6-first
+  // machines; 127.0.0.1 is a strict-IPv4 fallback. See launch handler above.
+  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', (cfg.serverName || 'localhost'))
   // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
   if (cfg.share && !extraArgs.some(a => a === '--share')) {
     extraArgs.push('--share')
@@ -1733,7 +1739,7 @@ ipcMain.handle('launch-webview', async () => {
   // If already running (e.g. from browser launch), just connect
   if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Connecting...\n`)
-    return { url: `http://127.0.0.1:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
@@ -1751,7 +1757,7 @@ ipcMain.handle('launch-webview', async () => {
       ...(cfg.hfToken ? { HF_TOKEN: cfg.hfToken, HUGGINGFACE_HUB_TOKEN: cfg.hfToken } : {}) }
   })
   _wangpProc = proc
-  proc.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s); stampQueueActivity(s) } })
+  proc.stdout.on('data', d => { const s = d.toString(); if (s) { send('launch-log', s) } })
   proc.stderr.on('data', d => { 
     const s = d.toString();
     if (s) {
@@ -1766,7 +1772,7 @@ ipcMain.handle('launch-webview', async () => {
     await waitForPort('127.0.0.1', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
-    return { url: `http://127.0.0.1:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
   } catch (err) { killProcessTree(_wangpProc); _wangpProc = null; throw err }
 })
 
@@ -1907,35 +1913,6 @@ ipcMain.handle('reattach-browser-view', () => {
     return { success: true }
   } catch (e) { return { error: e.message } }
 })
-
-// ── Embedded-view re-sync on window restore ──
-// With backgroundThrottling disabled the embedded page keeps receiving queue
-// updates while hidden, but a page suspended long enough (or whose SSE stream
-// hiccuped) can still fall behind the server: the queue panel then shows a
-// finished queue as "still running". On restore after a meaningful absence,
-// reload the embedded view so the queue re-syncs with the server — the server
-// itself is untouched, so a running generation is unaffected (same principle as
-// the crash-watchdog reload). Gated so we never reload a page the user was
-// actively typing into (only fires when a queue event was seen while hidden).
-let _winHiddenAt = 0
-const BV_RESYNC_MIN_HIDDEN_MS = 30 * 1000 // ignore quick alt-tab/minimize blips
-let _bvLastResync = 0
-
-function maybeResyncEmbeddedView() {
-  const now = Date.now()
-  const hiddenAt = _winHiddenAt
-  _winHiddenAt = 0
-  if (!hiddenAt || now - hiddenAt < BV_RESYNC_MIN_HIDDEN_MS) return
-  // Queue activity must have occurred while the window was away — otherwise the
-  // user was just idle (or typing) and a reload would discard their in-page state.
-  if (_lastQueueActivityAt < hiddenAt - 5000) return
-  if (!_bv || !_bvUrl || !mainWin || mainWin.isDestroyed()) return
-  if (!mainWin.getBrowserViews().includes(_bv)) return // only embedded (desktop) mode
-  if (now - _bvLastResync < 5000) return // never double-reload (restore+show can both fire)
-  _bvLastResync = now
-  send('launch-log', '[*] Launcher window restored — reloading embedded Wan2GP view to re-sync the queue.\n')
-  try { _bv.webContents.loadURL(_bvUrl) } catch (e) { logError('bv-resync', e) }
-}
 
 // ── Floating-terminal window (a SEPARATE, movable BrowserWindow) ──
 // For the 'floating' dock the console must be a real window so it can be dragged onto another
@@ -3125,7 +3102,7 @@ ipcMain.handle('create-desktop-shortcut', () => {
         if (fs.existsSync(activateScript)) activate = 'source "' + activateScript + '"'
       }
       const hasServerName = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--server-name')
-      const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
+      const serverNameArg = hasServerName ? '' : ' --server-name ' + (cfg.serverName || 'localhost')
       const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
       const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
       // First Block Cache / advanced UI (upstream parity) — see launch handler.
@@ -3217,9 +3194,11 @@ ipcMain.handle('create-desktop-shortcut', () => {
     batContent += 'echo.\n'
     batContent += 'echo Starting wgp.py in background...\n'
     // Run wgp.py in background so we can monitor + open browser when ready
-    // Ensure --server-name is set (default 127.0.0.1 to avoid proxy/localhost Gradio issues)
+    // Ensure --server-name is set. Default from cfg.serverName (user-selectable
+    // Manage → Launch → Bind Address, default 'localhost'); 127.0.0.1 is the
+    // strict-IPv4 fallback. Matches Gradio's localhost self-check target.
     const hasServerName = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--server-name')
-    const serverNameArg = hasServerName ? '' : ' --server-name 127.0.0.1'
+    const serverNameArg = hasServerName ? '' : ' --server-name ' + (cfg.serverName || 'localhost')
     const hasShare = extraArgs.split(/\s+/).filter(Boolean).some(a => a === '--share')
     const shareArg = (!hasShare && cfg.share) ? ' --share' : ''
     // First Block Cache / advanced UI (upstream parity) — see launch handler.
@@ -3937,21 +3916,8 @@ function resolveApprise() {
   return 'apprise'
 }
 
-// Queue-activity stamp (independent of notifier/pulsebar config): every queue
-// progress/completion event updates this timestamp. The embedded-view re-sync
-// uses it to reload the Wan2GP page on window restore ONLY when a queue was
-// running while the window was hidden — never clobber a page the user may have
-// been typing a prompt into.
-let _lastQueueActivityAt = 0
-const _activityState = { lastPercent: null }
-function stampQueueActivity(text) {
-  const lines = String(text).split('\n')
-  if (queueNotifier.detectEvents(lines, _activityState).length > 0) _lastQueueActivityAt = Date.now()
-}
-
 // Fire notifications for notable Wan2GP log events (called from the launch-log stream).
 function notifyFromLog(text) {
-  stampQueueActivity(text)
   const cfg = getNotifierConfig()
   if (cfg.enabled && cfg.url) {
     const lines = String(text).split('\n')
@@ -4511,10 +4477,9 @@ function createWindow() {
   mainWin.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); app.quit() }
   })
-  mainWin.on('show', () => { updateTrayMenu(); maybeResyncEmbeddedView() })
-  mainWin.on('hide', () => { updateTrayMenu(); _winHiddenAt = Date.now() })
-  mainWin.on('minimize', () => { _winHiddenAt = Date.now() })
-  mainWin.on('restore', () => maybeResyncEmbeddedView())
+  mainWin.on('show', () => { updateTrayMenu() })
+  mainWin.on('hide', () => { updateTrayMenu() })
+  mainWin.on('minimize', () => {})
 
   mainWin.on('closed', () => { mainWin = null })
 }
