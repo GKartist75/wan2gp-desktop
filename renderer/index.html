@@ -467,16 +467,11 @@
               <div class="spec-row"><span class="spec-label">Tokenizers</span><span class="spec-dot" id="dotTokenizers"></span><span class="spec-value" id="specTokenizers">—</span></div>
             </div>
           </div>
-          <div class="env-list" id="envList" style="margin-top:6px"></div>
-          <div class="pip-install-row">
-            <input type="text" id="pipInput" class="pip-input" placeholder="package name (e.g. triton)" spellcheck="false">
-            <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
-          </div>
           <!-- GPU Kernel Wheels: profile-driven (RTX 20-50 show nunchaku/gguf,
                RTX 50 adds lightx2v; GTX10/AMD/Apple show no section). -->
-          <div class="card kernel-wheels-card" id="kernelWheelsCard" style="margin-top:6px">
-            <div class="card-header">
-              <span class="card-title">GPU Kernel Wheels</span>
+          <div class="env-subsection" id="kernelWheelsSubsection" style="margin-top:10px">
+            <div class="subsection-header">
+              <span class="subsection-title">GPU Kernel Wheels</span>
               <span class="env-type-tag" id="kernelProfileTag"></span>
               <button class="btn btn-ghost small" id="syncKernelsBtn" title="Reinstall all kernel wheels for this GPU" style="margin-left:auto">↻ Sync</button>
             </div>
@@ -485,9 +480,9 @@
             </div>
           </div>
           <!-- GPU Profile Overview (mirrors setup_config.json gpu_profiles) -->
-          <div class="card kernel-wheels-card" id="dashProfileOverview" style="margin-top:6px">
-            <div class="card-header">
-              <span class="card-title">GPU Profile Overview</span>
+          <div class="env-subsection" id="dashProfileOverview" style="margin-top:10px">
+            <div class="subsection-header">
+              <span class="subsection-title">GPU Profile Overview</span>
               <span class="env-type-tag" id="dashProfileTag"></span>
             </div>
             <div class="env-specs" id="dashProfileGrid">
@@ -499,6 +494,13 @@
               <div class="spec-row"><span class="spec-label">Flash Attn</span><span class="spec-value" id="dashPoFlash">—</span></div>
               <div class="spec-row"><span class="spec-label">Kernel Wheels</span><span class="spec-value" id="dashPoKernels">—</span></div>
             </div>
+          </div>
+        </div>
+          </div>
+          <div class="env-list" id="envList" style="margin-top:6px"></div>
+          <div class="pip-install-row">
+            <input type="text" id="pipInput" class="pip-input" placeholder="package name (e.g. triton)" spellcheck="false">
+            <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
           </div>
         </div>
       </div>

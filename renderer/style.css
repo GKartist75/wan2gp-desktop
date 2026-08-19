@@ -313,8 +313,13 @@ body {
 /* Kernel-wheel missing state: no class → grey dot (distinct from error/installed) */
 .spec-dot:not(.installed):not(.error):not(.has-update):not(.installing) { display: inline-block; background: #6B7280; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.kernel-wheels-card .spec-row { font-size: 0.6875rem; padding: 3px 8px; gap: 4px; }
+.kernel-wheels-card .spec-row,
+.env-subsection .spec-row { font-size: 0.6875rem; padding: 3px 8px; gap: 4px; }
 .kernel-empty .spec-value { color: var(--text-secondary); font-style: italic; }
+/* Subsections inside the merged Active Environment card */
+.env-subsection { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px; }
+.subsection-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.subsection-title { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
 .env-name-row { display: flex; align-items: baseline; gap: 12px; }
 .env-name { font-size: 0.875rem; font-weight: 500; }
 .env-name-hint { font-size: 0.65rem; color: var(--text-secondary); font-style: italic; }

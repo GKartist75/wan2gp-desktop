@@ -986,12 +986,12 @@ async function refreshDashboard(){
   })()
 }
 
-// ── GPU Kernel Wheels card (profile-driven) ──
+// ── GPU Kernel Wheels (profile-driven, subsection of Active Environment) ──
 // Renders the wheels resolved from setup_config.json for the active GPU:
 // each row shows ✓ (current) / ⚠ (installed, mismatch) / ✗ (not installed).
-// GTX 10/16, AMD, Apple profiles carry no kernels → the whole card hides.
+// GTX 10/16, AMD, Apple profiles carry no kernels → the subsection hides.
 function renderKernelWheels(wheels, kernelProfile, osKey) {
-  const card = $('kernelWheelsCard')
+  const card = $('kernelWheelsSubsection')
   const box = $('kernelWheels')
   const tag = $('kernelProfileTag')
   if (!card || !box) return
