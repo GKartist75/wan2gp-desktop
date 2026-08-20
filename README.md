@@ -132,6 +132,9 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
+> **New in v3.0.0** — **Self-contained install layout (folders moved).** Wan2GP now installs to a dedicated `C:\Wan2GP` (repo + venv + config) and keeps model checkpoints/LoRAs on a **separate** `C:\Wan2GP-Models` — out of roaming AppData for good. This is a breaking change for existing installs (old path was `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP`). **Uninstall then reinstall is the clean path; in-place update also works** (it auto-migrates your old AppData data into `C:\Wan2GP` on first launch). See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
+> [Full changelog →](changelogs/CHANGELOG-v3.0.0.md)
+
 > **New in v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** The real bug: during the gallery/plugin-tab refactor `#installer` was placed *inside* `#dashboard`'s closing tag, so it became a child of `#dashboard`. Because the launcher shows a screen by toggling a single `.active` class and `#dashboard` is `display:none` when another screen is active, the nested `#installer` inherited that hidden state and collapsed to **0×0** — the classic "title bar only" blank. (This is why the 2.8.2–2.8.6 `show`/hammer fixes never worked: you can't re-present a 0-height element.) Fix: restore `#installer` (+ floating-terminal) as **siblings of `#dashboard`** under `#app` (as in 2.6.0), and make `.screen` fill `#app` via `position:absolute; inset:0`. Also removed the 1px resize-nudge that caused a window "shake". Verified by clean reinstall + full install→open-Wan2GP flow.
 > [Full changelog →](changelogs/CHANGELOG-v2.8.7.md)
 
@@ -285,6 +288,97 @@ The permanent fix is upstream: **[PR #2095](https://github.com/deepbeepmeep/Wan2
 (`latents.to(self.vae.dtype)` at the VAE decode boundary). Once it's merged, the workaround
 becomes a harmless no-op — nothing to uninstall or configure.
 
+## 📁 v3.0 — Install folders moved (READ THIS)
+
+v3.0 changes **where Wan2GP lives on your disk**. This is the one thing you must
+check before/after upgrading.
+
+### Old vs new default locations
+
+| What | ❌ Before (v2.8.x) | ✅ Now (v3.0.0) |
+|------|--------------------|-----------------|
+| Repo + venv + `wgp_config.json` | `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP` | **`C:\Wan2GP`** |
+| Model checkpoints | `<repo>\ckpts` (inside the repo) | **`C:\Wan2GP-Models\ckpts`** |
+| LoRAs | `<repo>\loras` | **`C:\Wan2GP-Models\loras`** |
+| Generated outputs | `<repo>\outputs` | **`C:\Wan2GP-Models\outputs`** |
+
+The old location was inside your **roaming AppData** profile — it travels with
+your account, can sync/backup unexpectedly, and counts against profile quotas.
+For tens–hundreds of GB of checkpoints that's a bad place to be. `C:\Wan2GP`
+is a dedicated top-level folder on a fast drive; `C:\Wan2GP-Models` keeps your
+large files separate from the code so backups and drive swaps are trivial.
+
+### How to upgrade — pick one
+
+**✅ Preferred: uninstall, then install fresh**
+1. Launcher → **Manage** → **Uninstall** (keep or delete your old models — they
+   sit in the old AppData path).
+2. **Close the launcher completely.**
+3. Run the new v3.0.0 `.exe` → it creates `C:\Wan2GP` fresh.
+4. Copy/point your checkpoints at `C:\Wan2GP-Models\ckpts`.
+
+**🟡 Also works: in-place update**
+Updating an existing v2.8.x install **auto-migrates** your old AppData data dir
+into `C:\Wan2GP` on first launch (rollback-safe: source removed only after the
+move verifies on disk). The old `Wan2GP\Wan2GP` doubling is preserved if you had
+it; only genuinely fresh installs get the clean flat layout.
+
+> Either path lands you at `C:\Wan2GP`. Uninstall-first is cleaner; update-in-place
+> is fine if you just want the new build. **No data is deleted by the migration.**
+
+### Installation process (v3.0)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. RUN the installer (.exe)                                          │
+│    → detects GPU, shows the packages it will install                 │
+└───────────────────────────────────┬─────────────────────────────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 2. INSTALL SCREEN — check the defaults (now editable):               │
+│    • Wan2GP install location : C:\Wan2GP          ⚠ keep OUT of AppData│
+│    • Model folders           : C:\Wan2GP-Models\ckpts  (loras/outputs)│
+│      ⚠ checkpoints/LoRAs are large — use a fast, non-system drive    │
+└───────────────────────────────────┬─────────────────────────────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 3. CLICK Install (~5–20 min)                                         │
+│    → git clone Wan2GP  →  uv venv  →  PyTorch+CUDA  →  requirements  │
+│    →  attention kernels (Sage/Sparge/Flash/Nunchaku/GGUF/bnb)         │
+│    → writes wgp_config.json (ckpts=C:\Wan2GP-Models\ckpts)            │
+└───────────────────────────────────┬─────────────────────────────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 4. LAUNCH — Desktop (green, in-app) or Browser (amber)               │
+│    → Wan2GP opens, ready to use                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+If you already had a v2.8.x install, step 3 first **migrates** your old
+`%APPDATA%\wan2gp-desktop\Wan2GP` into `C:\Wan2GP` (rollback-safe), then
+continues the install.
+
+### Where is everything now?
+
+```
+C:\Wan2GP\                      ← repo + launcher data (self-contained)
+   ├─ wgp.py                    ← Wan2GP core
+   ├─ env_uv\                   ← Python 3.11 venv (uv)
+   ├─ wgp_config.json           ← your settings (ckpts → C:\Wan2GP-Models\ckpts)
+   ├─ desktop-config.json       ← launcher config
+   ├─ .electron\  .py-shim\  patches\  .reinstall-backup\
+   └─ boot.log                  ← launcher diagnostic
+
+C:\Wan2GP-Models\               ← SEPARATE, your large files
+   ├─ ckpts\                    ← model checkpoints
+   ├─ loras\                    ← LoRA models
+   └─ outputs\                  ← generated videos/images/audio
+```
+
+> 💡 The install screen pre-fills these defaults and shows a ⚠ warning if your
+> model folders still point inside AppData. The dashboard shows a `MODELS`
+> banner if it detects checkpoints/LoRAs under your roaming profile.
+
 ## 🗺️ Visual Guide
 
 👉 **[Open the infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — a single-page visual walkthrough covering install steps, hardware profiles, the dashboard layout, Auto-Tune, launch modes, and every feature.
@@ -347,6 +441,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v3.0.0** — **Self-contained install layout — folders moved (breaking).** Wan2GP + venv + `wgp_config.json` now default to a dedicated **`C:\Wan2GP`** (not roaming AppData), and model checkpoints/LoRAs default to a **separate `C:\Wan2GP-Models`** (`ckpts` = `C:\Wan2GP-Models\ckpts`). This kills the old `Wan2GP\Wan2GP` doubling and keeps tens–hundreds of GB of models off your roaming profile. Existing v2.8.x installs **auto-migrate** into `C:\Wan2GP` on first launch (rollback-safe); uninstall-then-reinstall is the cleaner path. The clone step no longer renames the live data dir (the EPERM-on-reinstall bug), and legacy repo-relative model paths are upgraded to the separate default. See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
 - **v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** During the gallery/plugin-tab refactor `#installer` (+ floating-terminal) were placed *inside* `#dashboard`'s closing tag, so they became children of `#dashboard`. The launcher shows a screen by toggling a single `.active` class; `#dashboard` is `display:none` when another screen is active, so the nested `#installer` inherited that hidden state and collapsed to 0×0 (the "title bar only" blank). Fix: restore them as **siblings of `#dashboard`** under `#app` (as in 2.6.0); `.screen` now fills `#app` via `position:absolute; inset:0`; removed the 1px resize-nudge that caused a window "shake". The 2.8.6 stale-data-dir self-heal remains valid. See [CHANGELOG-v2.8.7.md](changelogs/CHANGELOG-v2.8.7.md).
 - **v2.8.6** — **Blank-screen (presentation class) — misdiagnosed, superseded by 2.8.7.** v2.8.6 added a present hammer (`invalidate()` + resize nudge) on the (wrong) theory that the compositor dropped a committed frame. The real bug was the nested-`.screen` DOM regression (v2.8.7), so the hammer did not fix the affected hardware. **(B) Stale data-dir override** self-heal (still valid) — the launcher pins its data dir once and never re-validated it; renaming/moving the Wan2GP folder then reinstalling left a dead pin so the launcher blanked. Now self-heals: the override is dropped and the default re-derived if stale. See [CHANGELOG-v2.8.6.md](changelogs/CHANGELOG-v2.8.6.md).
 - **v2.8.5** — **In-app update no longer blanks the launcher.** Updating *within the app* (e.g. 2.6 → 2.8.4) could leave a partial/corrupt `app.asar` because `quitAndInstall()` ran the NSIS swap while the app still held handles (Wan2GP server, embedded BrowserView, pulse window) on its own install dir — the next launch then opened to a blank window (title bar only, no content). A new `forceTeardown()` now releases **every** handle **before** the swap, and a failed in-flight update clean-quits so a manual reinstall is never blocked by stale locks. Covers the update-installation class of blank screen; the GPU-compositor (`%USERPROFILE%\.wan2gp-desktop-gpu-off`) and show-path (v2.8.3) fixes are unchanged. See [CHANGELOG-v2.8.5.md](changelogs/CHANGELOG-v2.8.5.md).
@@ -380,6 +475,12 @@ npm run build:win  # Windows NSIS installer
 - **v2.1.2** — Fix: installer uses Python 3.11 (via uv) instead of falling back to 3.14; resolves `pygame`/kernel build failures.
 - **v2.1.1** — HuggingFace token support, remembered tokens, update-button fix.
 - **v2.0** — Full rewrite as pure launcher. See [CHANGELOG-v2.0.md](changelogs/CHANGELOG-v2.0.md).
+
+## Credits
+
+- **[DeepBeepMeep](https://github.com/deepbeepmeep)** — creator of [Wan2GP](https://github.com/deepbeepmeep/Wan2GP), the generative AI app this launcher installs and runs.
+- **Tophness / Steve Jabz** — for the original Wan2GP install scripts that the launcher's setup pipeline is built on.
+- **All Wan2GP Desktop Launcher users** — thank you for using the launcher and for your support, feedback, and bug reports that keep it improving.
 
 ## License
 

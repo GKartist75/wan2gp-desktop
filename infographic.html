@@ -221,6 +221,88 @@
       <!-- 3: HARDWARE PROFILES                -->
       <!-- ════════════════════════════════════ -->
       <div class="section">
+        <h2><span class="num">2b</span> v3.0 — Install folders moved (READ THIS)</h2>
+        <div class="callout" style="border-color:#d9a441;">
+          <div class="emoji">📁</div>
+          <div>
+            <strong>v3.0 changes where Wan2GP lives on disk.</strong> The repo now installs to a
+            dedicated <code>C:\Wan2GP</code> and your models go to a <strong>separate</strong>
+            <code>C:\Wan2GP-Models</code> — out of roaming AppData for good. Check this before
+            upgrading.
+          </div>
+        </div>
+
+        <h3 style="margin:18px 0 10px;font-size:1rem">Old vs new default locations</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+          <thead>
+            <tr style="text-align:left;color:#bbb;border-bottom:1px solid #333">
+              <th style="padding:6px">What</th>
+              <th style="padding:6px">❌ Before (v2.8.x)</th>
+              <th style="padding:6px">✅ Now (v3.0.0)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid #2a2a2a">
+              <td style="padding:6px">Repo + venv + config</td>
+              <td style="padding:6px;color:#e08"><code>%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP</code></td>
+              <td style="padding:6px;color:#6c5ce7"><code>C:\Wan2GP</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid #2a2a2a">
+              <td style="padding:6px">Model checkpoints</td>
+              <td style="padding:6px;color:#e08"><code>&lt;repo&gt;\ckpts</code></td>
+              <td style="padding:6px;color:#6c5ce7"><code>C:\Wan2GP-Models\ckpts</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid #2a2a2a">
+              <td style="padding:6px">LoRAs</td>
+              <td style="padding:6px;color:#e08"><code>&lt;repo&gt;\loras</code></td>
+              <td style="padding:6px;color:#6c5ce7"><code>C:\Wan2GP-Models\loras</code></td>
+            </tr>
+            <tr>
+              <td style="padding:6px">Generated outputs</td>
+              <td style="padding:6px;color:#e08"><code>&lt;repo&gt;\outputs</code></td>
+              <td style="padding:6px;color:#6c5ce7"><code>C:\Wan2GP-Models\outputs</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="two-col" style="margin-top:18px">
+          <div class="feature-card" style="border-color:#2ecc71">
+            <span class="fc-icon">✅</span>
+            <div class="fc-title">Preferred: uninstall, then reinstall</div>
+            <div class="fc-desc">Manage → Uninstall (keep or delete old models) → close launcher →
+            run v3.0 <code>.exe</code> → it creates <code>C:\Wan2GP</code> fresh.</div>
+          </div>
+          <div class="feature-card" style="border-color:#d9a441">
+            <span class="fc-icon">🟡</span>
+            <div class="fc-title">Also works: in-place update</div>
+            <div class="fc-desc">Updating a v2.8.x install auto-migrates your old AppData data into
+            <code>C:\Wan2GP</code> on first launch (rollback-safe). No data deleted.</div>
+          </div>
+        </div>
+
+        <h3 style="margin:20px 0 10px;font-size:1rem">Where everything lives now</h3>
+        <pre style="background:#1f1f1f;border:1px solid #333;border-radius:10px;padding:14px;font-size:0.72rem;line-height:1.5;color:#cfc">C:\Wan2GP\                  ← repo + launcher data (self-contained)
+   ├─ wgp.py                ← Wan2GP core
+   ├─ env_uv\               ← Python 3.11 venv (uv)
+   ├─ wgp_config.json       ← ckpts → C:\Wan2GP-Models\ckpts
+   ├─ desktop-config.json
+   └─ boot.log
+
+C:\Wan2GP-Models\           ← SEPARATE, your large files
+   ├─ ckpts\                ← model checkpoints
+   ├─ loras\                ← LoRA models
+   └─ outputs\              ← generated videos/images/audio</pre>
+        <p style="font-size:0.72rem;color:#888;margin-top:8px">
+          The install screen pre-fills these defaults and warns (⚠) if your model folders still
+          point inside AppData. The dashboard shows a <code>MODELS</code> banner if it detects
+          checkpoints/LoRAs under your roaming profile.
+        </p>
+      </div>
+
+      <!-- ════════════════════════════════════ -->
+      <!-- 3: HARDWARE PROFILES                -->
+      <!-- ════════════════════════════════════ -->
+      <div class="section">
         <h2><span class="num">3</span> Hardware profiles</h2>
         <p style="font-size:0.78rem;color:#999;margin-bottom:12px">
           GPU detection picks the exact packages for your card:
