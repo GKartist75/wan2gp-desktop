@@ -533,6 +533,28 @@ function mergeDirContents(src, dst) {
 async function runMigrationMove(legacy, choices) {
   const target = choices.dataDir
   let ok = mergeDirContents(legacy, target)
+  if (ok) {
+    // Flatten a doubled-up repo: when the chosen data dir is a dedicated folder
+    // (e.g. C:\Wan2GP) but the legacy source kept the repo one level in
+    // (Roaming\wan2gp-desktop\Wan2GP\Wan2GP), mergeDirContents drops it at
+    // C:\Wan2GP\Wan2GP. Lift it up so the repo sits flat at C:\Wan2GP and the
+    // path never doubles. Only when the flat spot is free (no clash).
+    try {
+      const nested = path.join(target, 'Wan2GP')
+      const nestedPy = path.join(nested, 'wgp.py')
+      const flatPy = path.join(target, 'wgp.py')
+      if (fs.existsSync(nestedPy) && !fs.existsSync(flatPy)) {
+        for (const name of fs.readdirSync(nested)) {
+          const s = path.join(nested, name)
+          const d = path.join(target, name)
+          if (fs.existsSync(d)) continue // don't clobber existing target item
+          try { fs.renameSync(s, d) } catch { /* skip locked */ }
+        }
+        const leftover = fs.readdirSync(nested)
+        if (leftover.length === 0) fs.rmSync(nested, { recursive: true, force: true })
+      }
+    } catch (e) { logError('migrate-flatten', e) }
+  }
   if (!ok) {
     try {
       const retry = await dialog.showMessageBox({
@@ -555,7 +577,14 @@ async function runMigrationMove(legacy, choices) {
   // Rewrite the model-folder paths in wgp_config.json to the user's chosen
   // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
   try {
-    const configPath = path.join(target, 'Wan2GP', 'wgp_config.json')
+    // The repo may be flat (target/wgp.py) or nested (target/Wan2GP/wgp.py) —
+    // pick whichever actually holds the config after the move (flatten lifts a
+    // doubled repo up to the flat spot).
+    const flatCfg = path.join(target, 'wgp_config.json')
+    const nestedCfg = path.join(target, 'Wan2GP', 'wgp_config.json')
+    const configPath = fs.existsSync(flatCfg) ? flatCfg
+      : fs.existsSync(nestedCfg) ? nestedCfg
+      : path.join(target, 'wgp_config.json')
     let cfg = {}
     try { if (fs.existsSync(configPath)) cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
     if (choices.ckpts) cfg.checkpoints_paths = [choices.ckpts, '.']
@@ -565,6 +594,15 @@ async function runMigrationMove(legacy, choices) {
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2))
   } catch (e) { logError('migrate-config', e) }
   try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+  // Best-effort cleanup of the now-empty legacy location so it doesn't linger
+  // in roaming AppData. mergeDirContents already removed the migrated leaf; here
+  // we also drop the wrapper folder (e.g. Roaming\wan2gp-desktop) if it's empty,
+  // and the original legacy dir again (locked files may have been skipped).
+  try {
+    const tryRemove = (p) => { try { if (fs.existsSync(p) && fs.readdirSync(p).length === 0) fs.rmSync(p, { recursive: true, force: true }) } catch {} }
+    tryRemove(legacy)
+    tryRemove(path.dirname(legacy))
+  } catch (e) { logError('migrate-cleanup', e) }
   try {
     app.relaunch()
     app.exit(0)
