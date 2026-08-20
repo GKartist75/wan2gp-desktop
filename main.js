@@ -480,9 +480,20 @@ function computeInstallDataDir() {
 }
 function moveDirAtomic(src, dst) {
   // Cross-device-safe move: try rename first, fall back to a copy+verify+rm.
+  // On Windows src and dst are usually both on C:, so rename is an atomic
+  // metadata move that IGNORES file locks (open handles don't block it).
   try { fs.renameSync(src, dst); return true } catch { /* fall through to copy */ }
   try {
-    fs.cpSync(src, dst, { recursive: true })
+    // Copy fallback (cross-volume / rename rejected). A single locked or
+    // unreadable file must NOT abort the whole move — skip-and-continue those
+    // so the bulk of the folder still relocates.
+    fs.cpSync(src, dst, {
+      recursive: true,
+      filter: (p) => {
+        try { fs.accessSync(p, fs.constants.R_OK); return true }
+        catch { return false } // unreadable/locked — skip this file
+      }
+    })
     // verify top-level parity before deleting source
     const sameCount = (d) => fs.readdirSync(d).length
     if (sameCount(src) === sameCount(dst) && fs.readdirSync(dst).length > 0) {
@@ -524,11 +535,33 @@ async function promptMigration() {
     })
     const r = result.response
     if (r === 0) {
-      const ok = moveDirAtomic(legacy, inst)
+      // Try to move. Same-volume rename ignores file locks (atomic metadata
+      // move), so a locked file in the old folder does NOT block the move.
+      let ok = moveDirAtomic(legacy, inst)
+      if (!ok) {
+        // Move failed (e.g. copy fallback hit a still-locked file, or cross-
+        // volume). Tell the user instead of failing silently, and let them retry
+        // or keep the folder separate. Don't record a "moved" decision so the
+        // prompt can re-appear if they close the blocking app and retry.
+        try {
+          const retry = await dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['Retry move', 'Keep separate — I\'ll delete it myself'],
+            defaultId: 0, cancelId: 1,
+            parent: mainWin, modal: true,
+            title: 'Could not move the old Wan2GP folder',
+            message: 'The old Wan2GP folder could not be moved into ' + inst + '.',
+            detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
+                    'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it separate and delete it yourself later.'
+          })
+          if (retry.response === 0) ok = moveDirAtomic(legacy, inst)
+        } catch { /* ignore — fall through, leave folder in place */ }
+      }
       logError('migrate', ok
         ? 'User chose MOVE: ' + legacy + ' -> ' + inst
         : 'User chose MOVE but move failed; left at ' + legacy)
-      try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+      if (ok) { try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {} }
+      // On failure: no marker written → prompt can re-appear next launch.
     } else if (r === 1) {
       // Keep separate: leave the old folder, do not move. Record decision so we
       // don't prompt again; the user deletes the old folder whenever they want.
