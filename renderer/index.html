@@ -631,6 +631,10 @@
           <button class="btn btn-ghost small" id="clearAppDataPath" title="Reset to default">✕</button>
         </div>
         <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile.</p>
+        <div id="moveToPreferredWrap" class="migrate-note hidden">
+          <span class="migrate-warn">⚠ Your Wan2GP data is currently inside your roaming AppData profile (<code id="currentDataDirPath">…</code>).</span>
+          <button class="btn btn-primary small" id="moveToPreferredBtn">Move data to C:\Wan2GP</button>
+        </div>
       </div>
 
       <!-- Model Folders -->

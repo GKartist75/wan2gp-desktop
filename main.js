@@ -526,6 +526,36 @@ function mergeDirContents(src, dst) {
     return false
   } catch (e) { logError('mergeDirContents', e); return false }
 }
+// Move legacy roaming data into the preferred data dir (target, e.g. C:\Wan2GP),
+// then repoint the data-dir override and relaunch so everything re-resolves
+// against the new location. Same-volume rename ignores file locks; the copy
+// fallback skips locked files. Returns true if the move succeeded.
+async function runMigrationMove(legacy, target) {
+  let ok = mergeDirContents(legacy, target)
+  if (!ok) {
+    try {
+      const retry = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['Retry move', 'Keep using it as-is'],
+        defaultId: 0, cancelId: 1,
+        parent: mainWin, modal: true,
+        title: 'Could not move the old Wan2GP folder',
+        message: 'The old Wan2GP folder could not be moved into ' + target + '.',
+        detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
+                'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
+      })
+      if (retry.response === 0) ok = mergeDirContents(legacy, target)
+    } catch { /* ignore — leave in place */ }
+  }
+  if (!ok) return false
+  try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+  try {
+    fs.writeFileSync(DATA_DIR_OVERRIDE, target)
+    app.relaunch()
+    app.exit(0)
+  } catch (e) { logError('migrate-relaunch', e) }
+  return true
+}
 // If v3.0's data dir is (or was) the old roaming location, offer to move it to
 // the preferred dedicated folder (C:\Wan2GP). This fires for BOTH cases:
 //   • a fresh v3.0 launch resolving to C:\Wan2GP with a legacy roaming dir present
@@ -570,38 +600,7 @@ async function promptMigration() {
     })
     const r = result.response
     if (r === 0) {
-      // Try to move. Same-volume rename ignores file locks (atomic metadata
-      // move), so a locked file in the old folder does NOT block the move.
-      let ok = mergeDirContents(legacy, target)
-      if (!ok) {
-        try {
-          const retry = await dialog.showMessageBox({
-            type: 'warning',
-            buttons: ['Retry move', 'Keep using it as-is'],
-            defaultId: 0, cancelId: 1,
-            parent: mainWin, modal: true,
-            title: 'Could not move the old Wan2GP folder',
-            message: 'The old Wan2GP folder could not be moved into ' + target + '.',
-            detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
-                    'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
-          })
-          if (retry.response === 0) ok = mergeDirContents(legacy, target)
-        } catch { /* ignore — fall through, leave folder in place */ }
-      }
-      if (ok) {
-        try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
-        // Repoint the data dir to the target and relaunch so everything
-        // (repo dir, config, models) re-resolves against C:\Wan2GP cleanly.
-        try {
-          fs.writeFileSync(DATA_DIR_OVERRIDE, target)
-          app.relaunch()
-          app.exit(0)
-          return
-        } catch (e) { logError('migrate-relaunch', e) }
-      } else {
-        logError('migrate', 'User chose MOVE but move failed; left at ' + legacy)
-        // No marker written → prompt can re-appear next launch.
-      }
+      await runMigrationMove(legacy, target)
     } else if (r === 1) {
       // Keep as-is: leave the old folder, keep using it. Record decision so we
       // don't prompt again.
@@ -2981,8 +2980,26 @@ ipcMain.handle('get-install-paths', () => ({
   appDataRoot: ORIGINAL_USER_DATA,
   repo: getRepoDir(),
   config: getConfigFile(),
-  modelsDefault: defaultModelsDir()
+  modelsDefault: defaultModelsDir(),
+  dataDirInRoaming: getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
 }))
+// Is the current data dir still inside roaming AppData (a legacy location the
+// user may want to move to the preferred C:\Wan2GP)?
+ipcMain.handle('is-data-dir-roaming', () =>
+  getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
+// On-demand migration: move the current (roaming) data dir into the preferred
+// C:\Wan2GP, repoint the override, and relaunch. Returns {ok, legacy, target}.
+ipcMain.handle('migrate-to-preferred', async () => {
+  try {
+    const target = defaultDataDir()
+    if (!target) return { ok: false, error: 'no preferred target' }
+    const current = getDataDir()
+    if (!current.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
+      return { ok: false, error: 'not a roaming data dir' }
+    const ok = await runMigrationMove(current, target)
+    return { ok, legacy: current, target }
+  } catch (e) { return { ok: false, error: String(e) } }
+})
 ipcMain.handle('set-data-dir', (_, dir) => {
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
   try {

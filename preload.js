@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('w2gp', {
   openFolder: (p) => ipcRenderer.invoke('open-folder', p),
   setDataDir: (dir) => ipcRenderer.invoke('set-data-dir', dir),
   resetDataDir: () => ipcRenderer.invoke('reset-data-dir'),
+  migrateToPreferred: () => ipcRenderer.invoke('migrate-to-preferred'),
+  isDataDirRoaming: () => ipcRenderer.invoke('is-data-dir-roaming'),
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   checkCommand: (cmd) => ipcRenderer.invoke('check-command', cmd),

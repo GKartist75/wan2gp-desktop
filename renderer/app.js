@@ -1295,6 +1295,18 @@ async function loadPaths(skipModelPaths) {
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
   set('pathAppData', p.repo)
   set('installAppDataPath', p.appData)
+  // Show the on-demand "Move data to C:\Wan2GP" button when the current data
+  // dir is still inside roaming AppData (legacy install / auto-update kept it).
+  const wrap = $('moveToPreferredWrap')
+  if (wrap) {
+    if (p.dataDirInRoaming) {
+      wrap.classList.remove('hidden')
+      const cp = $('currentDataDirPath')
+      if (cp) cp.textContent = p.appData
+    } else {
+      wrap.classList.add('hidden')
+    }
+  }
   window.w2gp.getDiskSpace().then(function(d) {
     if (!d) return;
     var freeGb = (d.free / 1073741824).toFixed(1);
@@ -1315,6 +1327,29 @@ function pathJoin(a, b) { return (a || '').replace(/[\\/]+$/, '') + '\\' + b }
 
 $('openAppDataBtn')?.addEventListener('click', function() {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
+});
+
+$('moveToPreferredBtn')?.addEventListener('click', async function() {
+  const btn = this
+  btn.disabled = true
+  btn.textContent = 'Moving…'
+  try {
+    const r = await window.w2gp.migrateToPreferred()
+    if (r && r.ok) {
+      // runMigrationMove repoints + relaunches; this process will exit. Show a
+      // brief note in case the relaunch is delayed.
+      btn.textContent = 'Restarting…'
+    } else {
+      alert('Could not move the data folder:\n' + ((r && r.error) || 'unknown error') +
+            '\n\nClose any Wan2GP windows/terminals pointing at the old folder and try again.')
+      btn.disabled = false
+      btn.textContent = 'Move data to C:\\Wan2GP'
+    }
+  } catch (e) {
+    alert('Migration failed: ' + e.message)
+    btn.disabled = false
+    btn.textContent = 'Move data to C:\\Wan2GP'
+  }
 });
 
 // Re-entrancy guard: periodic + manual checks share one flight; a slow GitHub
