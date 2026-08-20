@@ -1045,54 +1045,34 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     fs.mkdirSync(getDataDir(), { recursive: true })
-    // A keep-models uninstall leaves a models-only folder behind — git clone needs an
-    // empty target, so stash the leftover aside, clone fresh, then fold it back in.
-    let stashDir = null
-    try {
-      if (fs.existsSync(getRepoDir()) && fs.readdirSync(getRepoDir()).length > 0) {
-        stashDir = path.join(os.tmpdir(), 'wan2gp-reinstall-stash-' + Date.now())
-        if (fs.existsSync(stashDir)) fs.rmSync(stashDir, { recursive: true, force: true })
-        fs.renameSync(getRepoDir(), stashDir)
-        send('setup-output', '[*] Found leftover folder (models from a keep-models uninstall?) — stashing it aside.\n')
-      }
-    } catch (e) {
-      stashDir = null
-      send('setup-output', `[!] Could not stash leftover folder: ${e.message}\n`)
-    }
+    // Clone into a TEMP dir, then merge into the repo target. We must NEVER
+    // rename the live data dir (getRepoDir() === getDataDir() in the flat
+    // self-contained layout) — that caused EPERM and would move the user's
+    // config/models. Merging preserves any existing user files.
+    const cloneTarget = getRepoDir()
+    const tmpClone = path.join(os.tmpdir(), 'wan2gp-clone-' + Date.now())
+    if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true })
     try {
       // Async — the clone used to block the entire app (execSync, up to 2 min).
-      await runCmd('git', ['clone', '--depth', '1', 'https://github.com/deepbeepmeep/Wan2GP.git', getRepoDir()], { timeout: 120000 })
+      await runCmd('git', ['clone', '--depth', '1', 'https://github.com/deepbeepmeep/Wan2GP.git', tmpClone], { timeout: 120000 })
     } catch (e) {
-      // Restore the leftover folder if the clone failed
-      try {
-        if (stashDir && fs.existsSync(stashDir) && !fs.existsSync(getRepoDir())) fs.renameSync(stashDir, getRepoDir())
-      } catch {}
+      try { if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true }) } catch {}
       // A fresh install that previously worked but now times out here is almost
       // always antivirus interference (MalwareBytes etc.) blocking git or the
       // download — the same AV that may have quarantined the uv-managed Python.
       send('setup-output', '[!] Git clone failed or timed out (2 min).\n')
       send('setup-output', `[!] If a previous install worked, add antivirus exclusions for:\n`)
-      send('setup-output', `[!]   ${getDataDir()}\n`)
+      send('setup-output', `[!]   ${cloneTarget}\n`)
       send('setup-output', `[!]   %APPDATA%\\uv\\python   (uv-managed Python)\n`)
       send('setup-output', '[!] then retry. You can also clone manually first:\n')
-      send('setup-output', `[!]   git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${getRepoDir()}"\n`)
+      send('setup-output', `[!]   git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP.git "${cloneTarget}"\n`)
       throw new Error('Git clone failed/timed out — see output above (likely antivirus interference)')
     }
-    // Fold the stashed leftover (models etc.) back into the fresh clone
-    if (stashDir && fs.existsSync(stashDir)) {
-      try {
-        for (const item of fs.readdirSync(stashDir)) {
-          const from = path.join(stashDir, item)
-          const to = path.join(getRepoDir(), item)
-          if (fs.existsSync(to)) fs.rmSync(to, { recursive: true, force: true })
-          fs.renameSync(from, to)
-        }
-        fs.rmSync(stashDir, { recursive: true, force: true })
-        send('setup-output', '[*] Preserved leftover models/ from the previous installation.\n')
-      } catch (e) {
-        send('setup-output', `[!] Could not fold leftover folder back in: ${e.message}. Leftover kept at ${stashDir}\n`)
-      }
-    }
+    // Merge the fresh clone into the target, preserving existing user data
+    // (models, desktop-config.json, .electron, wgp_config.json). The repo's own
+    // .git is replaced so a half-failed clone can't leave a broken repo.
+    mergeDir(tmpClone, cloneTarget)
+    try { if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true }) } catch {}
     send('setup-output', '[*] Repository cloned.\n')
     // Restore backed-up plugins, finetunes, and config from reinstall
     try {
@@ -1213,12 +1193,39 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
 
 // ── Shared removal engine (used by reinstall + uninstall) ──
 // Kills every running Wan2GP process, waits for Windows to release their
-// directory handles, then deletes the install tree. Children are deleted
-// first — a directory that is a process's CWD (e.g. a terminal open in the
-// install folder) can't be removed itself, but its contents can.
-// keepFolders: list of in-repo folder names (lowercase) to leave in place, or
-// null/undefined to delete everything including the root.
-// Returns { ok, leftoverFolder, error }.
+// Merge the contents of `src` into `dst` (recursively). Used to fold a freshly
+// cloned Wan2GP repo into the install target without ever renaming the live
+// data dir. Existing USER data files are preserved; the repo's own .git is
+// always replaced so a half-failed clone can't leave a broken repo.
+const MERGE_KEEP_NAMES = new Set([
+  'desktop-config.json', 'wgp_config.json', '.electron', '.py-shim',
+  '.reinstall-backup', 'patches', 'models', 'loras', 'outputs', 'output', 'ckpts'
+])
+function mergeDir(src, dst) {
+  fs.mkdirSync(dst, { recursive: true })
+  for (const name of fs.readdirSync(src)) {
+    const s = path.join(src, name)
+    const d = path.join(dst, name)
+    let isDir = false
+    try { isDir = fs.statSync(s).isDirectory() } catch { continue }
+    if (isDir) {
+      if (name === '.git') {
+        if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true })
+        fs.renameSync(s, d)
+      } else if (fs.existsSync(d)) {
+        mergeDir(s, d)
+      } else {
+        fs.renameSync(s, d)
+      }
+    } else {
+      if (fs.existsSync(d) && MERGE_KEEP_NAMES.has(name)) continue // preserve user data
+      if (fs.existsSync(d)) { try { fs.rmSync(d, { force: true }) } catch {} }
+      fs.renameSync(s, d)
+    }
+  }
+}
+
+// forceRemoveRepo: kills any running Wan2GP process, releases held
 async function forceRemoveRepo(repo, log, keepFolders) {
   const killedPids = new Set()
   try {
