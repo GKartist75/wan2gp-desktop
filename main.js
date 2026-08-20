@@ -492,22 +492,51 @@ function moveDirAtomic(src, dst) {
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
-function tryMigrateToInstallFolder() {
+// One-time migration prompt (asks the user, does NOT auto-move).
+// If a legacy Roaming\wan2gp-desktop\Wan2GP exists and the new default data dir
+// (C:\Wan2GP, when writable) is empty/absent, ask the user what to do:
+//   0 = Move old data into C:\Wan2GP (recommended, self-contained)
+//   1 = Keep separate — leave the old folder, install fresh in C:\Wan2GP
+//       (the user deletes the old one themselves later)
+//   2 / cancel = Ask later (no decision recorded; prompts again next launch)
+// The prompt is shown at most once per decision via a marker file, and only
+// after the window has painted (called deferred, post-createWindow) so it can
+// never block startup.
+const _MIGRATION_DECISION = () => path.join(getDataDir(), '.migration-decision')
+async function promptMigration() {
   try {
     const inst = defaultDataDir()
-    if (!inst) return // no usable default — keep current layout
+    if (!inst) return
     const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
     if (legacy === inst) return
     if (!fs.existsSync(legacy)) return
-    if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target occupied — don't clobber
-    // Move the whole legacy Wan2GP data folder into the new default location.
-    const ok = moveDirAtomic(legacy, inst)
-    if (ok) {
-      logError('migrate', 'Moved legacy data dir ' + legacy + ' -> ' + inst)
-    } else {
-      logError('migrate', 'Could not move legacy data dir; keeping it at ' + legacy)
+    if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target already populated — nothing to do
+    if (fs.existsSync(_MIGRATION_DECISION())) return // user already decided
+    const result = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Move into C:\\Wan2GP (recommended)', 'Keep separate — I\'ll delete it myself', 'Ask me later'],
+      defaultId: 0, cancelId: 2,
+      parent: mainWin, modal: true,
+      title: 'Old Wan2GP data found',
+      message: 'Wan2GP v3.0 installs to a dedicated folder (C:\\Wan2GP) instead of your roaming AppData.',
+      detail: 'Found an old Wan2GP install at:\n  ' + legacy + '\n\n' +
+              'What would you like to do with it? (The new install will use ' + inst + ' either way.)'
+    })
+    const r = result.response
+    if (r === 0) {
+      const ok = moveDirAtomic(legacy, inst)
+      logError('migrate', ok
+        ? 'User chose MOVE: ' + legacy + ' -> ' + inst
+        : 'User chose MOVE but move failed; left at ' + legacy)
+      try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+    } else if (r === 1) {
+      // Keep separate: leave the old folder, do not move. Record decision so we
+      // don't prompt again; the user deletes the old folder whenever they want.
+      logError('migrate', 'User chose KEEP SEPARATE: left legacy at ' + legacy + '; v3.0 uses ' + inst)
+      try { fs.writeFileSync(_MIGRATION_DECISION(), 'separate') } catch {}
     }
-  } catch (e) { logError('tryMigrateToInstallFolder', e) }
+    // r === 2 (Ask later): no marker written, prompts again next launch.
+  } catch (e) { logError('promptMigration', e) }
 }
 
 // ── Progress-forcing bootstrap ──
@@ -4810,12 +4839,12 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
 
-  // One-time migration (DEFERRED, post-paint): if a legacy Roaming\wan2gp-desktop\Wan2GP
-  // exists and the install folder is writable, move it into <install folder>/Wan2GP so
-  // the launcher becomes self-contained. Runs after createWindow so it can never block
-  // the UI from opening. Best-effort: if the move stalls (locked/large dir), the window
-  // is already up and the user can keep using v3.0; the move retries on next launch.
-  setTimeout(() => { try { tryMigrateToInstallFolder() } catch (e) { logError('migration', e) } }, 1500)
+  // One-time migration prompt (DEFERRED, post-paint): if a legacy
+  // Roaming\wan2gp-desktop\Wan2GP exists and the install folder is empty, ASK the
+  // user whether to move it into C:\Wan2GP or keep it separate (they delete it
+  // themselves later). Runs after createWindow so it can never block the UI from
+  // opening. The dialog is modal and shown at most once per decision.
+  setTimeout(() => { promptMigration().catch(e => logError('migration', e)) }, 1500)
 
   // Native theme auto-follow
   try {
