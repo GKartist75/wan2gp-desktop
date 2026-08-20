@@ -132,7 +132,7 @@ generation uses. Explicit values in Extra Launch Args always win.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
 - **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
 
-> **New in v3.0.0** — **Self-contained install layout (folders moved).** Wan2GP now installs to a dedicated `C:\Wan2GP` (repo + venv + config) and keeps model checkpoints/LoRAs on a **separate** `C:\Wan2GP-Models` — out of roaming AppData for good. This is a breaking change for existing installs (old path was `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP`). **Uninstall then reinstall is the clean path; in-place update also works** (it auto-migrates your old AppData data into `C:\Wan2GP` on first launch). See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
+> **New in v3.0.0** — **Self-contained install layout (folders moved) + latest GPU kernels auto-installed per hardware.** Wan2GP now installs to a dedicated `C:\Wan2GP` (repo + venv + config) and keeps model checkpoints/LoRAs on a **separate** `C:\Wan2GP-Models` — out of roaming AppData for good. The installer also pulls the **current** attention/quant kernels matched to your GPU: Python 3.11.14 + PyTorch 2.10 (CUDA 13), Triton, SageAttention (1.0.6 on RTX 20 / 2.2.0 on 30–50), Sparge 0.1.0, Flash-Attention 2.8.3, Nunchaku 1.2.1, GGUF llama.cpp CUDA 1.0.11, Lightx2v 0.0.2 (RTX 50 FP4), and bitsandbytes 0.49.2 (NF4) — all re-synced on every update. This is a breaking change for existing installs (old path was `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP`). **Uninstall then reinstall is the clean path; in-place update also works** (it auto-migrates your old AppData data into `C:\Wan2GP` on first launch). See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [⚙️ GPU kernel wheels](#️-gpu-kernel-wheels-installed-automatically) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
 > [Full changelog →](changelogs/CHANGELOG-v3.0.0.md)
 
 > **New in v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** The real bug: during the gallery/plugin-tab refactor `#installer` was placed *inside* `#dashboard`'s closing tag, so it became a child of `#dashboard`. Because the launcher shows a screen by toggling a single `.active` class and `#dashboard` is `display:none` when another screen is active, the nested `#installer` inherited that hidden state and collapsed to **0×0** — the classic "title bar only" blank. (This is why the 2.8.2–2.8.6 `show`/hammer fixes never worked: you can't re-present a 0-height element.) Fix: restore `#installer` (+ floating-terminal) as **siblings of `#dashboard`** under `#app` (as in 2.6.0), and make `.screen` fill `#app` via `position:absolute; inset:0`. Also removed the 1px resize-nudge that caused a window "shake". Verified by clean reinstall + full install→open-Wan2GP flow.
@@ -393,23 +393,29 @@ C:\Wan2GP-Models\               ← SEPARATE, your large files
 Wan2GP runs far faster with vendor attention/quantization kernels than with
 stock PyTorch. The installer detects your GPU and pulls the matching **prebuilt
 wheels** during install (and re-syncs them on every update, so you never get a
-stale wheel when upstream bumps one). On an NVIDIA RTX 30/40/50 install you'll
-see these go down:
+stale wheel when upstream bumps one). The installer reads Wan2GP's own
+`setup_config.json` per hardware profile and shows **exactly** what it will
+install before you click. On an NVIDIA RTX 30/40/50 install you'll see these go
+down (v3.0.0 pinned versions):
 
-| Wheel | What it does |
-|-------|--------------|
-| **PyTorch + CUDA** (`torch`/`torchvision`/`torchaudio`) | The base tensor + GPU runtime (CUDA 13.0 build on v3.0). |
-| **Triton** (`triton-windows`) | JIT compiler for custom CUDA/attention kernels on Windows. |
-| **SageAttention** (`sageattention`) | Fast fused attention — big speed-up for sampling, low VRAM overhead. |
-| **Sparge Attention** (`spas-sage-attn`) | Sparsity-aware attention kernel (drop-in speed-up alongside Sage). |
-| **Flash-Attention** (`flash-attn`) | Memory-efficient exact attention for long contexts/high-res. |
-| **Nunchaku** (`nunchaku`) | SVD-quantized (NF4/SVDQ) checkpoint runtime — runs 4-bit/8-bit models fast. |
-| **GGUF llama.cpp CUDA** (`llamacpp-gguf-cuda`) | CUDA-backed GGUF LLM/quant kernels for the text/image backbones. |
-| **bitsandbytes** (`bitsandbytes`) | 8-bit/NF4 optimizers + dequant for NF4 checkpoints (since v2.8.1). |
+| Wheel | Version (v3.0.0) | What it does |
+|-------|------------------|--------------|
+| **Python** (uv) | `3.11.14` (RTX 20–50) / `3.10.9` (GTX 10) | The venv interpreter. |
+| **PyTorch + CUDA** (`torch`/`torchvision`/`torchaudio`) | `2.10.0` + CUDA 13.0 | Base tensor + GPU runtime. |
+| **Triton** (`triton-windows`) | `latest` (3.7.1 on the v3.0 build) | JIT compiler for custom CUDA/attention kernels on Windows. |
+| **SageAttention** (`sageattention`) | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | Fast fused attention — big speed-up for sampling, low VRAM overhead. |
+| **Sparge Attention** (`spas-sage-attn`) | `0.1.0` | Sparsity-aware attention kernel (drop-in speed-up alongside Sage). |
+| **Flash-Attention** (`flash-attn`) | `2.8.3` | Memory-efficient exact attention for long contexts/high-res. |
+| **Nunchaku** (`nunchaku`) | `1.2.1` | SVD-quantized (NF4/SVDQ) checkpoint runtime — runs 4-bit/8-bit models fast. |
+| **GGUF llama.cpp CUDA** (`llamacpp_gguf_cuda`) | `1.0.11` | CUDA-backed GGUF LLM/quant kernels (Stream-K, quantized KV-cache). |
+| **Lightx2v** (`lightx2v_kernel`) | `0.0.2` | FP4 kernels — **RTX 50xx / sm120+ only**. |
+| **bitsandbytes** (`bitsandbytes`) | `0.49.2` | 8-bit/NF4 optimizers + dequant for NF4 checkpoints (since v2.8.1). |
 
-The exact versions come from Wan2GP's own `setup_config.json` per hardware
-profile (e.g. RTX 30 → `RTX_30`), so the installer shows **exactly** what it
-will install before you click. Kernels are installed into the `C:\Wan2GP\env_uv`
+> **Per-hardware kernel set (v3.0.0):** RTX 20 → Sage 1.0.6 + Flash 2.8.3 + Nunchaku + GGUF 1.0.11.
+> RTX 30/40 → add Sparge 0.1.0 + Sage 2.2.0. RTX 50 → add **Lightx2v 0.0.2** (FP4). All profiles also get bitsandbytes 0.49.2.
+> Versions are kept current with `setup_config.json` on every update — if upstream bumps a wheel, the next update installs it.
+
+The kernels are installed into the `C:\Wan2GP\env_uv`
 venv, not into the repo — so the flat `C:\Wan2GP` layout above keeps the wheels
 with the environment, separately from your model files.
 

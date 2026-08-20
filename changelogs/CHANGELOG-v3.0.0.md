@@ -74,6 +74,15 @@ fresh installs get the clean flat layout.
   preserving existing user files (models, `desktop-config.json`, `.electron`,
   `wgp_config.json`) and always replacing `.git` so a half-failed clone can't
   leave a broken repo. No live-dir rename, ever.
+- **Latest GPU kernels installed per hardware (with versions).** The installer
+  reads Wan2GP's `setup_config.json` and pulls the **current** attention/quant
+  wheels matched to your GPU into `C:\Wan2GP\env_uv`, re-syncing them on every
+  update. v3.0.0 pins: Python 3.11.14 (RTX 20–50) / 3.10.9 (GTX 10), PyTorch
+  2.10.0 + CUDA 13.0, Triton (latest), SageAttention 1.0.6 (RTX 20) / 2.2.0
+  (RTX 30–50), Sparge 0.1.0, Flash-Attention 2.8.3, Nunchaku 1.2.1, GGUF
+  llama.cpp CUDA 1.0.11, Lightx2v 0.0.2 (RTX 50 FP4), bitsandbytes 0.49.2 (NF4).
+  Per-hardware set: RTX 20 → Sage 1.0.6 + Flash + Nunchaku + GGUF; RTX 30/40 add
+  Sparge + Sage 2.2.0; RTX 50 add Lightx2v. Documented in README + infographic.
 - **`boot.log` + all dotfolders** (`boot.log`, `.electron`, `.py-shim`,
   `.reinstall-backup`, `patches`) now colocate with the repo.
 
