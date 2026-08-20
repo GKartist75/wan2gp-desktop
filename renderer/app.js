@@ -723,7 +723,7 @@ $('browseCkptsPath')?.addEventListener('click', () => browseModelFolder('ckpts')
 $('browseLorasPath')?.addEventListener('click', () => browseModelFolder('loras'))
 $('clearCkptsPath')?.addEventListener('click', async () => {
   const p = await window.w2gp.getInstallPaths()
-  const def = p?.appData ? p.appData + '\\ckpt' : '(default)'
+  const def = (p?.modelsDefault ? pathJoin(p.modelsDefault, 'checkpoints') : '(default)')
   setModelPath('ckpts', '')
   const el = $('installCkptsPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
@@ -733,7 +733,7 @@ $('clearCkptsPath')?.addEventListener('click', async () => {
 })
 $('clearLorasPath')?.addEventListener('click', async () => {
   const p = await window.w2gp.getInstallPaths()
-  const def = p?.appData ? p.appData + '\\lora' : '(default)'
+  const def = (p?.modelsDefault ? pathJoin(p.modelsDefault, 'loras') : '(default)')
   setModelPath('loras', '')
   const el = $('installLorasPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
@@ -744,7 +744,7 @@ $('clearLorasPath')?.addEventListener('click', async () => {
 $('browseOutputPath')?.addEventListener('click', () => browseModelFolder('output'))
 $('clearOutputPath')?.addEventListener('click', async () => {
   const p = await window.w2gp.getInstallPaths()
-  const def = p?.appData ? p.appData + '\\outputs' : '(default)'
+  const def = (p?.modelsDefault ? pathJoin(p.modelsDefault, 'outputs') : '(default)')
   setModelPath('output', '')
   const el = $('installOutputPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
@@ -989,6 +989,8 @@ async function refreshDashboard(){
   $('checkPkgUpdatesBtn').textContent = '↻ Check Updates'
   $('checkPkgUpdatesBtn').disabled = false
   refreshEnvUnlink()
+  // Warn if model checkpoints/LoRAs still live in a roaming AppData profile.
+  checkModelsPathWarning()
   // Enable/disable no-GPU button based on Chrome availability
   ;(async () => {
     const available = await window.w2gp.chromeAvailable()
@@ -998,6 +1000,28 @@ async function refreshDashboard(){
     if (hint) hint.style.display = available ? 'none' : 'block'
   })()
 }
+
+// ── Model-path warning ──
+// Shows a dashboard banner when the configured checkpoints/LoRAs/output paths
+// resolve under the roaming AppData profile (a bad place for huge model files).
+async function checkModelsPathWarning() {
+  const banner = $('modelsWarnBanner')
+  if (!banner) return
+  if (banner.dataset.dismissed === '1') { banner.classList.add('hidden'); return }
+  try {
+    const [paths, ip] = await Promise.all([window.w2gp.getModelPaths(), window.w2gp.getInstallPaths()])
+    if (!paths || !ip) { banner.classList.add('hidden'); return }
+    const appDataRoot = (ip.appDataRoot || '').toLowerCase().replace(/\\/g, '/')
+    const bad = appDataRoot && [paths.checkpoints, paths.loras, paths.output]
+      .filter(Boolean)
+      .some(p => (p || '').toLowerCase().replace(/\\/g, '/').startsWith(appDataRoot))
+    banner.classList.toggle('hidden', !bad)
+  } catch { banner.classList.add('hidden') }
+}
+$('modelsWarnDismissBtn')?.addEventListener('click', () => {
+  const b = $('modelsWarnBanner')
+  if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
+})
 
 // ── GPU Kernel Wheels (profile-driven, subsection of Active Environment) ──
 // Renders the wheels resolved from setup_config.json for the active GPU:
@@ -1270,18 +1294,24 @@ async function loadPaths(skipModelPaths) {
   if (!p) return
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
   set('pathAppData', p.repo)
-  set('installAppDataPath', p.appData + '\\Wan2GP')
+  set('installAppDataPath', p.appData)
   window.w2gp.getDiskSpace().then(function(d) {
     if (!d) return;
     var freeGb = (d.free / 1073741824).toFixed(1);
     $('pathFreeSpace').textContent = freeGb + ' GB free';
   });
-  if (!skipModelPaths && p.appData) {
-    if (!_modelCkpts) setModelPath('ckpts', p.appData + '\\ckpt')
-    if (!_modelLoras) setModelPath('loras', p.appData + '\\lora')
-    if (!_modelOutput) setModelPath('output', p.appData + '\\outputs')
+  if (!skipModelPaths) {
+    // Prefill model folders from the dedicated default (C:\Wan2GP-Models) so the
+    // user sees the recommended separate location and can change it. Only fills
+    // when the user hasn't already chosen a custom path.
+    const md = p.modelsDefault || p.appData
+    if (!_modelCkpts) setModelPath('ckpts', pathJoin(md, 'checkpoints'))
+    if (!_modelLoras) setModelPath('loras', pathJoin(md, 'loras'))
+    if (!_modelOutput) setModelPath('output', pathJoin(md, 'outputs'))
   }
 }
+// Tiny path join that tolerates both separators in the renderer (no node path).
+function pathJoin(a, b) { return (a || '').replace(/[\\/]+$/, '') + '\\' + b }
 
 $('openAppDataBtn')?.addEventListener('click', function() {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });

@@ -704,6 +704,8 @@ body {
 .ipath-label { color: var(--text-secondary); flex-shrink: 0; }
 .ipath-val { color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono', monospace; font-size: 0.625rem; }
 .path-hint { font-size: 0.5625rem; color: var(--text-tertiary); margin: -2px 0 6px 0; line-height: 1.3; padding-left: 2px; }
+.path-hint code { font-family: 'Geist Mono', monospace; background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; color: var(--text-secondary); }
+.path-hint-warn { color: var(--warning, #d9a441); border-left: 2px solid var(--warning, #d9a441); padding-left: 8px; margin-top: 2px; }
 .paths-grid { display: flex; flex-direction: column; gap: 3px; }
 .path-val { font-size: 0.625rem; overflow-wrap: anywhere; word-break: normal; min-width: 0; flex: 1; line-height: 1.4; }
 

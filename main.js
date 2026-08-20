@@ -395,12 +395,120 @@ function getDataDir() {
       }
     }
   } catch (e) { logError('getDataDir', e) }
-  return path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+  return defaultDataDir()
+}
+
+// User-approved default data location: a dedicated top-level folder
+// (C:\Wan2GP on Windows, ~/Wan2GP elsewhere) — NOT the roaming AppData profile,
+// which would double up (Wan2GP\Wan2GP) and bury model checkpoints in a synced
+// profile. Falls back to a writable install-folder-adjacent dir, then to the
+// legacy %APPDATA% data dir (per-machine Program-Files installs without admin).
+let _defaultDataDirCache = undefined
+function defaultDataDir() {
+  if (_defaultDataDirCache !== undefined) return _defaultDataDirCache
+  const pref = IS_WIN ? path.join('C:\\', 'Wan2GP') : path.join(os.homedir(), 'Wan2GP')
+  if (dirIsWritable(pref)) { _defaultDataDirCache = pref; return pref }
+  const inst = computeInstallDataDir()
+  if (inst) { _defaultDataDirCache = inst; return inst }
+  _defaultDataDirCache = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+  return _defaultDataDirCache
 }
 
 function getConfigFile() { return path.join(getDataDir(), 'desktop-config.json') }
-function getRepoDir() { return path.join(getDataDir(), 'Wan2GP') }
+function getRepoDir() {
+  const base = getDataDir()
+  // Legacy installs nested the repo in a Wan2GP subfolder (AppData\…\Wan2GP\Wan2GP).
+  // A fresh dedicated data dir (e.g. C:\Wan2GP) keeps the repo directly at the
+  // root so the path never doubles up. Prefer the nested layout only when it
+  // already holds a real clone (preserves migrated/existing installs).
+  const nested = path.join(base, 'Wan2GP')
+  if (fs.existsSync(path.join(nested, 'wgp.py'))) return nested
+  return base
+}
 function getEnvsFile() { return path.join(getRepoDir(), 'envs.json') }
+
+// ── Portable / colocated data dir ──
+// Default Electron/launcher data lives in %APPDATA%/wan2gp-desktop/Wan2GP (an
+// OS-managed roaming/profile location) — but users who install the launcher
+// somewhere writable want ALL app-created data stored next to the launcher
+// .exe instead (a self-contained "install folder" layout).
+//
+// Resolution order (computeInstallDataDir):
+//   1. dirname(process.execPath) when it is a writable, non-system path
+//      (i.e. NOT C:\Program Files, C:\Windows, the electron .app bundle, or
+//      inside app.asar). This makes the data folder = <install folder>/Wan2GP.
+//   2. Otherwise fall back to the legacy %APPDATA%/wan2gp-desktop/Wan2GP so a
+//      per-machine Program-Files install still works without admin writes.
+//
+// A one-time migration moves an existing legacy data dir into the install
+// folder when (and only when) the install folder is writable — rollback-safe:
+// the legacy dir is only removed after the move is confirmed on disk.
+function isInsideAsar(p) { return (p || '').includes('app.asar') }
+function isSystemDir(p) {
+  if (!p) return true
+  const norm = path.normalize(p).toLowerCase()
+  const sys = [
+    process.env.SystemRoot,
+    process.env.windir,
+    'c:\\program files', 'c:\\program files (x86)',
+    '/applications', '/system', '/usr', '/library',
+    path.join(os.homedir(), 'appdata', 'local'),
+    path.join(os.homedir(), 'appdata', 'roaming'),
+    path.join(os.homedir(), 'appdata')
+  ].filter(Boolean).map(s => path.normalize(s).toLowerCase())
+  return sys.some(s => norm === s || norm.startsWith(s + path.sep))
+}
+function dirIsWritable(p) {
+  try {
+    fs.mkdirSync(p, { recursive: true })
+    const probe = path.join(p, '.wan2gp-desktop-writetest-' + process.pid)
+    fs.writeFileSync(probe, '1')
+    fs.unlinkSync(probe)
+    return true
+  } catch { return false }
+}
+function computeInstallDataDir() {
+  try {
+    const ex = process.execPath
+    const base = path.dirname(ex)
+    if (!isInsideAsar(base) && !fs.statSync(base).isDirectory?.()) { /* noop */ }
+    if (isInsideAsar(base)) return null
+    if (isSystemDir(base)) return null
+    if (dirIsWritable(base)) return path.join(base, 'Wan2GP')
+  } catch (e) { logError('computeInstallDataDir', e) }
+  return null
+}
+function moveDirAtomic(src, dst) {
+  // Cross-device-safe move: try rename first, fall back to a copy+verify+rm.
+  try { fs.renameSync(src, dst); return true } catch { /* fall through to copy */ }
+  try {
+    fs.cpSync(src, dst, { recursive: true })
+    // verify top-level parity before deleting source
+    const sameCount = (d) => fs.readdirSync(d).length
+    if (sameCount(src) === sameCount(dst) && fs.readdirSync(dst).length > 0) {
+      fs.rmSync(src, { recursive: true, force: true })
+      return true
+    }
+  } catch (e) { logError('moveDirAtomic', e) }
+  return false
+}
+function tryMigrateToInstallFolder() {
+  try {
+    const inst = defaultDataDir()
+    if (!inst) return // no usable default — keep current layout
+    const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+    if (legacy === inst) return
+    if (!fs.existsSync(legacy)) return
+    if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target occupied — don't clobber
+    // Move the whole legacy Wan2GP data folder into the new default location.
+    const ok = moveDirAtomic(legacy, inst)
+    if (ok) {
+      logError('migrate', 'Moved legacy data dir ' + legacy + ' -> ' + inst)
+    } else {
+      logError('migrate', 'Could not move legacy data dir; keeping it at ' + legacy)
+    }
+  } catch (e) { logError('tryMigrateToInstallFolder', e) }
+}
 
 // ── Progress-forcing bootstrap ──
 // Writes inline Python to a temp file so child Python can access it
@@ -2739,10 +2847,18 @@ ipcMain.handle('config-save', (_, cfg) => {
 })
 
 // ── Install paths ──
+// Default Models/LoRAs location — a SEPARATE top-level folder from the repo
+// (C:\Wan2GP-Models) so large checkpoints stay off the repo drive and out of
+// any roaming AppData profile. Editable at install; pre-filled as the example.
+function defaultModelsDir() {
+  return IS_WIN ? path.join('C:\\', 'Wan2GP-Models') : path.join(os.homedir(), 'Wan2GP-Models')
+}
 ipcMain.handle('get-install-paths', () => ({
   appData: getDataDir(),
+  appDataRoot: ORIGINAL_USER_DATA,
   repo: getRepoDir(),
-  config: getConfigFile()
+  config: getConfigFile(),
+  modelsDefault: defaultModelsDir()
 }))
 ipcMain.handle('set-data-dir', (_, dir) => {
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
@@ -2759,9 +2875,9 @@ ipcMain.handle('open-folder', (_, dir) => {
 ipcMain.handle('reset-data-dir', () => {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
-    // Compute the default from the ORIGINAL userData (pre-redirect) — using
-    // app.getPath('userData') here nested the app under <dataDir>/.electron.
-    const d = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+    // Reset to the resolved default (C:\Wan2GP when writable, else AppData) —
+    // NOT a hardcoded AppData path, which would override the preferred default.
+    const d = defaultDataDir()
     fs.mkdirSync(d, { recursive: true })
     app.setPath('userData', path.join(d, '.electron'))
   } catch {}
@@ -2995,12 +3111,22 @@ ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, save
       cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     }
   } catch {}
+  // Models/LoRAs default to a SEPARATE top-level folder (C:\Wan2GP-Models) so
+  // big checkpoints never land in AppData or on the repo drive. Use the caller's
+  // explicit choice when given, otherwise the dedicated default.
+  const md = defaultModelsDir()
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
+  else if (!cfg.checkpoints_paths) cfg.checkpoints_paths = [path.join(md, 'checkpoints'), '.']
   if (lorasRoot) cfg.loras_root = lorasRoot
+  else if (!cfg.loras_root) cfg.loras_root = path.join(md, 'loras')
   if (savePath) {
     cfg.save_path = savePath
     cfg.image_save_path = savePath
     cfg.audio_save_path = savePath
+  } else if (!cfg.save_path) {
+    cfg.save_path = path.join(md, 'outputs')
+    cfg.image_save_path = path.join(md, 'outputs')
+    cfg.audio_save_path = path.join(md, 'outputs')
   }
   // Hardware-tuned defaults — only fill missing
   // Attention defaults to AUTO (gradio UI can override)
@@ -3796,7 +3922,7 @@ ipcMain.handle('report-issue', async () => {
       lines.push('windowState: ' + JSON.stringify(cfg.windowState || null))
     } catch {}
     try {
-      const bl = path.join(_LAUNCHER_DIR, 'boot.log')
+      const bl = path.join(getDataDir(), 'boot.log')
       if (fs.existsSync(bl)) {
         const tb = fs.readFileSync(bl, 'utf8').trim().split('\n').slice(-25)
         lines.push('')
@@ -4413,11 +4539,11 @@ function createWindow() {
   // between 2.6 and 2.8.2 was in the window show path, so we trace it precisely.
   const _bootLog = []
   const _bootT0 = Date.now()
-  // boot.log goes in the launcher's OWN userData dir (ORIGINAL_USER_DATA), NOT
-  // getDataDir() — getDataDir() can be redirected to the user's Wan2GP repo
-  // folder via the data-dir override, which would dump boot.log into their home
-  // root. Keeping it in the launcher folder keeps the diagnostic self-contained.
-  const _bootLogDir = _LAUNCHER_DIR
+  // boot.log goes next to the data dir (getDataDir()), NOT %LOCALAPPDATA% — so a
+  // colocated install-folder layout keeps its diagnostics self-contained too.
+  // getDataDir() already resolves to the install folder when that is writable
+  // (and to %APPDATA% otherwise), so this follows the same rule as everything else.
+  const _bootLogDir = getDataDir()
   const _bootMark = (m) => { _bootLog.push(((Date.now() - _bootT0) / 1000).toFixed(3) + 's ' + m); try { fs.mkdirSync(_bootLogDir, { recursive: true }); fs.writeFileSync(path.join(_bootLogDir, 'boot.log'), _bootLog.join('\n') + '\n', 'utf8') } catch {} }
   _bootMark('createWindow: dataDir=' + getDataDir() + ' windowState=' + JSON.stringify(savedState))
   mainWin.on('show', () => _bootMark('event: show'))
@@ -4608,10 +4734,17 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-  // Pin data dir on first launch so it never shifts between updates
+  // One-time migration: if an existing legacy %APPDATA% data dir is present and
+  // the install folder is writable, move it into <install folder>/Wan2GP so the
+  // launcher becomes self-contained. Runs before any pin/redirect logic so the
+  // colocated location is authoritative from the first paint. Rollback-safe.
+  try { tryMigrateToInstallFolder() } catch (e) { logError('migration', e) }
+  // Pin data dir on first launch so it never shifts between updates. Pin to the
+  // resolved default (C:\Wan2GP when writable, else AppData) — NOT a hardcoded
+  // AppData path, which would override the colocated/default preference.
   try {
     if (!fs.existsSync(DATA_DIR_OVERRIDE)) {
-      const d = path.join(app.getPath('userData'), 'Wan2GP')
+      const d = defaultDataDir()
       fs.mkdirSync(d, { recursive: true })
       fs.writeFileSync(DATA_DIR_OVERRIDE, d)
     }

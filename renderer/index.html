@@ -402,6 +402,17 @@
       </button>
     </div>
 
+    <!-- Model-path warning banner (shown when checkpoints/LoRAs resolve under AppData) -->
+    <div id="modelsWarnBanner" class="update-banner models-warn hidden">
+      <div class="update-info">
+        <span class="update-badge" style="background:var(--warning,#d9a441)">MODELS</span>
+        <span id="modelsWarnText">Your checkpoints/LoRAs are inside a roaming AppData profile. Move them to a fast, dedicated drive (e.g. C:\Wan2GP-Models) for speed and to avoid profile bloat.</span>
+      </div>
+      <button id="modelsWarnDismissBtn" class="update-dismiss" aria-label="Dismiss">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
     <div class="dash-body" id="dashBody">
       <!-- Left column: System, Paths, Model Folders, Active Environment -->
       <div class="col-left">
@@ -619,7 +630,7 @@
           <button class="btn btn-ghost small" id="browseAppDataPath">Browse</button>
           <button class="btn btn-ghost small" id="clearAppDataPath" title="Reset to default">✕</button>
         </div>
-        <p class="path-hint">Where Wan2GP repo, venv, and outputs live. Put on a fast SSD with 50+ GB free.</p>
+        <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile.</p>
       </div>
 
       <!-- Model Folders -->
@@ -630,7 +641,7 @@
           <button class="btn btn-ghost small" id="browseCkptsPath">Browse</button>
           <button class="btn btn-ghost small" id="clearCkptsPath" title="Reset to default">✕</button>
         </div>
-        <p class="path-hint">Folder with existing model ckpts/safetensors — first path is default download dir</p>
+        <p class="path-hint">Folder with model ckpts/safetensors — first path is the default download dir.</p>
         <div class="install-path-row">
           <span class="ipath-label">LoRAs:</span>
           <span class="ipath-val" id="installLorasPath">(default)</span>
@@ -644,7 +655,8 @@
           <button class="btn btn-ghost small" id="browseOutputPath">Browse</button>
           <button class="btn btn-ghost small" id="clearOutputPath" title="Reset to default">✕</button>
         </div>
-        <p class="path-hint">Where generated videos/images/audio are saved. Default: Wan2GP install location.</p>
+        <p class="path-hint">Where generated videos/images/audio are saved.</p>
+        <p class="path-hint path-hint-warn">⚠ Model checkpoints &amp; LoRAs are large (tens–hundreds of GB). Store them on a fast, non-system drive — <strong>not</strong> in AppData/Roaming, which roams with your profile and can bloat or sync unexpectedly. Default <code>C:\Wan2GP-Models</code> keeps them separate from the repo.</p>
       </div>
 
       <button id="installStartBtn">Install</button>
