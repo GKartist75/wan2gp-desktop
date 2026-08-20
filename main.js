@@ -1388,6 +1388,7 @@ ipcMain.handle('get-status', async () => {
     // kernels → kernelWheels is [] and the UI hides the whole section.
     let kernelWheels = []
     let kernelProfile = null
+    let profile = null
     try {
       const cfgPath = path.join(getRepoDir(), 'setup_config.json')
       if (fs.existsSync(cfgPath)) {
@@ -1395,6 +1396,7 @@ ipcMain.handle('get-status', async () => {
         const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
         kernelProfile = kernelResolver.kernelProfileKey(gpu)
         kernelWheels = kernelResolver.buildOverviewWheels(cfg, gpu, IS_WIN ? 'win' : 'linux')
+        profile = (cfg.gpu_profiles && cfg.gpu_profiles[kernelProfile]) || null
         // Annotate each wheel with what's actually installed (if anything).
         for (const w of kernelWheels) {
           const have = await installedPkgVersion(py, w.pipName).catch(() => null)
@@ -1403,7 +1405,7 @@ ipcMain.handle('get-status', async () => {
         }
       }
     } catch (e) { console.warn('[get-status] kernel overview failed:', e.message) }
-    return { env, versions, kernelWheels, kernelProfile, profile: (cfg.gpu_profiles && cfg.gpu_profiles[kernelProfile]) || null, osKey: IS_WIN ? 'win' : 'linux' }
+    return { env, versions, kernelWheels, kernelProfile, profile, osKey: IS_WIN ? 'win' : 'linux' }
   } catch (e) { return { env, versions: { error: e.message }, kernelWheels: [], kernelProfile: null } }
 })
 
