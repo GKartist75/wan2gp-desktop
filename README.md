@@ -379,6 +379,15 @@ C:\Wan2GP-Models\               ← SEPARATE, your large files
 > model folders still point inside AppData. The dashboard shows a `MODELS`
 > banner if it detects checkpoints/LoRAs under your roaming profile.
 
+> **Also included** — v3.0 builds on the recent 2.6 – 2.8.7 line, none of it
+> regressed: the **black/blank-screen root cause** is fixed (nested-`.screen` DOM
+> regression in 2.8.7, GPU-compositor override in 2.8.2/2.8.3, update-`app.asar`
+> blank in 2.8.5); the **HTML structure is cleaner** (`#installer`/`#dashboard`
+> are siblings under `#app`, `.screen{position:absolute;inset:0}`); **GPU kernel
+> wheels** (GGUF/Nunchaku/Flash/Sage/Sparge/bitsandbytes) stay synced on every
+> install/update; and **switching Desktop ↔ Dashboard** no longer reloads the
+> embedded view, so your in-page input is never dropped.
+
 ## ⚙️ GPU kernel wheels (installed automatically)
 
 Wan2GP runs far faster with vendor attention/quantization kernels than with

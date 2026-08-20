@@ -77,6 +77,24 @@ fresh installs get the clean flat layout.
 - **`boot.log` + all dotfolders** (`boot.log`, `.electron`, `.py-shim`,
   `.reinstall-backup`, `patches`) now colocate with the repo.
 
+## Also includes (finished in the 2.6 – 2.8.7 line, all in v3.0)
+
+v3.0 builds on top of every recent fix — none of these regressed:
+
+- **No more black/blank screen.** The nested-`.screen` DOM regression (title-bar-only
+  blank) was root-caused and fixed in **v2.8.7**; the GPU-compositor first-present
+  black-screen (`%USERPROFILE%\.wan2gp-desktop-gpu-off` override) in **v2.8.2/2.8.3**;
+  and the in-app-update partial-`app.asar` blank in **v2.8.5**.
+- **Clearer HTML structure.** `#installer` / `#dashboard` are siblings under `#app`
+  with `.screen{position:absolute;inset:0}` (the v2.8.7 fix) — this is what ended
+  the 0×0 collapse.
+- **GPU kernel-wheel sync.** GGUF llama.cpp CUDA, Nunchaku, Flash, Sage/Sparge,
+  bitsandbytes stay current with `setup_config.json` on every install/update
+  (from **v2.8.0** + the v2.8.1 NF4/bnb addition).
+- **Clean Desktop ↔ Dashboard switching.** The embedded Wan2GP view no longer
+  reloads on window restore (crash-watchdog only), so switching modes never drops
+  your in-page input (hardened across **v2.6 – 2.8.x**).
+
 ## Verification
 
 - `node --check main.js` / `renderer/app.js` → syntax OK.
