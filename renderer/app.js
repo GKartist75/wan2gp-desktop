@@ -1468,6 +1468,7 @@ let currentUrl = null
 // Tracks which launcher path started the server so we can reset the right UI on exit.
 let serverMode = null      // 'app' | 'browser' | null
 let browserRunning = false // browser-mode server currently up (button acts as re-open)
+let appRunning = false     // desktop-mode (BrowserView) server currently up (button acts as "Back to…")
 
 // ── Launch in App (BrowserView — renders Gradio reliably on Electron 40; intercepts
 //     /manifest.json to dodge gradio#11553 blank-page bug) ──
@@ -1487,6 +1488,8 @@ $('appBtn').addEventListener('click', async () => {
     updateLed('running')
     updateFtStatus('running')
     serverMode = 'app'
+    appRunning = true
+    setAppLaunchLabel()
     window.w2gp.uiModeSet('app')   // crash recovery: remember we are in Desktop mode
     if (browserRunning) resetBrowserLaunchUI()
     // Open the floating terminal per the saved default dock (or stay minimised)
@@ -1505,9 +1508,15 @@ $('appBtn').addEventListener('click', async () => {
     hideWebviewUI()
     appendLog(`[LAUNCH ERROR] ${e.message}`)
   } finally {
-    $('appBtn').disabled = false; $('appBtn').textContent = 'Launch Wan2GP in Desktop'
+    $('appBtn').disabled = false; setAppLaunchLabel()
   }
 })
+
+// Reflect whether the Wan2GP desktop (BrowserView) server is still up behind the
+// dashboard: while it is, the launch button reads "Back to Wan2GP in Desktop".
+function setAppLaunchLabel() {
+  $('appBtn').textContent = appRunning ? 'Back to Wan2GP in Desktop' : 'Launch Wan2GP in Desktop'
+}
 
 function showWebviewUI() {
   $('wvControls').style.display = 'flex'
@@ -1531,6 +1540,8 @@ async function closeWebview() {
   hideWebviewUI()
   serverMode = null   // webview UI is gone; a later server exit must not re-close it
   window.w2gp.uiModeSet(null)
+  // Server is still running behind the dashboard → the launch button becomes "Back to…"
+  setAppLaunchLabel()
   appendLog('[*] Webview closed. Server still running.')
 }
 
@@ -1561,6 +1572,8 @@ async function checkCrashRecovery() {
       updateLed('running')
       updateFtStatus('running')
       serverMode = 'app'
+      appRunning = true
+      setAppLaunchLabel()
       window.w2gp.uiModeSet('app')
       // Restore the floating console per the saved default dock, exactly like
       // the normal Desktop launch does.
@@ -1676,6 +1689,8 @@ window.w2gp.onWangpExit(c => {
     hideBrowserRunningUI()
     resetBrowserLaunchUI()
   }
+  appRunning = false
+  setAppLaunchLabel()
   $('stopWangpBtn').style.display = 'none'
   updateLed('stopped')
   updateFtStatus('stopped')
