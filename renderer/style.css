@@ -726,7 +726,11 @@ body {
 .migrate-path input { flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border, #2a2a30); color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 0.75rem; font-family: 'Geist Mono', monospace; }
 .migrate-note-text { font-size: 0.6875rem; color: var(--text-tertiary); margin: 8px 0 14px; line-height: 1.4; }
 .migrate-note-text code { background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.migrate-progress { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.migrate-progress.hidden { display: none; }
+.migrate-progress-bar { flex: 1; height: 6px; background: var(--bg-tertiary); border-radius: 999px; overflow: hidden; }
+.migrate-progress-fill { height: 100%; width: 0%; background: var(--accent, #2ea043); transition: width 0.2s ease; }
+.migrate-progress-text { font-size: 0.6875rem; color: var(--text-secondary); white-space: nowrap; }
 
 /* ── Model Folder Picker ── */
 .model-folders { margin-top: 0; }

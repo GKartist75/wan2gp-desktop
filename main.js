@@ -503,27 +503,69 @@ function moveDirAtomic(src, dst) {
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
+// Total size (bytes) of a directory tree, best-effort (locked/unreadable
+// entries are skipped so a single bad file doesn't abort the scan).
+function getDirSize(dir) {
+  let total = 0
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) total += getDirSize(p)
+      else { try { total += fs.statSync(p).size } catch {} }
+    }
+  } catch {}
+  return total
+}
 // Move the CONTENTS of src into dst (not the src folder itself), so a legacy
 // `Roaming\wan2gp-desktop` (or `...\Wan2GP`) merges into `C:\Wan2GP` WITHOUT
-// creating a nested C:\Wan2GP\Wan2GP. Same-volume renames ignore file locks.
-function mergeDirContents(src, dst) {
+// creating a nested C:\Wan2GP\Wan2GP. Same-volume renames ignore file locks and
+// are instant even for huge model folders. `onProgress(pct)` is called only on
+// the SLOW copy-fallback path (cross-volume or a rename the FS rejected), so
+// users with many GB of models still see movement instead of a frozen button.
+function mergeDirContents(src, dst, onProgress) {
   try {
     fs.mkdirSync(dst, { recursive: true })
     const items = fs.readdirSync(src)
     if (items.length === 0) { fs.rmSync(src, { recursive: true, force: true }); return true }
+    const toCopy = []
     let moved = 0
     for (const name of items) {
       const s = path.join(src, name)
       const d = path.join(dst, name)
       if (fs.existsSync(d)) continue // don't clobber existing target item
-      try { fs.renameSync(s, d); moved++ } catch { /* locked/cross-vol → skip */ }
+      try { fs.renameSync(s, d); moved++ } // instant metadata move (same volume)
+      catch { toCopy.push({ s, d }) }      // rename rejected → needs a real copy
     }
-    // Done if everything relocated (or target already held it).
-    if (moved === items.length || items.every(n => fs.existsSync(path.join(dst, n)))) {
+    // Fast path: everything relocated via instant rename.
+    if (toCopy.length === 0) {
       try { fs.rmSync(src, { recursive: true, force: true }) } catch {}
       return true
     }
-    return false
+    // Slow path: copy the rejected items with byte-based progress. A locked/
+    // unreadable file is skipped (filter returns false) rather than aborting.
+    let totalBytes = 0
+    for (const it of toCopy) totalBytes += getDirSize(it.s)
+    let copied = 0
+    for (const it of toCopy) {
+      try {
+        fs.cpSync(it.s, it.d, {
+          recursive: true,
+          filter: (p) => {
+            try {
+              const st = fs.statSync(p)
+              if (st.isFile()) {
+                copied += st.size
+                if (onProgress && totalBytes > 0)
+                  onProgress(Math.min(99, Math.round((copied / totalBytes) * 100)))
+              }
+              return true
+            } catch { return false } // unreadable/locked — skip this file
+          }
+        })
+        try { fs.rmSync(it.s, { recursive: true, force: true }) } catch {}
+      } catch (e) { logError('mergeDirContents-copy', e) }
+    }
+    return true
   } catch (e) { logError('mergeDirContents', e); return false }
 }
 // Move legacy roaming data into the preferred data dir (target, e.g. C:\Wan2GP),
@@ -532,7 +574,8 @@ function mergeDirContents(src, dst) {
 // fallback skips locked files. Returns true if the move succeeded.
 async function runMigrationMove(legacy, choices) {
   const target = choices.dataDir
-  let ok = mergeDirContents(legacy, target)
+  const sendProg = (pct) => { try { if (mainWin && mainWin.webContents) mainWin.webContents.send('migration-progress', pct) } catch {} }
+  let ok = mergeDirContents(legacy, target, sendProg)
   if (ok) {
     // Flatten a doubled-up repo: when the chosen data dir is a dedicated folder
     // (e.g. C:\Wan2GP) but the legacy source kept the repo one level in

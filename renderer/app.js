@@ -1353,6 +1353,12 @@ async function openMigrationModal() {
   $('migCkpts').value = prefs.ckpts || ''
   $('migLoras').value = prefs.loras || ''
   $('migOutput').value = prefs.output || ''
+  // Reset to idle state (in case a previous attempt left the progress UI showing).
+  _migBusy = false
+  const btn = $('migrationMoveBtn')
+  if (btn) { btn.disabled = false; btn.textContent = 'Move & restart' }
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.add('hidden'); const f = $('migrationProgressFill'); if (f) f.style.width = '0%' }
   $('migrationModal').classList.remove('hidden')
 }
 $('migrationCloseBtn')?.addEventListener('click', () => $('migrationModal').classList.add('hidden'))
@@ -1374,13 +1380,16 @@ $('migrationMoveBtn')?.addEventListener('click', async () => {
   const btn = $('migrationMoveBtn')
   btn.disabled = true
   btn.textContent = 'Moving…'
+  // Show the progress bar (hidden again on success/error below).
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.remove('hidden'); setMigrationProgress(0) }
   const choices = {
     dataDir: $('migDataDir').value,
     ckpts: $('migCkpts').value,
     loras: $('migLoras').value,
     output: $('migOutput').value
   }
-  if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'; return }
+  if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); resetMigrationUI(); return }
   try {
     const r = await window.w2gp.migrateToPreferred(choices)
     if (r && r.ok) {
@@ -1388,13 +1397,28 @@ $('migrationMoveBtn')?.addEventListener('click', async () => {
     } else {
       alert('Could not move the data folder:\n' + ((r && r.error) || 'unknown error') +
             '\n\nClose any Wan2GP windows/terminals pointing at the old folder and try again.')
-      _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'
+      resetMigrationUI()
     }
   } catch (e) {
     alert('Migration failed: ' + e.message)
-    _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'
+    resetMigrationUI()
   }
 })
+// Show live copy progress (only the slow cross-volume/copy-fallback path emits
+// this — the common instant rename path finishes before any paint).
+function setMigrationProgress(pct) {
+  const fill = $('migrationProgressFill'); if (fill) fill.style.width = pct + '%'
+  const txt = $('migrationProgressText'); if (txt) txt.textContent = 'Moving… ' + pct + '%'
+}
+window.w2gp.onMigrationProgress?.(setMigrationProgress)
+// Restore the modal to its idle state (re-enable button, hide progress).
+function resetMigrationUI() {
+  _migBusy = false
+  const btn = $('migrationMoveBtn')
+  if (btn) { btn.disabled = false; btn.textContent = 'Move & restart' }
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.add('hidden'); setMigrationProgress(0) }
+}
 // Startup prompt (main process) asks the renderer to open this modal.
 window.w2gp.onOpenMigration?.(() => openMigrationModal());
 

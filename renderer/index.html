@@ -797,7 +797,7 @@
         <span class="modal-title">Move Wan2GP out of AppData</span>
         <button class="modal-close" id="migrationCloseBtn" aria-label="Close">✕</button>
       </div>
-      <p class="modal-sub">Your Wan2GP data currently lives in your roaming AppData profile. Choose where to move it. Our recommended locations are pre-filled — change any of them if you like.</p>
+      <p class="modal-sub">Your Wan2GP data currently lives in your roaming AppData profile. Move it to a dedicated, fast drive — AppData is meant for small settings, not multi-GB model checkpoints (it can slow logins, trigger antivirus locks, and bloat your profile). Our recommended locations are pre-filled — change any of them if you like.</p>
       <div class="migrate-row">
         <label>Wan2GP data folder</label>
         <div class="migrate-path">
@@ -827,6 +827,10 @@
         </div>
       </div>
       <p class="migrate-note-text">After moving, your model-folder paths in <code>wgp_config.json</code> are updated to these locations and the app restarts.</p>
+      <div id="migrationProgress" class="migrate-progress hidden">
+        <div class="migrate-progress-bar"><div id="migrationProgressFill" class="migrate-progress-fill"></div></div>
+        <span id="migrationProgressText" class="migrate-progress-text">Moving… 0%</span>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="migrationCancelBtn">Cancel</button>
         <button class="btn btn-primary" id="migrationMoveBtn">Move &amp; restart</button>
