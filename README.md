@@ -4,6 +4,12 @@ A desktop launcher for [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) that ins
 updates, and runs it from one window — handling Git, Python, CUDA, and PyTorch setup
 so you don't have to configure them manually.
 
+> **Stuck on v3.0 not starting?** If you upgraded from an older version whose data lived in
+> the roaming AppData profile, the essential fix is:
+> **uninstall → make sure it's fully closed → delete `Roaming\wan2gp-desktop` → reinstall the latest v3.x.**
+> (v3.0.1+ also offers an in-app "Migrate to new location" button that moves your data out of
+> AppData cleanly, so this manual cleanup is no longer needed.)
+
 [![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=release)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)](<>)
 [![License](https://img.shields.io/github/license/GKartist75/wan2gp-desktop?style=flat-square)](<>)
