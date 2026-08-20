@@ -2853,6 +2853,20 @@ ipcMain.handle('config-save', (_, cfg) => {
 function defaultModelsDir() {
   return IS_WIN ? path.join('C:\\', 'Wan2GP-Models') : path.join(os.homedir(), 'Wan2GP-Models')
 }
+// A model folder is "repo-relative" (i.e. no real user choice) when it's the
+// repo root, the repo's ckpts/loras/outputs, or the bare '.' sentinel. Such
+// paths count as the legacy default and are upgraded to the separate default.
+function isRepoRelativePath(p, repo) {
+  if (!p) return true
+  const norm = (p || '').replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+  if (norm === '.' ) return true
+  const r = (repo || '').replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+  if (!r) return false
+  return norm === r || norm.startsWith(r + '/')
+}
+function isRepoRelativePaths(arr, repo) {
+  return Array.isArray(arr) && arr.every(p => isRepoRelativePath(p, repo))
+}
 ipcMain.handle('get-install-paths', () => ({
   appData: getDataDir(),
   appDataRoot: ORIGINAL_USER_DATA,
@@ -3111,14 +3125,18 @@ ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, save
       cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     }
   } catch {}
+  const md = defaultModelsDir()
   // Models/LoRAs default to a SEPARATE top-level folder (C:\Wan2GP-Models) so
   // big checkpoints never land in AppData or on the repo drive. Use the caller's
-  // explicit choice when given, otherwise the dedicated default.
-  const md = defaultModelsDir()
+  // explicit choice when given; otherwise the dedicated default. A repo-relative
+  // stored path (legacy default / migrated install) is treated as "no choice"
+  // and upgraded to the separate default too.
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
-  else if (!cfg.checkpoints_paths) cfg.checkpoints_paths = [path.join(md, 'checkpoints'), '.']
+  else if (!cfg.checkpoints_paths || isRepoRelativePaths(cfg.checkpoints_paths, getRepoDir()))
+    cfg.checkpoints_paths = [path.join(md, 'checkpoints'), '.']
   if (lorasRoot) cfg.loras_root = lorasRoot
-  else if (!cfg.loras_root) cfg.loras_root = path.join(md, 'loras')
+  else if (!cfg.loras_root || isRepoRelativePath(cfg.loras_root, getRepoDir()))
+    cfg.loras_root = path.join(md, 'loras')
   if (savePath) {
     cfg.save_path = savePath
     cfg.image_save_path = savePath
@@ -3219,19 +3237,28 @@ ipcMain.handle('get-model-paths', () => {
 
 ipcMain.handle('detect-model-folders', () => {
   const repo = getRepoDir()
-  const ckptsDir = path.join(repo, 'ckpts')
-  const lorasDir = path.join(repo, 'loras')
+  const md = defaultModelsDir()
+  // Suggest the SEPARATE default location (C:\Wan2GP-Models\checkpoints) as the
+  // primary — NOT the repo folder. Big checkpoints must not live in the repo or
+  // under AppData. A repo-relative path is treated as "no real choice" and is
+  // replaced by the dedicated default so migrated installs upgrade cleanly.
   const suggestions = {
-    checkpointsPaths: [ckptsDir, repo],
-    lorasRoot: fs.existsSync(lorasDir) ? lorasDir : ''
+    checkpointsPaths: [path.join(md, 'checkpoints'), '.'],
+    lorasRoot: path.join(md, 'loras')
   }
-  // If existing config has saved paths, use those instead
+  // If an existing config has saved paths that are a genuine custom choice
+  // (not repo-relative / not the old default), keep those instead.
   const configPath = path.join(repo, 'wgp_config.json')
   try {
     if (fs.existsSync(configPath)) {
       const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-      if (cfg.checkpoints_paths && Array.isArray(cfg.checkpoints_paths)) suggestions.checkpointsPaths = cfg.checkpoints_paths
-      if (cfg.loras_root) suggestions.lorasRoot = cfg.loras_root
+      if (Array.isArray(cfg.checkpoints_paths) && cfg.checkpoints_paths.length &&
+          !isRepoRelativePaths(cfg.checkpoints_paths, repo)) {
+        suggestions.checkpointsPaths = cfg.checkpoints_paths
+      }
+      if (cfg.loras_root && !isRepoRelativePath(cfg.loras_root, repo)) {
+        suggestions.lorasRoot = cfg.loras_root
+      }
     }
   } catch {}
   return suggestions
