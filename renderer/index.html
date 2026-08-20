@@ -408,9 +408,12 @@
         <span class="update-badge" style="background:var(--warning,#d9a441)">MODELS</span>
         <span id="modelsWarnText">Your checkpoints/LoRAs are inside a roaming AppData profile. Move them to a fast, dedicated drive (e.g. C:\Wan2GP-Models) for speed and to avoid profile bloat.</span>
       </div>
-      <button id="modelsWarnDismissBtn" class="update-dismiss" aria-label="Dismiss">
-        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      <div class="models-warn-actions">
+        <button id="modelsWarnMigrateBtn" class="btn btn-primary small hidden">Move data to C:\Wan2GP</button>
+        <button id="modelsWarnDismissBtn" class="update-dismiss" aria-label="Dismiss">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </div>
 
     <div class="dash-body" id="dashBody">
@@ -785,6 +788,50 @@
       <button class="term-btn-small" id="logExportBtn" title="Export logs">Export</button>
     </div>
     <div class="floating-term-resize" id="ftResize"></div>
+  </div>
+
+  <!-- Migration folder chooser (data dir + model folders) -->
+  <div id="migrationModal" class="modal-overlay hidden">
+    <div class="modal migration-modal">
+      <div class="modal-header">
+        <span class="modal-title">Move Wan2GP out of AppData</span>
+        <button class="modal-close" id="migrationCloseBtn" aria-label="Close">✕</button>
+      </div>
+      <p class="modal-sub">Your Wan2GP data currently lives in your roaming AppData profile. Choose where to move it. Our recommended locations are pre-filled — change any of them if you like.</p>
+      <div class="migrate-row">
+        <label>Wan2GP data folder</label>
+        <div class="migrate-path">
+          <input type="text" id="migDataDir" readonly>
+          <button class="btn btn-ghost small" data-browse="dataDir">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>Checkpoints</label>
+        <div class="migrate-path">
+          <input type="text" id="migCkpts" readonly>
+          <button class="btn btn-ghost small" data-browse="ckpts">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>LoRAs</label>
+        <div class="migrate-path">
+          <input type="text" id="migLoras" readonly>
+          <button class="btn btn-ghost small" data-browse="loras">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>Output</label>
+        <div class="migrate-path">
+          <input type="text" id="migOutput" readonly>
+          <button class="btn btn-ghost small" data-browse="output">Browse</button>
+        </div>
+      </div>
+      <p class="migrate-note-text">After moving, your model-folder paths in <code>wgp_config.json</code> are updated to these locations and the app restarts.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="migrationCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="migrationMoveBtn">Move &amp; restart</button>
+      </div>
+    </div>
   </div>
 
   <!-- escape.js first: defines window.escHtml used by app.js. Loaded as a plain

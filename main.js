@@ -530,7 +530,8 @@ function mergeDirContents(src, dst) {
 // then repoint the data-dir override and relaunch so everything re-resolves
 // against the new location. Same-volume rename ignores file locks; the copy
 // fallback skips locked files. Returns true if the move succeeded.
-async function runMigrationMove(legacy, target) {
+async function runMigrationMove(legacy, choices) {
+  const target = choices.dataDir
   let ok = mergeDirContents(legacy, target)
   if (!ok) {
     try {
@@ -548,9 +549,23 @@ async function runMigrationMove(legacy, target) {
     } catch { /* ignore — leave in place */ }
   }
   if (!ok) return false
+  // Repoint the data-dir override so every subsequent launch resolves to the
+  // new location (repo becomes <target>/Wan2GP, config at <target>/Wan2GP/wgp_config.json).
+  try { fs.writeFileSync(DATA_DIR_OVERRIDE, target) } catch (e) { logError('migrate-override', e) }
+  // Rewrite the model-folder paths in wgp_config.json to the user's chosen
+  // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
+  try {
+    const configPath = path.join(target, 'Wan2GP', 'wgp_config.json')
+    let cfg = {}
+    try { if (fs.existsSync(configPath)) cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
+    if (choices.ckpts) cfg.checkpoints_paths = [choices.ckpts, '.']
+    if (choices.loras) cfg.loras_root = choices.loras
+    if (choices.output) { cfg.save_path = choices.output; cfg.image_save_path = choices.output; cfg.audio_save_path = choices.output }
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2))
+  } catch (e) { logError('migrate-config', e) }
   try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
   try {
-    fs.writeFileSync(DATA_DIR_OVERRIDE, target)
     app.relaunch()
     app.exit(0)
   } catch (e) { logError('migrate-relaunch', e) }
@@ -600,7 +615,10 @@ async function promptMigration() {
     })
     const r = result.response
     if (r === 0) {
-      await runMigrationMove(legacy, target)
+      // Open the renderer's folder-chooser modal so the user can confirm/override
+      // the target data dir AND the model folders (checkpoints/LoRAs/output)
+      // before the move. The modal calls migrate-to-preferred with the choices.
+      try { if (mainWin && mainWin.webContents) mainWin.webContents.send('open-migration') } catch {}
     } else if (r === 1) {
       // Keep as-is: leave the old folder, keep using it. Record decision so we
       // don't prompt again.
@@ -2987,17 +3005,31 @@ ipcMain.handle('get-install-paths', () => ({
 // user may want to move to the preferred C:\Wan2GP)?
 ipcMain.handle('is-data-dir-roaming', () =>
   getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
-// On-demand migration: move the current (roaming) data dir into the preferred
-// C:\Wan2GP, repoint the override, and relaunch. Returns {ok, legacy, target}.
-ipcMain.handle('migrate-to-preferred', async () => {
+// Returns the preferred migration targets (our recommended defaults) plus the
+// current legacy (roaming) data dir, so the renderer can pre-fill a folder
+// chooser and let the user override any of them before migrating.
+ipcMain.handle('migrate-choose', () => {
+  const md = defaultModelsDir()
+  return {
+    legacy: getDataDir(),
+    dataDir: defaultDataDir(),
+    modelsRoot: md,
+    ckpts: path.join(md, 'ckpts'),
+    loras: path.join(md, 'loras'),
+    output: path.join(md, 'outputs')
+  }
+})
+// Execute an on-demand migration with the user's chosen folders. `choices` =
+// { dataDir, ckpts, loras, output }. Moves the current (roaming) data dir into
+// dataDir, rewrites wgp_config.json model paths, and relaunches. Returns {ok}.
+ipcMain.handle('migrate-to-preferred', async (_, choices) => {
   try {
-    const target = defaultDataDir()
-    if (!target) return { ok: false, error: 'no preferred target' }
+    if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
     const current = getDataDir()
     if (!current.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
       return { ok: false, error: 'not a roaming data dir' }
-    const ok = await runMigrationMove(current, target)
-    return { ok, legacy: current, target }
+    const ok = await runMigrationMove(current, choices)
+    return { ok, legacy: current, target: choices.dataDir }
   } catch (e) { return { ok: false, error: String(e) } }
 })
 ipcMain.handle('set-data-dir', (_, dir) => {
@@ -4219,23 +4251,20 @@ ipcMain.handle('set-notifications-enabled', (_, enabled) => {
 })
 
 // ── Auto-updater ──
-// Update policy is config-driven. When autoUpdateEnabled is off we never check
-// on launch, never auto-download, and never auto-install on quit — updates only
-// happen through explicit user action (Check for updates → Download → Install & Restart).
+// Updates are NEVER automatic. We never auto-download and never auto-install on
+// quit — the user must explicitly click "Check for update" then "Download &
+// install". This is a hard policy (per user request): auto-downloading/installing
+// a new Desktop Launcher build silently could disrupt a running session.
 function applyAutoUpdatePolicy() {
-  const enabled = loadConfig().autoUpdateEnabled !== false
-  autoUpdater.autoDownload = enabled
-  // electron-updater's default is to install a downloaded update on quit.
-  // Force it off when auto-updates are disabled so a manual download never
-  // turns into a surprise install+restart at the next app exit.
-  autoUpdater.autoInstallOnAppQuit = enabled
-  return enabled
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  return false
 }
 applyAutoUpdatePolicy()
 autoUpdater.allowPrerelease = false
 
 autoUpdater.on('checking-for-update', () => { console.log('[DEBUG] Checking for update...'); send('update-status', { status: 'checking' }) })
-autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes, autoDownload: autoUpdater.autoDownload }) })
+autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes, autoDownload: false }) })
 autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date'); send('update-status', { status: 'up-to-date' }) })
 autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })

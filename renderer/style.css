@@ -443,6 +443,8 @@ body {
   border-radius: var(--radius-sm); font-size: 0.75rem; margin: 0 14px; flex-shrink: 0;
 }
 .update-banner.hidden { display: none; }
+.models-warn-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.models-warn-actions .btn { white-space: nowrap; }
 .update-info { display: flex; align-items: center; gap: 8px; flex: 1; }
 .update-badge {
   background: var(--signal-green); color: #fff; padding: 2px 6px;
@@ -711,6 +713,20 @@ body {
 .migrate-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warning, #d9a441); border-radius: 8px; background: color-mix(in srgb, var(--warning, #d9a441) 12%, transparent); font-size: 0.625rem; }
 .migrate-note .migrate-warn { color: var(--text-secondary); }
 .migrate-note code { font-family: 'Geist Mono', monospace; background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-overlay.hidden { display: none; }
+.modal { background: var(--bg, #1a1a1e); border: 1px solid var(--border, #2a2a30); border-radius: 12px; padding: 20px; width: min(520px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.modal-title { font-weight: 700; font-size: 0.875rem; }
+.modal-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
+.modal-sub { font-size: 0.75rem; color: var(--text-secondary); margin: 4px 0 14px; line-height: 1.4; }
+.migrate-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.migrate-row label { font-size: 0.6875rem; color: var(--text-secondary); }
+.migrate-path { display: flex; gap: 6px; }
+.migrate-path input { flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border, #2a2a30); color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 0.75rem; font-family: 'Geist Mono', monospace; }
+.migrate-note-text { font-size: 0.6875rem; color: var(--text-tertiary); margin: 8px 0 14px; line-height: 1.4; }
+.migrate-note-text code { background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Model Folder Picker ── */
 .model-folders { margin-top: 0; }

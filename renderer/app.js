@@ -1016,8 +1016,15 @@ async function checkModelsPathWarning() {
       .filter(Boolean)
       .some(p => (p || '').toLowerCase().replace(/\\/g, '/').startsWith(appDataRoot))
     banner.classList.toggle('hidden', !bad)
+    // The "Move data to C:\Wan2GP" button is relevant when the Wan2GP DATA dir
+    // itself is still in roaming AppData (legacy install / auto-update kept it),
+    // not only when model folders are under AppData. Show it whenever the data
+    // dir is roaming — that's the user-actionable migration.
+    const migrateBtn = $('modelsWarnMigrateBtn')
+    if (migrateBtn) migrateBtn.classList.toggle('hidden', !ip.dataDirInRoaming)
   } catch { banner.classList.add('hidden') }
 }
+$('modelsWarnMigrateBtn')?.addEventListener('click', () => openMigrationModal())
 $('modelsWarnDismissBtn')?.addEventListener('click', () => {
   const b = $('modelsWarnBanner')
   if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
@@ -1329,28 +1336,67 @@ $('openAppDataBtn')?.addEventListener('click', function() {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
 });
 
-$('moveToPreferredBtn')?.addEventListener('click', async function() {
-  const btn = this
+$('moveToPreferredBtn')?.addEventListener('click', () => openMigrationModal())
+
+// ── Migration folder-chooser modal ──
+// Opens a dialog pre-filled with our recommended targets (data dir + checkpoints
+// + LoRAs + output). The user can override any of them, then "Move & restart"
+// calls migrate-to-preferred with the chosen paths. After the move, main rewrites
+// wgp_config.json model paths and relaunches.
+let _migBusy = false
+async function openMigrationModal() {
+  if (_migBusy) return
+  let prefs
+  try { prefs = await window.w2gp.migrateChoose() } catch { prefs = null }
+  if (!prefs) { alert('Could not determine migration targets.'); return }
+  $('migDataDir').value = prefs.dataDir || ''
+  $('migCkpts').value = prefs.ckpts || ''
+  $('migLoras').value = prefs.loras || ''
+  $('migOutput').value = prefs.output || ''
+  $('migrationModal').classList.remove('hidden')
+}
+$('migrationCloseBtn')?.addEventListener('click', () => $('migrationModal').classList.add('hidden'))
+$('migrationCancelBtn')?.addEventListener('click', () => $('migrationModal').classList.add('hidden'))
+// Browse buttons inside the modal pick a folder for the matching field.
+document.querySelectorAll('#migrationModal [data-browse]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const key = btn.getAttribute('data-browse')
+    const field = { dataDir: 'migDataDir', ckpts: 'migCkpts', loras: 'migLoras', output: 'migOutput' }[key]
+    try {
+      const picked = await window.w2gp.selectFolder()
+      if (picked) $(field).value = picked
+    } catch {}
+  })
+})
+$('migrationMoveBtn')?.addEventListener('click', async () => {
+  if (_migBusy) return
+  _migBusy = true
+  const btn = $('migrationMoveBtn')
   btn.disabled = true
   btn.textContent = 'Moving…'
+  const choices = {
+    dataDir: $('migDataDir').value,
+    ckpts: $('migCkpts').value,
+    loras: $('migLoras').value,
+    output: $('migOutput').value
+  }
+  if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'; return }
   try {
-    const r = await window.w2gp.migrateToPreferred()
+    const r = await window.w2gp.migrateToPreferred(choices)
     if (r && r.ok) {
-      // runMigrationMove repoints + relaunches; this process will exit. Show a
-      // brief note in case the relaunch is delayed.
       btn.textContent = 'Restarting…'
     } else {
       alert('Could not move the data folder:\n' + ((r && r.error) || 'unknown error') +
             '\n\nClose any Wan2GP windows/terminals pointing at the old folder and try again.')
-      btn.disabled = false
-      btn.textContent = 'Move data to C:\\Wan2GP'
+      _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'
     }
   } catch (e) {
     alert('Migration failed: ' + e.message)
-    btn.disabled = false
-    btn.textContent = 'Move data to C:\\Wan2GP'
+    _migBusy = false; btn.disabled = false; btn.textContent = 'Move & restart'
   }
-});
+})
+// Startup prompt (main process) asks the renderer to open this modal.
+window.w2gp.onOpenMigration?.(() => openMigrationModal());
 
 // Re-entrancy guard: periodic + manual checks share one flight; a slow GitHub
 // response can't stack overlapping fetches.
