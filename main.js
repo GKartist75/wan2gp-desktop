@@ -14,6 +14,8 @@ const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
+const migrate = require('./lib/migrate.js')
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -503,71 +505,8 @@ function moveDirAtomic(src, dst) {
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
-// Total size (bytes) of a directory tree, best-effort (locked/unreadable
-// entries are skipped so a single bad file doesn't abort the scan).
-function getDirSize(dir) {
-  let total = 0
-  try {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, e.name)
-      if (e.isDirectory()) total += getDirSize(p)
-      else { try { total += fs.statSync(p).size } catch {} }
-    }
-  } catch {}
-  return total
-}
-// Move the CONTENTS of src into dst (not the src folder itself), so a legacy
-// `Roaming\wan2gp-desktop` (or `...\Wan2GP`) merges into `C:\Wan2GP` WITHOUT
-// creating a nested C:\Wan2GP\Wan2GP. Same-volume renames ignore file locks and
-// are instant even for huge model folders. `onProgress(pct)` is called only on
-// the SLOW copy-fallback path (cross-volume or a rename the FS rejected), so
-// users with many GB of models still see movement instead of a frozen button.
-function mergeDirContents(src, dst, onProgress) {
-  try {
-    fs.mkdirSync(dst, { recursive: true })
-    const items = fs.readdirSync(src)
-    if (items.length === 0) { fs.rmSync(src, { recursive: true, force: true }); return true }
-    const toCopy = []
-    let moved = 0
-    for (const name of items) {
-      const s = path.join(src, name)
-      const d = path.join(dst, name)
-      if (fs.existsSync(d)) continue // don't clobber existing target item
-      try { fs.renameSync(s, d); moved++ } // instant metadata move (same volume)
-      catch { toCopy.push({ s, d }) }      // rename rejected → needs a real copy
-    }
-    // Fast path: everything relocated via instant rename.
-    if (toCopy.length === 0) {
-      try { fs.rmSync(src, { recursive: true, force: true }) } catch {}
-      return true
-    }
-    // Slow path: copy the rejected items with byte-based progress. A locked/
-    // unreadable file is skipped (filter returns false) rather than aborting.
-    let totalBytes = 0
-    for (const it of toCopy) totalBytes += getDirSize(it.s)
-    let copied = 0
-    for (const it of toCopy) {
-      try {
-        fs.cpSync(it.s, it.d, {
-          recursive: true,
-          filter: (p) => {
-            try {
-              const st = fs.statSync(p)
-              if (st.isFile()) {
-                copied += st.size
-                if (onProgress && totalBytes > 0)
-                  onProgress(Math.min(99, Math.round((copied / totalBytes) * 100)))
-              }
-              return true
-            } catch { return false } // unreadable/locked — skip this file
-          }
-        })
-        try { fs.rmSync(it.s, { recursive: true, force: true }) } catch {}
-      } catch (e) { logError('mergeDirContents-copy', e) }
-    }
-    return true
-  } catch (e) { logError('mergeDirContents', e); return false }
-}
+// getDirSize / mergeDirContents now live in ./lib/migrate.js (required above)
+// so they can be unit-tested without booting Electron.
 // Move legacy roaming data into the preferred data dir (target, e.g. C:\Wan2GP),
 // then repoint the data-dir override and relaunch so everything re-resolves
 // against the new location. Same-volume rename ignores file locks; the copy
@@ -577,26 +516,8 @@ async function runMigrationMove(legacy, choices) {
   const sendProg = (pct) => { try { if (mainWin && mainWin.webContents) mainWin.webContents.send('migration-progress', pct) } catch {} }
   let ok = mergeDirContents(legacy, target, sendProg)
   if (ok) {
-    // Flatten a doubled-up repo: when the chosen data dir is a dedicated folder
-    // (e.g. C:\Wan2GP) but the legacy source kept the repo one level in
-    // (Roaming\wan2gp-desktop\Wan2GP\Wan2GP), mergeDirContents drops it at
-    // C:\Wan2GP\Wan2GP. Lift it up so the repo sits flat at C:\Wan2GP and the
-    // path never doubles. Only when the flat spot is free (no clash).
-    try {
-      const nested = path.join(target, 'Wan2GP')
-      const nestedPy = path.join(nested, 'wgp.py')
-      const flatPy = path.join(target, 'wgp.py')
-      if (fs.existsSync(nestedPy) && !fs.existsSync(flatPy)) {
-        for (const name of fs.readdirSync(nested)) {
-          const s = path.join(nested, name)
-          const d = path.join(target, name)
-          if (fs.existsSync(d)) continue // don't clobber existing target item
-          try { fs.renameSync(s, d) } catch { /* skip locked */ }
-        }
-        const leftover = fs.readdirSync(nested)
-        if (leftover.length === 0) fs.rmSync(nested, { recursive: true, force: true })
-      }
-    } catch (e) { logError('migrate-flatten', e) }
+    // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
+    try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
   }
   if (!ok) {
     try {
@@ -619,23 +540,7 @@ async function runMigrationMove(legacy, choices) {
   try { fs.writeFileSync(DATA_DIR_OVERRIDE, target) } catch (e) { logError('migrate-override', e) }
   // Rewrite the model-folder paths in wgp_config.json to the user's chosen
   // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
-  try {
-    // The repo may be flat (target/wgp.py) or nested (target/Wan2GP/wgp.py) —
-    // pick whichever actually holds the config after the move (flatten lifts a
-    // doubled repo up to the flat spot).
-    const flatCfg = path.join(target, 'wgp_config.json')
-    const nestedCfg = path.join(target, 'Wan2GP', 'wgp_config.json')
-    const configPath = fs.existsSync(flatCfg) ? flatCfg
-      : fs.existsSync(nestedCfg) ? nestedCfg
-      : path.join(target, 'wgp_config.json')
-    let cfg = {}
-    try { if (fs.existsSync(configPath)) cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
-    if (choices.ckpts) cfg.checkpoints_paths = [choices.ckpts, '.']
-    if (choices.loras) cfg.loras_root = choices.loras
-    if (choices.output) { cfg.save_path = choices.output; cfg.image_save_path = choices.output; cfg.audio_save_path = choices.output }
-    fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2))
-  } catch (e) { logError('migrate-config', e) }
+  try { rewriteModelPaths(target, choices) } catch (e) { logError('migrate-config', e) }
   try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
   // Best-effort cleanup of the now-empty legacy location so it doesn't linger
   // in roaming AppData. mergeDirContents already removed the migrated leaf; here
