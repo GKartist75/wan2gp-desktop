@@ -723,7 +723,7 @@ $('browseCkptsPath')?.addEventListener('click', () => browseModelFolder('ckpts')
 $('browseLorasPath')?.addEventListener('click', () => browseModelFolder('loras'))
 $('clearCkptsPath')?.addEventListener('click', async () => {
   const p = await window.w2gp.getInstallPaths()
-  const def = (p?.modelsDefault ? pathJoin(p.modelsDefault, 'checkpoints') : '(default)')
+  const def = (p?.modelsDefault ? pathJoin(p.modelsDefault, 'ckpts') : '(default)')
   setModelPath('ckpts', '')
   const el = $('installCkptsPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
@@ -1305,7 +1305,7 @@ async function loadPaths(skipModelPaths) {
     // user sees the recommended separate location and can change it. Only fills
     // when the user hasn't already chosen a custom path.
     const md = p.modelsDefault || p.appData
-    if (!_modelCkpts) setModelPath('ckpts', pathJoin(md, 'checkpoints'))
+    if (!_modelCkpts) setModelPath('ckpts', pathJoin(md, 'ckpts'))
     if (!_modelLoras) setModelPath('loras', pathJoin(md, 'loras'))
     if (!_modelOutput) setModelPath('output', pathJoin(md, 'outputs'))
   }

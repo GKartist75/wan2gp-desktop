@@ -3133,7 +3133,7 @@ ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, save
   // and upgraded to the separate default too.
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
   else if (!cfg.checkpoints_paths || isRepoRelativePaths(cfg.checkpoints_paths, getRepoDir()))
-    cfg.checkpoints_paths = [path.join(md, 'checkpoints'), '.']
+    cfg.checkpoints_paths = [path.join(md, 'ckpts'), '.']
   if (lorasRoot) cfg.loras_root = lorasRoot
   else if (!cfg.loras_root || isRepoRelativePath(cfg.loras_root, getRepoDir()))
     cfg.loras_root = path.join(md, 'loras')
@@ -3243,7 +3243,7 @@ ipcMain.handle('detect-model-folders', () => {
   // under AppData. A repo-relative path is treated as "no real choice" and is
   // replaced by the dedicated default so migrated installs upgrade cleanly.
   const suggestions = {
-    checkpointsPaths: [path.join(md, 'checkpoints'), '.'],
+    checkpointsPaths: [path.join(md, 'ckpts'), '.'],
     lorasRoot: path.join(md, 'loras')
   }
   // If an existing config has saved paths that are a genuine custom choice
