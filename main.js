@@ -4768,11 +4768,12 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-  // One-time migration: if an existing legacy %APPDATA% data dir is present and
-  // the install folder is writable, move it into <install folder>/Wan2GP so the
-  // launcher becomes self-contained. Runs before any pin/redirect logic so the
-  // colocated location is authoritative from the first paint. Rollback-safe.
-  try { tryMigrateToInstallFolder() } catch (e) { logError('migration', e) }
+  // Data-dir pin FIRST (cheap, must happen before createWindow reads config),
+  // but the heavy one-time migration is DEFERRED to after first paint so a
+  // large/locked legacy Roaming\wan2gp-desktop\Wan2GP can never block the
+  // window from opening (reported: old-version users saw "no view at all"
+  // until they deleted the roaming folder — the sync moveDirAtomic ran on the
+  // main thread, pre-createWindow, and stalled/hung on a locked/large dir).
   // Pin data dir on first launch so it never shifts between updates. Pin to the
   // resolved default (C:\Wan2GP when writable, else AppData) — NOT a hardcoded
   // AppData path, which would override the colocated/default preference.
@@ -4808,6 +4809,13 @@ app.whenReady().then(() => {
   } catch (e) { logError('data-dir-init', e) }
   createWindow()
   createTray()
+
+  // One-time migration (DEFERRED, post-paint): if a legacy Roaming\wan2gp-desktop\Wan2GP
+  // exists and the install folder is writable, move it into <install folder>/Wan2GP so
+  // the launcher becomes self-contained. Runs after createWindow so it can never block
+  // the UI from opening. Best-effort: if the move stalls (locked/large dir), the window
+  // is already up and the user can keep using v3.0; the move retries on next launch.
+  setTimeout(() => { try { tryMigrateToInstallFolder() } catch (e) { logError('migration', e) } }, 1500)
 
   // Native theme auto-follow
   try {
