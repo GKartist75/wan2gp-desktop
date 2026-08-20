@@ -13,6 +13,7 @@ const memoryProfile = require('./services/memory-profile.js')
 const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
+const statusHelpers = require('./services/status-helpers.js')
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -1379,13 +1380,11 @@ ipcMain.handle('get-status', async () => {
         else resolve(stdout.trim())
       })
     })
-    const parts = out.split('||')
-    const versions = {}
-    parts.forEach(p => { const [k, v] = p.split('='); versions[k] = v })
+    const versions = statusHelpers.parseVersions(out)
     // Profile-driven kernel-wheel overview: derive the expected kernels from the
     // SAME setup_config.json the installer uses, so the dashboard can never drift
     // from what's actually installed. GTX 10/16, AMD, Apple profiles carry no
-    // kernels → kernelWheels is [] and the UI hides the whole section.
+    // kernels → kernelWheels is [] and the UI shows a friendly note.
     let kernelWheels = []
     let kernelProfile = null
     let profile = null
@@ -1398,11 +1397,7 @@ ipcMain.handle('get-status', async () => {
         kernelWheels = kernelResolver.buildOverviewWheels(cfg, gpu, IS_WIN ? 'win' : 'linux')
         profile = (cfg.gpu_profiles && cfg.gpu_profiles[kernelProfile]) || null
         // Annotate each wheel with what's actually installed (if anything).
-        for (const w of kernelWheels) {
-          const have = await installedPkgVersion(py, w.pipName).catch(() => null)
-          w.installed = have
-          w.state = have ? (have === w.configured ? 'ok' : 'mismatch') : 'missing'
-        }
+        await statusHelpers.annotateWheels(kernelWheels, py, installedPkgVersion)
       }
     } catch (e) { console.warn('[get-status] kernel overview failed:', e.message) }
     return { env, versions, kernelWheels, kernelProfile, profile, osKey: IS_WIN ? 'win' : 'linux' }

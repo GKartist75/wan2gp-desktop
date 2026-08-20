@@ -323,7 +323,14 @@ body {
 .kernel-wheels-card .spec-row,
 .env-subsection .spec-row { font-size: 0.6875rem; padding: 3px 8px; gap: 4px; }
 .kernel-empty .spec-value { color: var(--text-secondary); font-style: italic; }
-/* Subsections inside the merged Active Environment card */
+/* Friendly empty/unknown states for the kernel wheels subsection */
+.kw-empty { color: var(--text-secondary); font-size: 0.625rem; padding: 4px 8px; font-style: italic; }
+.kw-update { color: #F59E0B; font-weight: 600; }
+/* Visible error note so the env-detail panel is never silently blank */
+.env-detail-error { display: none; background: rgba(239,68,68,0.12); color: #F87171;
+  border: 1px solid rgba(239,68,68,0.4); border-radius: 6px; padding: 6px 8px;
+  font-size: 0.625rem; margin: 6px 0; }
+
 .env-subsection { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px; }
 .subsection-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .subsection-title { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }

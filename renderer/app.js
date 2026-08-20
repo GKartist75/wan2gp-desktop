@@ -885,12 +885,20 @@ async function refreshDashboard(){
   try {
     setLaunchButtonsInstalled(!!(instRes && instRes.repo))
   } catch {}
+  // Show a visible error note if the status call failed (so the panel is never
+  // silently blank — this is exactly the blank-dashboard bug we hit before).
+  const errNote = $('envDetailError')
+  if (errNote) errNote.style.display = (status.error) ? '' : 'none'
   if(status.error||!status.env){
+    if (errNote) errNote.textContent = 'Could not read environment status: ' + (status.error || 'no active environment')
     $('envName').textContent='No active environment'
     $('envNameHint')?.classList.remove('hidden')
     document.querySelectorAll('.pkg-install-btn, .spec-latest, .spec-update-btn').forEach(function(el) { el.remove() })
     ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub','specBits','specNumpy','specTokenizers','specSparge'].forEach(id=>{ const el=$(id); if(el) el.textContent='—' })
     ;['dotPython','dotTorch','dotCuda','dotTriton','dotSage','dotFlash','dotDiffusers','dotTransformers','dotGradio','dotAccelerate','dotOnnx','dotOpencv','dotPeft','dotHfhub','dotBits','dotNumpy','dotTokenizers'].forEach(id=>{ const el=$(id); if(el) el.classList.remove('installed') })
+    // Kernel wheels section is independent — keep it rendered from whatever we got.
+    renderKernelWheels(status.kernelWheels, status.kernelProfile, status.osKey)
+    const spargeEl = $('specSparge'); if (spargeEl) spargeEl.textContent = '—'
   } else {
     $('envName').textContent=status.env.name; $('envType').textContent=status.env.type
     $('envNameHint')?.classList.add('hidden')
@@ -925,6 +933,12 @@ async function refreshDashboard(){
           el.after(btn)
         }
       }
+    }
+    // If the version query itself failed, show the reason in the note but keep
+    // the wheels/paths sections alive (they're independent of the version scan).
+    if (status.versions && status.versions.error) {
+      const errNote = $('envDetailError')
+      if (errNote) { errNote.style.display = ''; errNote.textContent = 'Package scan failed: ' + status.versions.error }
     }
     setSpec('specPython','dotPython', status.versions?.python)
     setSpec('specTorch','dotTorch', status.versions?.torch)
@@ -988,6 +1002,8 @@ async function refreshDashboard(){
 // ── GPU Kernel Wheels (profile-driven, subsection of Active Environment) ──
 // Renders the wheels resolved from setup_config.json for the active GPU:
 // each row shows ✓ (current) / ⚠ (installed, mismatch) / ✗ (not installed).
+// Shows the EXACT configured version (e.g. nunchaku 0.3.1) and an "update
+// available" hint when the installed wheel is older than the profile declares.
 // GTX 10/16, AMD, Apple profiles carry no kernels → the subsection hides.
 function renderKernelWheels(wheels, kernelProfile, osKey) {
   const card = $('kernelWheelsSubsection')
@@ -996,7 +1012,15 @@ function renderKernelWheels(wheels, kernelProfile, osKey) {
   if (!card || !box) return
   const list = Array.isArray(wheels) ? wheels : []
   if (!list.length) {
-    card.style.display = 'none'
+    // Distinguish "no GPU profile" (genuinely nothing to show) from a data
+    // error so the user isn't left staring at a blank section.
+    if (kernelProfile === null || kernelProfile === undefined || kernelProfile === 'unknown') {
+      box.innerHTML = '<div class="kw-empty">No GPU kernel profile detected — wheels are managed automatically for this GPU.</div>'
+    } else {
+      box.innerHTML = '<div class="kw-empty">This GPU profile has no dedicated kernel wheels.</div>'
+    }
+    card.style.display = ''   // keep the card; show the friendly note
+    if (tag) tag.textContent = kernelProfile || '—'
     return
   }
   card.style.display = ''
@@ -1014,9 +1038,18 @@ function renderKernelWheels(wheels, kernelProfile, osKey) {
     label.textContent = w.label
     const val = document.createElement('span')
     val.className = 'spec-value'
-    if (state === 'ok') val.textContent = w.installed
-    else if (state === 'mismatch') val.textContent = `${w.installed} → ${w.configured}`
-    else val.textContent = `not installed (want ${w.configured || '?'})`
+    if (state === 'ok') {
+      val.textContent = w.installed
+    } else if (state === 'mismatch') {
+      val.textContent = w.installed
+      // "update available": installed wheel is older than the profile declares.
+      const badge = document.createElement('span')
+      badge.className = 'kw-update'
+      badge.textContent = ` ↑ ${w.configured}`
+      val.appendChild(badge)
+    } else {
+      val.textContent = `not installed (want ${w.configured || '?'})`
+    }
     row.appendChild(label); row.appendChild(dot); row.appendChild(val)
     box.appendChild(row)
   })
