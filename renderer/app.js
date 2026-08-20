@@ -474,17 +474,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }).join('')
         $('installKernels').style.display = ''
       }
-      // GPU Profile Overview (mirrors setup_config.json gpu_profiles) — installer
+      // GPU Profile Overview — installer only (different screen; the dashboard
+      // consolidates detected versions + kernel wheels into the env_uv card).
       renderProfileOverview(hp.detail, {
         box: 'installProfileOverview', profile: 'ipoProfile',
         python: 'ipoPython', torch: 'ipoTorch', triton: 'ipoTriton',
         sage: 'ipoSage', sparge: 'ipoSparge', flash: 'ipoFlash', kernels: 'ipoKernels'
-      })
-      // GPU Profile Overview — dashboard (same data, same layout)
-      renderProfileOverview(hp.detail, {
-        box: 'dashProfileOverview', profile: 'dashProfileTag',
-        python: 'dashPoPython', torch: 'dashPoTorch', triton: 'dashPoTriton',
-        sage: 'dashPoSage', sparge: 'dashPoSparge', flash: 'dashPoFlash', kernels: 'dashPoKernels'
       })
     })
     // Pre-flight resolved stack (CUDA build, driver/disk gates) — audit hardening
@@ -894,7 +889,7 @@ async function refreshDashboard(){
     $('envName').textContent='No active environment'
     $('envNameHint')?.classList.remove('hidden')
     document.querySelectorAll('.pkg-install-btn, .spec-latest, .spec-update-btn').forEach(function(el) { el.remove() })
-    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub','specBits','specNumpy','specTokenizers'].forEach(id=>{ const el=$(id); if(el) el.textContent='—' })
+    ;['specPython','specTorch','specCuda','specTriton','specSage','specFlash','specDiffusers','specTransformers','specGradio','specAccelerate','specOnnx','specOpencv','specPeft','specHfhub','specBits','specNumpy','specTokenizers','specSparge'].forEach(id=>{ const el=$(id); if(el) el.textContent='—' })
     ;['dotPython','dotTorch','dotCuda','dotTriton','dotSage','dotFlash','dotDiffusers','dotTransformers','dotGradio','dotAccelerate','dotOnnx','dotOpencv','dotPeft','dotHfhub','dotBits','dotNumpy','dotTokenizers'].forEach(id=>{ const el=$(id); if(el) el.classList.remove('installed') })
   } else {
     $('envName').textContent=status.env.name; $('envType').textContent=status.env.type
@@ -952,6 +947,10 @@ async function refreshDashboard(){
 
     // ── GPU Kernel Wheels (profile-driven) ──
     renderKernelWheels(status.kernelWheels, status.kernelProfile, status.osKey)
+    // Sparge Attn comes from the expected GPU profile (not a detected version),
+    // so it's surfaced here to avoid a separate duplicate "GPU Profile Overview".
+    const spargeEl = $('specSparge')
+    if (spargeEl) spargeEl.textContent = (status.profile && status.profile.sparge) ? status.profile.sparge : '—'
   }
   const list=$('envList'); list.innerHTML=''
   envs.forEach(e=>{

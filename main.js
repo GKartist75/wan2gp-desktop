@@ -1403,7 +1403,7 @@ ipcMain.handle('get-status', async () => {
         }
       }
     } catch (e) { console.warn('[get-status] kernel overview failed:', e.message) }
-    return { env, versions, kernelWheels, kernelProfile, osKey: IS_WIN ? 'win' : 'linux' }
+    return { env, versions, kernelWheels, kernelProfile, profile: (cfg.gpu_profiles && cfg.gpu_profiles[kernelProfile]) || null, osKey: IS_WIN ? 'win' : 'linux' }
   } catch (e) { return { env, versions: { error: e.message }, kernelWheels: [], kernelProfile: null } }
 })
 
