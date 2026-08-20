@@ -942,7 +942,7 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
     let stashDir = null
     try {
       if (fs.existsSync(getRepoDir()) && fs.readdirSync(getRepoDir()).length > 0) {
-        stashDir = getRepoDir() + '.leftover'
+        stashDir = path.join(os.tmpdir(), 'wan2gp-reinstall-stash-' + Date.now())
         if (fs.existsSync(stashDir)) fs.rmSync(stashDir, { recursive: true, force: true })
         fs.renameSync(getRepoDir(), stashDir)
         send('setup-output', '[*] Found leftover folder (models from a keep-models uninstall?) — stashing it aside.\n')
@@ -1153,6 +1153,20 @@ async function forceRemoveRepo(repo, log, keepFolders) {
     log('[!] Wan2GP processes are still shutting down — files may be locked. Stop them and retry.')
     return { ok: false, leftoverFolder: null, error: 'Wan2GP processes are still running. Stop them and retry.' }
   }
+  // Windows: git marks many files inside .git read-only, so unlink()/rmdir()
+  // returns EPERM until the read-only attribute is cleared. Strip it recursively
+  // (files + dirs) so the removal engine can actually delete the tree — this is
+  // what fixes '[!] Could not remove .git: EPERM' on reinstall/uninstall.
+  const clearReadOnly = (p) => {
+    if (!IS_WIN) return
+    try { execSync('attrib -R /S /D "' + String(p).replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 20000 }) } catch {}
+  }
+  const rmOne = async (ep) => {
+    for (let i = 0; i < 10; i++) {
+      try { fs.rmSync(ep, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); return null } catch (e) { if (i === 9) return e; await sleep(600) }
+    }
+    return null
+  }
   const rmRetry = async (p) => {
     let lastErr = null
     for (let i = 0; i < 20; i++) {
@@ -1165,18 +1179,24 @@ async function forceRemoveRepo(repo, log, keepFolders) {
       }
       await sleep(1000)
     }
-    // One stubborn locked SUBDIR (e.g. .git with an index/lock held by an AV or
-    // a lingering git process) must not fail the whole item. Sweep the entry's
-    // children individually so a single locked handle can't block the rest.
+    // Stubborn (often read-only .git on Windows, or a still-held handle): clear
+    // the read-only bit recursively, then retry the whole subtree.
+    clearReadOnly(p)
+    for (let i = 0; i < 5; i++) {
+      try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); return null } catch (e) { lastErr = e }
+      await sleep(600)
+    }
+    // Last resort: sweep the entry's children individually so a single locked
+    // handle can't block the rest — clearing read-only on each first.
     try {
       const entries = fs.readdirSync(p, { withFileTypes: true })
       for (const ent of entries) {
         const ep = path.join(p, ent.name)
-        for (let i = 0; i < 10; i++) {
-          try { fs.rmSync(ep, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); break } catch { await sleep(600) }
-        }
+        clearReadOnly(ep)
+        const e = rmOne(ep)
+        if (e) lastErr = e
       }
-      // Re-attempt the container now that children are gone.
+      clearReadOnly(p)
       for (let i = 0; i < 10; i++) {
         try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }); return null } catch { await sleep(600) }
       }
@@ -1242,6 +1262,7 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
     const result = await dialog.showMessageBox({
       type: 'question', buttons: ['Backup & Restore (recommended)', 'Skip backup'],
       defaultId: 0, cancelId: 1,
+      parent: mainWin, modal: true,
       title: 'Reinstall Wan2GP',
       message: 'Do you want to backup plugins, finetunes, and config before reinstalling?',
       detail: 'A backup lets you restore your custom plugins and configuration after the fresh install. If you skip, they will be lost.'
@@ -1309,6 +1330,7 @@ ipcMain.handle('uninstall', async () => mutating('uninstall', async () => {
       type: 'warning',
       buttons: ['Uninstall (keep my files)', 'Uninstall (delete everything)', 'Cancel'],
       defaultId: 0, cancelId: 2,
+      parent: mainWin, modal: true,
       title: 'Uninstall Wan2GP',
       message: 'Remove the Wan2GP installation?',
       detail: 'This deletes the Wan2GP app, its Python environment, and all installed packages.\n\n' +
