@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   popoutWebview: (url) => ipcRenderer.invoke('popout-webview', url),
 
   // BrowserView (in-app Wan2GP embed — renders reliably on Electron 40; intercepts /manifest.json)
-  createBrowserView: (url) => ipcRenderer.invoke('create-browser-view', url),
+  createBrowserView: (url, opts) => ipcRenderer.invoke('create-browser-view', url, opts),
   hideBrowserView: () => ipcRenderer.invoke('hide-browser-view'),
   destroyBrowserView: () => ipcRenderer.invoke('destroy-browser-view'),
   detachBrowserView: () => ipcRenderer.invoke('detach-browser-view'),

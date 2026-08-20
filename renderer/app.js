@@ -1478,7 +1478,7 @@ $('appBtn').addEventListener('click', async () => {
   try {
     const result = await window.w2gp.launchWebview()
     currentUrl = result.url
-    const created = await window.w2gp.createBrowserView(result.url)
+    const created = await window.w2gp.createBrowserView(result.url, { reload: !!result.fresh })
     if (!created || created.error) throw new Error(created && created.error ? created.error : 'failed to create embed')
     $('dashBody').style.display = 'none'
     $('webviewContainer').classList.remove('hidden')
@@ -1551,7 +1551,9 @@ async function checkCrashRecovery() {
     : '[i] Launcher UI recovered after a crash. The Wan2GP server is not running.')
   if (info.serverRunning && info.mode === 'app' && info.url) {
     try {
-      const created = await window.w2gp.createBrowserView(info.url)
+      // Force a reload: after a renderer crash the embedded Gradio page may be in a
+      // bad state, so re-open from a fresh load rather than re-attaching a live session.
+      const created = await window.w2gp.createBrowserView(info.url, { reload: true })
       if (!created || created.error) throw new Error(created && created.error ? created.error : 'failed to re-create embed')
       $('dashBody').style.display = 'none'
       $('webviewContainer').classList.remove('hidden')

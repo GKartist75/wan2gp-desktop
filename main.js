@@ -1480,7 +1480,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   // If already running (e.g. from Desktop mode), just connect
   if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Opening browser...\n`)
-    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port, fresh: false }
   }
 
   send('launch-log', '[*] Starting Wan2GP...\n')
@@ -1768,7 +1768,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         sock.connect(port, '127.0.0.1')
       }, 8000)
     }
-    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port, fresh: true }
   } catch (err) {
     // Never leave an orphaned server process holding the port: waitForPort
     // threw before the close handler could reap the child (browser mode).
@@ -1811,7 +1811,7 @@ ipcMain.handle('launch-webview', async () => {
   // If already running (e.g. from browser launch), just connect
   if (await checkPort('127.0.0.1', port)) {
     send('launch-log', `[*] Wan2GP already running on port ${port}. Connecting...\n`)
-    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port, fresh: false }
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
@@ -1844,7 +1844,7 @@ ipcMain.handle('launch-webview', async () => {
     await waitForPort('127.0.0.1', port, 180000)
     send('launch-log', '[*] Wan2GP is ready!\n')
     try { if (loadConfig().notificationsEnabled !== false) new Notification({ title: 'Wan2GP', body: 'Server is ready on port ' + port }).show() } catch {}
-    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port }
+    return { url: `http://${(cfg.serverName || 'localhost')}:${port}`, port, fresh: true }
   } catch (err) { killProcessTree(_wangpProc); _wangpProc = null; throw err }
 })
 
@@ -1902,7 +1902,7 @@ function bvBounds() {
   _bv.setBounds({ x, y, width: w, height: h })
 }
 
-ipcMain.handle('create-browser-view', (_, url) => {
+ipcMain.handle('create-browser-view', (_, url, opts = {}) => {
   try {
     if (!_bv) {
       // backgroundThrottling: false — while the launcher window is hidden/minimized
@@ -1942,10 +1942,20 @@ ipcMain.handle('create-browser-view', (_, url) => {
     // never destroyed, so re-adding + reload avoids the blank-paint race on recreate).
     const attached = mainWin.getBrowserViews().includes(_bv)
     if (!attached) mainWin.addBrowserView(_bv)
-    if (typeof url === 'string') _bvUrl = url
     _panel = null
     bvBounds()
-    _bv.webContents.loadURL(url)
+    // Only reload the page when a NEW server was started (fresh:true) or the view has
+    // never loaded anything yet. When the server was already running (fresh:false) —
+    // e.g. round-tripping Dashboard → Desktop — re-attach the LIVE Gradio session
+    // without reloading, so the UI/queue state stays intact and there is no
+    // disconnect/reconnect flicker.
+    const needLoad = opts.reload === true || !_bv.webContents.getURL()
+    if (needLoad && typeof url === 'string') {
+      _bvUrl = url
+      _bv.webContents.loadURL(url)
+    } else if (typeof url === 'string') {
+      _bvUrl = url
+    }
     return { success: true }
   } catch (e) { return { error: e.message } }
 })
