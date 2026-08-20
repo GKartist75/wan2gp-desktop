@@ -90,8 +90,8 @@
           <p class="token-hint">Show a notification when Wan2GP server is ready or stops.</p>
           <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="pulsebarToggle"> <span>Floating progress bar</span></label>
           <p class="token-hint">Always-on-top mini bar showing live generation progress, driven by the launch log.</p>
-          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="autoUpdateToggle" checked> <span>Auto-update</span></label>
-          <p class="token-hint">Automatically check for and install launcher updates. Turn off to update manually via "Check for updates" — nothing is downloaded or installed without your explicit action.</p>
+          <label class="toggle-row" style="margin-top:8px"><input type="checkbox" id="autoUpdateToggle"> <span>Check for updates on launch</span></label>
+          <p class="token-hint">When on, the launcher quietly checks for a new version on startup and notifies you — it never downloads or installs anything automatically. Off = only check manually via "Check for updates".</p>
         </div>
         <div class="settings-section">
           <h3>Queue Notifier</h3>
@@ -406,11 +406,14 @@
     <div id="modelsWarnBanner" class="update-banner models-warn hidden">
       <div class="update-info">
         <span class="update-badge" style="background:var(--warning,#d9a441)">MODELS</span>
-        <span id="modelsWarnText">Your checkpoints/LoRAs are inside a roaming AppData profile. Move them to a fast, dedicated drive (e.g. C:\Wan2GP-Models) for speed and to avoid profile bloat.</span>
+        <span id="modelsWarnText">Your Wan2GP main folder and checkpoints/LoRAs are inside a roaming AppData profile. Move them to a fast, dedicated drive (e.g. C:\Wan2GP and C:\Wan2GP-Models) for speed and to avoid profile bloat.</span>
       </div>
-      <button id="modelsWarnDismissBtn" class="update-dismiss" aria-label="Dismiss">
-        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      <div class="models-warn-actions">
+        <button id="modelsWarnMigrateBtn" class="btn btn-primary small hidden">Migrate to new location</button>
+        <button id="modelsWarnDismissBtn" class="update-dismiss" aria-label="Dismiss">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </div>
 
     <div class="dash-body" id="dashBody">
@@ -631,6 +634,10 @@
           <button class="btn btn-ghost small" id="clearAppDataPath" title="Reset to default">✕</button>
         </div>
         <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile.</p>
+        <div id="moveToPreferredWrap" class="migrate-note hidden">
+          <span class="migrate-warn">⚠ Your Wan2GP data is currently inside your roaming AppData profile (<code id="currentDataDirPath">…</code>).</span>
+          <button class="btn btn-primary small" id="moveToPreferredBtn">Migrate to new location</button>
+        </div>
       </div>
 
       <!-- Model Folders -->
@@ -781,6 +788,54 @@
       <button class="term-btn-small" id="logExportBtn" title="Export logs">Export</button>
     </div>
     <div class="floating-term-resize" id="ftResize"></div>
+  </div>
+
+  <!-- Migration folder chooser (data dir + model folders) -->
+  <div id="migrationModal" class="modal-overlay hidden">
+    <div class="modal migration-modal">
+      <div class="modal-header">
+        <span class="modal-title">Move Wan2GP out of AppData</span>
+        <button class="modal-close" id="migrationCloseBtn" aria-label="Close">✕</button>
+      </div>
+      <p class="modal-sub">Your Wan2GP data currently lives in your roaming AppData profile. Move it to a dedicated, fast drive — AppData is meant for small settings, not multi-GB model checkpoints (it can slow logins, trigger antivirus locks, and bloat your profile). Our recommended locations are pre-filled — change any of them if you like.</p>
+      <div class="migrate-row">
+        <label>Wan2GP data folder</label>
+        <div class="migrate-path">
+          <input type="text" id="migDataDir" readonly>
+          <button class="btn btn-ghost small" data-browse="dataDir">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>Checkpoints</label>
+        <div class="migrate-path">
+          <input type="text" id="migCkpts" readonly>
+          <button class="btn btn-ghost small" data-browse="ckpts">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>LoRAs</label>
+        <div class="migrate-path">
+          <input type="text" id="migLoras" readonly>
+          <button class="btn btn-ghost small" data-browse="loras">Browse</button>
+        </div>
+      </div>
+      <div class="migrate-row">
+        <label>Output</label>
+        <div class="migrate-path">
+          <input type="text" id="migOutput" readonly>
+          <button class="btn btn-ghost small" data-browse="output">Browse</button>
+        </div>
+      </div>
+      <p class="migrate-note-text">After moving, your model-folder paths in <code>wgp_config.json</code> are updated to these locations and the app restarts.</p>
+      <div id="migrationProgress" class="migrate-progress hidden">
+        <div class="migrate-progress-bar"><div id="migrationProgressFill" class="migrate-progress-fill"></div></div>
+        <span id="migrationProgressText" class="migrate-progress-text">Moving… 0%</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="migrationCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="migrationMoveBtn">Move &amp; restart</button>
+      </div>
+    </div>
   </div>
 
   <!-- escape.js first: defines window.escHtml used by app.js. Loaded as a plain

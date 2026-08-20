@@ -186,7 +186,7 @@ function initSettingsToggles() {
     const c = await window.w2gp.configLoad()
     c.autoUpdateEnabled = el.checked
     await window.w2gp.configSave(c)
-    showToast(el.checked ? 'Auto-updates enabled' : 'Auto-updates disabled — updates only via "Check for updates"')
+    showToast(el.checked ? 'Update check on launch enabled' : 'Update check on launch disabled — updates only via "Check for updates"')
   })
   $('shareToggle')?.addEventListener('change', async () => {
     const el = $('shareToggle')
@@ -1016,8 +1016,15 @@ async function checkModelsPathWarning() {
       .filter(Boolean)
       .some(p => (p || '').toLowerCase().replace(/\\/g, '/').startsWith(appDataRoot))
     banner.classList.toggle('hidden', !bad)
+    // The "Move data to C:\Wan2GP" button is relevant when the Wan2GP DATA dir
+    // itself is still in roaming AppData (legacy install / auto-update kept it),
+    // not only when model folders are under AppData. Show it whenever the data
+    // dir is roaming — that's the user-actionable migration.
+    const migrateBtn = $('modelsWarnMigrateBtn')
+    if (migrateBtn) migrateBtn.classList.toggle('hidden', !ip.dataDirInRoaming)
   } catch { banner.classList.add('hidden') }
 }
+$('modelsWarnMigrateBtn')?.addEventListener('click', () => openMigrationModal())
 $('modelsWarnDismissBtn')?.addEventListener('click', () => {
   const b = $('modelsWarnBanner')
   if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
@@ -1295,6 +1302,18 @@ async function loadPaths(skipModelPaths) {
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
   set('pathAppData', p.repo)
   set('installAppDataPath', p.appData)
+  // Show the on-demand "Move data to C:\Wan2GP" button when the current data
+  // dir is still inside roaming AppData (legacy install / auto-update kept it).
+  const wrap = $('moveToPreferredWrap')
+  if (wrap) {
+    if (p.dataDirInRoaming) {
+      wrap.classList.remove('hidden')
+      const cp = $('currentDataDirPath')
+      if (cp) cp.textContent = p.appData
+    } else {
+      wrap.classList.add('hidden')
+    }
+  }
   window.w2gp.getDiskSpace().then(function(d) {
     if (!d) return;
     var freeGb = (d.free / 1073741824).toFixed(1);
@@ -1316,6 +1335,92 @@ function pathJoin(a, b) { return (a || '').replace(/[\\/]+$/, '') + '\\' + b }
 $('openAppDataBtn')?.addEventListener('click', function() {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
 });
+
+$('moveToPreferredBtn')?.addEventListener('click', () => openMigrationModal())
+
+// ── Migration folder-chooser modal ──
+// Opens a dialog pre-filled with our recommended targets (data dir + checkpoints
+// + LoRAs + output). The user can override any of them, then "Move & restart"
+// calls migrate-to-preferred with the chosen paths. After the move, main rewrites
+// wgp_config.json model paths and relaunches.
+let _migBusy = false
+async function openMigrationModal() {
+  if (_migBusy) return
+  let prefs
+  try { prefs = await window.w2gp.migrateChoose() } catch { prefs = null }
+  if (!prefs) { alert('Could not determine migration targets.'); return }
+  $('migDataDir').value = prefs.dataDir || ''
+  $('migCkpts').value = prefs.ckpts || ''
+  $('migLoras').value = prefs.loras || ''
+  $('migOutput').value = prefs.output || ''
+  // Reset to idle state (in case a previous attempt left the progress UI showing).
+  _migBusy = false
+  const btn = $('migrationMoveBtn')
+  if (btn) { btn.disabled = false; btn.textContent = 'Move & restart' }
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.add('hidden'); const f = $('migrationProgressFill'); if (f) f.style.width = '0%' }
+  $('migrationModal').classList.remove('hidden')
+}
+$('migrationCloseBtn')?.addEventListener('click', () => $('migrationModal').classList.add('hidden'))
+$('migrationCancelBtn')?.addEventListener('click', () => $('migrationModal').classList.add('hidden'))
+// Browse buttons inside the modal pick a folder for the matching field.
+document.querySelectorAll('#migrationModal [data-browse]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const key = btn.getAttribute('data-browse')
+    const field = { dataDir: 'migDataDir', ckpts: 'migCkpts', loras: 'migLoras', output: 'migOutput' }[key]
+    try {
+      const picked = await window.w2gp.selectFolder()
+      if (picked) $(field).value = picked
+    } catch {}
+  })
+})
+$('migrationMoveBtn')?.addEventListener('click', async () => {
+  if (_migBusy) return
+  _migBusy = true
+  const btn = $('migrationMoveBtn')
+  btn.disabled = true
+  btn.textContent = 'Moving…'
+  // Show the progress bar (hidden again on success/error below).
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.remove('hidden'); setMigrationProgress(0) }
+  const choices = {
+    dataDir: $('migDataDir').value,
+    ckpts: $('migCkpts').value,
+    loras: $('migLoras').value,
+    output: $('migOutput').value
+  }
+  if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); resetMigrationUI(); return }
+  try {
+    const r = await window.w2gp.migrateToPreferred(choices)
+    if (r && r.ok) {
+      btn.textContent = 'Restarting…'
+    } else {
+      alert('Could not move the data folder:\n' + ((r && r.error) || 'unknown error') +
+            '\n\nClose any Wan2GP windows/terminals pointing at the old folder and try again.')
+      resetMigrationUI()
+    }
+  } catch (e) {
+    alert('Migration failed: ' + e.message)
+    resetMigrationUI()
+  }
+})
+// Show live copy progress (only the slow cross-volume/copy-fallback path emits
+// this — the common instant rename path finishes before any paint).
+function setMigrationProgress(pct) {
+  const fill = $('migrationProgressFill'); if (fill) fill.style.width = pct + '%'
+  const txt = $('migrationProgressText'); if (txt) txt.textContent = 'Moving… ' + pct + '%'
+}
+window.w2gp.onMigrationProgress?.(setMigrationProgress)
+// Restore the modal to its idle state (re-enable button, hide progress).
+function resetMigrationUI() {
+  _migBusy = false
+  const btn = $('migrationMoveBtn')
+  if (btn) { btn.disabled = false; btn.textContent = 'Move & restart' }
+  const prog = $('migrationProgress')
+  if (prog) { prog.classList.add('hidden'); setMigrationProgress(0) }
+}
+// Startup prompt (main process) asks the renderer to open this modal.
+window.w2gp.onOpenMigration?.(() => openMigrationModal());
 
 // Re-entrancy guard: periodic + manual checks share one flight; a slow GitHub
 // response can't stack overlapping fetches.

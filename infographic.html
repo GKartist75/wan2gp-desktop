@@ -280,6 +280,22 @@
           </div>
         </div>
 
+        <div class="callout" style="border-color:#e74c3c;margin-top:18px">
+          <div class="emoji">🛠️</div>
+          <div>
+            <strong>v3.0.1 — safe, opt-in migration + manual-only updates.</strong>
+            v3.0.0 ran that data move <em>before the window painted</em>, which left some
+            roaming installs with no window at all. <strong>v3.0.1 does not auto-migrate</strong> —
+            it opens a <strong>"Migrate to new location"</strong> dialog (startup / <code>MODELS</code>
+            banner / Manage) where you choose the data + checkpoints + LoRAs + outputs folders
+            (prefilled <code>C:\Wan2GP</code> + <code>C:\Wan2GP-Models</code>), all editable.
+            The move flattens the repo (no <code>C:\Wan2GP\Wan2GP</code> double), rewrites
+            <code>wgp_config.json</code> paths, removes the empty roaming folder, and shows a live
+            progress bar. <strong>Updates are manual-only now</strong>: the Manage toggle is
+            "Check for updates on launch" and defaults OFF, so closing the app never installs anything.
+          </div>
+        </div>
+
         <h3 style="margin:20px 0 10px;font-size:1rem">Where everything lives now</h3>
         <pre style="background:#1f1f1f;border:1px solid #333;border-radius:10px;padding:14px;font-size:0.72rem;line-height:1.5;color:#cfc">C:\Wan2GP\                  ← repo + launcher data (self-contained)
    ├─ wgp.py                ← Wan2GP core
@@ -296,6 +312,9 @@ C:\Wan2GP-Models\           ← SEPARATE, your large files
           The install screen pre-fills these defaults and warns (⚠) if your model folders still
           point inside AppData. The dashboard shows a <code>MODELS</code> banner if it detects
           checkpoints/LoRAs under your roaming profile.
+          <br><strong>All paths are editable</strong> — <code>C:\Wan2GP</code> and
+          <code>C:\Wan2GP-Models</code> are recommended defaults only; click <em>Browse</em> to
+          place the repo, checkpoints, LoRAs, or outputs anywhere. Nothing is hard-coded.
         </p>
       </div>
 

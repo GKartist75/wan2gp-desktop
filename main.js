@@ -14,6 +14,8 @@ const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
+const migrate = require('./lib/migrate.js')
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -480,9 +482,20 @@ function computeInstallDataDir() {
 }
 function moveDirAtomic(src, dst) {
   // Cross-device-safe move: try rename first, fall back to a copy+verify+rm.
+  // On Windows src and dst are usually both on C:, so rename is an atomic
+  // metadata move that IGNORES file locks (open handles don't block it).
   try { fs.renameSync(src, dst); return true } catch { /* fall through to copy */ }
   try {
-    fs.cpSync(src, dst, { recursive: true })
+    // Copy fallback (cross-volume / rename rejected). A single locked or
+    // unreadable file must NOT abort the whole move — skip-and-continue those
+    // so the bulk of the folder still relocates.
+    fs.cpSync(src, dst, {
+      recursive: true,
+      filter: (p) => {
+        try { fs.accessSync(p, fs.constants.R_OK); return true }
+        catch { return false } // unreadable/locked — skip this file
+      }
+    })
     // verify top-level parity before deleting source
     const sameCount = (d) => fs.readdirSync(d).length
     if (sameCount(src) === sameCount(dst) && fs.readdirSync(dst).length > 0) {
@@ -492,22 +505,114 @@ function moveDirAtomic(src, dst) {
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
-function tryMigrateToInstallFolder() {
+// getDirSize / mergeDirContents now live in ./lib/migrate.js (required above)
+// so they can be unit-tested without booting Electron.
+// Move legacy roaming data into the preferred data dir (target, e.g. C:\Wan2GP),
+// then repoint the data-dir override and relaunch so everything re-resolves
+// against the new location. Same-volume rename ignores file locks; the copy
+// fallback skips locked files. Returns true if the move succeeded.
+async function runMigrationMove(legacy, choices) {
+  const target = choices.dataDir
+  const sendProg = (pct) => { try { if (mainWin && mainWin.webContents) mainWin.webContents.send('migration-progress', pct) } catch {} }
+  let ok = mergeDirContents(legacy, target, sendProg)
+  if (ok) {
+    // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
+    try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
+  }
+  if (!ok) {
+    try {
+      const retry = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['Retry move', 'Keep using it as-is'],
+        defaultId: 0, cancelId: 1,
+        parent: mainWin, modal: true,
+        title: 'Could not move the old Wan2GP folder',
+        message: 'The old Wan2GP folder could not be moved into ' + target + '.',
+        detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
+                'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
+      })
+      if (retry.response === 0) ok = mergeDirContents(legacy, target)
+    } catch { /* ignore — leave in place */ }
+  }
+  if (!ok) return false
+  // Repoint the data-dir override so every subsequent launch resolves to the
+  // new location (repo becomes <target>/Wan2GP, config at <target>/Wan2GP/wgp_config.json).
+  try { fs.writeFileSync(DATA_DIR_OVERRIDE, target) } catch (e) { logError('migrate-override', e) }
+  // Rewrite the model-folder paths in wgp_config.json to the user's chosen
+  // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
+  try { rewriteModelPaths(target, choices) } catch (e) { logError('migrate-config', e) }
+  try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+  // Best-effort cleanup of the now-empty legacy location so it doesn't linger
+  // in roaming AppData. mergeDirContents already removed the migrated leaf; here
+  // we also drop the wrapper folder (e.g. Roaming\wan2gp-desktop) if it's empty,
+  // and the original legacy dir again (locked files may have been skipped).
   try {
-    const inst = defaultDataDir()
-    if (!inst) return // no usable default — keep current layout
-    const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
-    if (legacy === inst) return
-    if (!fs.existsSync(legacy)) return
-    if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target occupied — don't clobber
-    // Move the whole legacy Wan2GP data folder into the new default location.
-    const ok = moveDirAtomic(legacy, inst)
-    if (ok) {
-      logError('migrate', 'Moved legacy data dir ' + legacy + ' -> ' + inst)
-    } else {
-      logError('migrate', 'Could not move legacy data dir; keeping it at ' + legacy)
+    const tryRemove = (p) => { try { if (fs.existsSync(p) && fs.readdirSync(p).length === 0) fs.rmSync(p, { recursive: true, force: true }) } catch {} }
+    tryRemove(legacy)
+    tryRemove(path.dirname(legacy))
+  } catch (e) { logError('migrate-cleanup', e) }
+  try {
+    app.relaunch()
+    app.exit(0)
+  } catch (e) { logError('migrate-relaunch', e) }
+  return true
+}
+// If v3.0's data dir is (or was) the old roaming location, offer to move it to
+// the preferred dedicated folder (C:\Wan2GP). This fires for BOTH cases:
+//   • a fresh v3.0 launch resolving to C:\Wan2GP with a legacy roaming dir present
+//   • an IN-PLACE auto-update from v2.8.x that inherited Roaming\wan2gp-desktop
+//     as its current data dir (the prompt must appear here too, not just the
+//     MODELS banner).
+//   0 = Move into C:\Wan2GP (recommended, self-contained)
+//   1 = Keep separate — leave the old folder, keep using it as-is
+//   2 / cancel = Ask later (no decision recorded; prompts again next launch)
+// Shown at most once per decision via a marker file, and only after the window
+// has painted (called deferred, post-createWindow) so it can never block startup.
+const _MIGRATION_DECISION = () => path.join(getDataDir(), '.migration-decision')
+async function promptMigration() {
+  try {
+    const target = defaultDataDir()            // preferred: C:\Wan2GP when writable
+    if (!target) return
+    const current = getDataDir()               // where v3.0 is actually running from
+    // Legacy data dirs from pre-v3.0 installs live under roaming AppData.
+    const candidates = [
+      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop', 'Wan2GP'),
+      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop')
+    ]
+    // The legacy dir is either a separate old folder, OR the current data dir
+    // itself (in-place upgrade kept Roaming\wan2gp-desktop). Either way it's the
+    // thing we may want to move.
+    let legacy = candidates.find(c => fs.existsSync(c))
+    if (!legacy) return
+    const isRoaming = legacy.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
+    if (!isRoaming) return                       // not a roaming legacy — nothing to do
+    if (legacy === target) return                // already at the preferred target
+    if (fs.existsSync(_MIGRATION_DECISION())) return // user already decided
+    const result = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Move into C:\\Wan2GP (recommended)', 'Keep using it as-is', 'Ask me later'],
+      defaultId: 0, cancelId: 2,
+      parent: mainWin, modal: true,
+      title: 'Old Wan2GP data found in AppData',
+      message: 'Wan2GP v3.0 prefers a dedicated folder (C:\\Wan2GP) instead of your roaming AppData profile.',
+      detail: 'Found an old Wan2GP install at:\n  ' + legacy + '\n\n' +
+              'Moving it into ' + target + ' keeps your data out of a synced profile and away from model-checkpoint bloat.\n' +
+              'Choose "Keep using it as-is" to leave it where it is (you can move it later).'
+    })
+    const r = result.response
+    if (r === 0) {
+      // Open the renderer's folder-chooser modal so the user can confirm/override
+      // the target data dir AND the model folders (checkpoints/LoRAs/output)
+      // before the move. The modal calls migrate-to-preferred with the choices.
+      try { if (mainWin && mainWin.webContents) mainWin.webContents.send('open-migration') } catch {}
+    } else if (r === 1) {
+      // Keep as-is: leave the old folder, keep using it. Record decision so we
+      // don't prompt again.
+      logError('migrate', 'User chose KEEP AS-IS: left legacy at ' + legacy + '; v3.0 uses ' + current)
+      try { fs.writeFileSync(_MIGRATION_DECISION(), 'separate') } catch {}
     }
-  } catch (e) { logError('tryMigrateToInstallFolder', e) }
+    // r === 2 (Ask later): no marker written, prompts again next launch.
+  } catch (e) { logError('promptMigration', e) }
 }
 
 // ── Progress-forcing bootstrap ──
@@ -702,7 +807,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function saveConfig(cfg) {
@@ -2879,8 +2984,40 @@ ipcMain.handle('get-install-paths', () => ({
   appDataRoot: ORIGINAL_USER_DATA,
   repo: getRepoDir(),
   config: getConfigFile(),
-  modelsDefault: defaultModelsDir()
+  modelsDefault: defaultModelsDir(),
+  dataDirInRoaming: getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
 }))
+// Is the current data dir still inside roaming AppData (a legacy location the
+// user may want to move to the preferred C:\Wan2GP)?
+ipcMain.handle('is-data-dir-roaming', () =>
+  getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
+// Returns the preferred migration targets (our recommended defaults) plus the
+// current legacy (roaming) data dir, so the renderer can pre-fill a folder
+// chooser and let the user override any of them before migrating.
+ipcMain.handle('migrate-choose', () => {
+  const md = defaultModelsDir()
+  return {
+    legacy: getDataDir(),
+    dataDir: defaultDataDir(),
+    modelsRoot: md,
+    ckpts: path.join(md, 'ckpts'),
+    loras: path.join(md, 'loras'),
+    output: path.join(md, 'outputs')
+  }
+})
+// Execute an on-demand migration with the user's chosen folders. `choices` =
+// { dataDir, ckpts, loras, output }. Moves the current (roaming) data dir into
+// dataDir, rewrites wgp_config.json model paths, and relaunches. Returns {ok}.
+ipcMain.handle('migrate-to-preferred', async (_, choices) => {
+  try {
+    if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
+    const current = getDataDir()
+    if (!current.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
+      return { ok: false, error: 'not a roaming data dir' }
+    const ok = await runMigrationMove(current, choices)
+    return { ok, legacy: current, target: choices.dataDir }
+  } catch (e) { return { ok: false, error: String(e) } }
+})
 ipcMain.handle('set-data-dir', (_, dir) => {
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
   try {
@@ -4100,23 +4237,20 @@ ipcMain.handle('set-notifications-enabled', (_, enabled) => {
 })
 
 // ── Auto-updater ──
-// Update policy is config-driven. When autoUpdateEnabled is off we never check
-// on launch, never auto-download, and never auto-install on quit — updates only
-// happen through explicit user action (Check for updates → Download → Install & Restart).
+// Updates are NEVER automatic. We never auto-download and never auto-install on
+// quit — the user must explicitly click "Check for update" then "Download &
+// install". This is a hard policy (per user request): auto-downloading/installing
+// a new Desktop Launcher build silently could disrupt a running session.
 function applyAutoUpdatePolicy() {
-  const enabled = loadConfig().autoUpdateEnabled !== false
-  autoUpdater.autoDownload = enabled
-  // electron-updater's default is to install a downloaded update on quit.
-  // Force it off when auto-updates are disabled so a manual download never
-  // turns into a surprise install+restart at the next app exit.
-  autoUpdater.autoInstallOnAppQuit = enabled
-  return enabled
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  return false
 }
 applyAutoUpdatePolicy()
 autoUpdater.allowPrerelease = false
 
 autoUpdater.on('checking-for-update', () => { console.log('[DEBUG] Checking for update...'); send('update-status', { status: 'checking' }) })
-autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes, autoDownload: autoUpdater.autoDownload }) })
+autoUpdater.on('update-available', (info) => { console.log('[DEBUG] Update available:', info.version); send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes, autoDownload: false }) })
 autoUpdater.on('update-not-available', () => { console.log('[DEBUG] Up to date'); send('update-status', { status: 'up-to-date' }) })
 autoUpdater.on('download-progress', (p) => { console.log('[DEBUG] Download progress:', p.percent); send('update-status', { status: 'downloading', percent: Math.round(p.percent), bytesPerSecond: p.bytesPerSecond, total: p.total, transferred: p.transferred }) })
 autoUpdater.on('update-downloaded', (info) => { console.log('[DEBUG] Update downloaded:', info.version); send('update-status', { status: 'downloaded', version: info.version }) })
@@ -4768,11 +4902,12 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-  // One-time migration: if an existing legacy %APPDATA% data dir is present and
-  // the install folder is writable, move it into <install folder>/Wan2GP so the
-  // launcher becomes self-contained. Runs before any pin/redirect logic so the
-  // colocated location is authoritative from the first paint. Rollback-safe.
-  try { tryMigrateToInstallFolder() } catch (e) { logError('migration', e) }
+  // Data-dir pin FIRST (cheap, must happen before createWindow reads config),
+  // but the heavy one-time migration is DEFERRED to after first paint so a
+  // large/locked legacy Roaming\wan2gp-desktop\Wan2GP can never block the
+  // window from opening (reported: old-version users saw "no view at all"
+  // until they deleted the roaming folder — the sync moveDirAtomic ran on the
+  // main thread, pre-createWindow, and stalled/hung on a locked/large dir).
   // Pin data dir on first launch so it never shifts between updates. Pin to the
   // resolved default (C:\Wan2GP when writable, else AppData) — NOT a hardcoded
   // AppData path, which would override the colocated/default preference.
@@ -4808,6 +4943,13 @@ app.whenReady().then(() => {
   } catch (e) { logError('data-dir-init', e) }
   createWindow()
   createTray()
+
+  // One-time migration prompt (DEFERRED, post-paint): if a legacy
+  // Roaming\wan2gp-desktop\Wan2GP exists and the install folder is empty, ASK the
+  // user whether to move it into C:\Wan2GP or keep it separate (they delete it
+  // themselves later). Runs after createWindow so it can never block the UI from
+  // opening. The dialog is modal and shown at most once per decision.
+  setTimeout(() => { promptMigration().catch(e => logError('migration', e)) }, 1500)
 
   // Native theme auto-follow
   try {
