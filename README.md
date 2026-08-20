@@ -9,6 +9,8 @@ so you don't have to configure them manually.
 > **uninstall → make sure it's fully closed → delete `Roaming\wan2gp-desktop` → reinstall the latest v3.x.**
 > (v3.0.1+ also offers an in-app "Migrate to new location" button that moves your data out of
 > AppData cleanly, so this manual cleanup is no longer needed.)
+>
+> **v3.0.1 ships the latest GPU kernel wheels, auto-installed per hardware.** Same kernel set as v3.0.0 (Python 3.11.14, PyTorch 2.10 + CUDA 13, Triton, SageAttention, Sparge 0.1.0, Flash-Attention 2.8.3, Nunchaku 1.2.1, GGUF llama.cpp CUDA 1.0.11, Lightx2v 0.0.2 on RTX 50, bitsandbytes 0.49.2) — the launcher detects your GPU and installs exactly the wheels it needs, re-synced on every update. Full per-hardware version map in [⚙️ GPU kernel wheels](#️-gpu-kernel-wheels-installed-automatically).
 
 [![Release](https://img.shields.io/github/v/release/GKartist75/wan2gp-desktop?style=flat-square&label=release)](https://github.com/GKartist75/wan2gp-desktop/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)](<>)
@@ -140,6 +142,8 @@ generation uses. Explicit values in Extra Launch Args always win.
 
 > **New in v3.0.0** — **Self-contained install layout (folders moved) + latest GPU kernels auto-installed per hardware.** Wan2GP now installs to a dedicated `C:\Wan2GP` (repo + venv + config) and keeps model checkpoints/LoRAs on a **separate** `C:\Wan2GP-Models` — out of roaming AppData for good. The installer also pulls the **current** attention/quant kernels matched to your GPU: Python 3.11.14 + PyTorch 2.10 (CUDA 13), Triton, SageAttention (1.0.6 on RTX 20 / 2.2.0 on 30–50), Sparge 0.1.0, Flash-Attention 2.8.3, Nunchaku 1.2.1, GGUF llama.cpp CUDA 1.0.11, Lightx2v 0.0.2 (RTX 50 FP4), and bitsandbytes 0.49.2 (NF4) — all re-synced on every update. This is a breaking change for existing installs (old path was `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP`). **Uninstall then reinstall is the clean path; in-place update also works** (it auto-migrates your old AppData data into `C:\Wan2GP` on first launch). See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [⚙️ GPU kernel wheels](#️-gpu-kernel-wheels-installed-automatically) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
 > [Full changelog →](changelogs/CHANGELOG-v3.0.0.md)
+
+> **New in v3.0.1** — **Legacy roaming installs now launch, and migration is opt-in + safe.** v3.0.0's eager auto-migration of your old AppData data ran *before* the window painted, so some users upgrading from an older roaming install never got a view at all (only deleting the roaming folder helped). v3.0.1 defers that work and instead offers an explicit **"Migrate to new location"** dialog (startup prompt, dashboard `MODELS` banner, or Manage) where you choose the data / checkpoints / LoRAs / output folders — preferred defaults pre-filled (`C:\Wan2GP` + `C:\Wan2GP-Models`), all editable. The move flattens the repo (no `C:\Wan2GP\Wan2GP` doubling), rewrites `wgp_config.json` model paths to the new locations, removes the empty roaming wrapper, and shows a live progress bar on the slow copy path. Also: **auto-update is now manual-only** — the Manage toggle is renamed "Check for updates on launch" and defaults OFF; nothing downloads or installs without your explicit action. Ships the same latest GPU kernel wheels as v3.0.0, auto-installed per hardware. See [CHANGELOG-v3.0.1.md](changelogs/CHANGELOG-v3.0.1.md).
 
 > **New in v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** The real bug: during the gallery/plugin-tab refactor `#installer` was placed *inside* `#dashboard`'s closing tag, so it became a child of `#dashboard`. Because the launcher shows a screen by toggling a single `.active` class and `#dashboard` is `display:none` when another screen is active, the nested `#installer` inherited that hidden state and collapsed to **0×0** — the classic "title bar only" blank. (This is why the 2.8.2–2.8.6 `show`/hammer fixes never worked: you can't re-present a 0-height element.) Fix: restore `#installer` (+ floating-terminal) as **siblings of `#dashboard`** under `#app` (as in 2.6.0), and make `.screen` fill `#app` via `position:absolute; inset:0`. Also removed the 1px resize-nudge that caused a window "shake". Verified by clean reinstall + full install→open-Wan2GP flow.
 > [Full changelog →](changelogs/CHANGELOG-v2.8.7.md)
@@ -323,11 +327,19 @@ large files separate from the code so backups and drive swaps are trivial.
 3. Run the new v3.0.0 `.exe` → it creates `C:\Wan2GP` fresh.
 4. Copy/point your checkpoints at `C:\Wan2GP-Models\ckpts`.
 
-**🟡 Also works: in-place update**
-Updating an existing v2.8.x install **auto-migrates** your old AppData data dir
+**🟡 Also works: in-place update (v3.0.0)**
+Updating an existing v2.8.x install **auto-migrated** your old AppData data dir
 into `C:\Wan2GP` on first launch (rollback-safe: source removed only after the
-move verifies on disk). The old `Wan2GP\Wan2GP` doubling is preserved if you had
-it; only genuinely fresh installs get the clean flat layout.
+move verified on disk). The old `Wan2GP\Wan2GP` doubling was preserved if you had
+it; only genuinely fresh installs got the clean flat layout.
+
+> **⚠️ v3.0.0 → v3.0.1 upgrade note.** v3.0.0's automatic pre-paint migration
+> could leave some roaming installs with no window at all. **v3.0.1 does NOT
+> auto-migrate** — on first launch it only opens the **"Migrate to new location"**
+> dialog and waits for you to choose (prefilled `C:\Wan2GP` + `C:\Wan2GP-Models`).
+> If you upgraded and saw a blank launch, just reinstall v3.0.1 fresh (or use the
+> in-app Migrate button from Manage / the `MODELS` banner) — your old data is not
+> deleted, it's still in `Roaming\wan2gp-desktop` until you move it.
 
 > Either path lands you at `C:\Wan2GP`. Uninstall-first is cleaner; update-in-place
 > is fine if you just want the new build. **No data is deleted by the migration.**
@@ -523,6 +535,7 @@ npm run build:win  # Windows NSIS installer
 
 ## Changelog
 
+- **v3.0.1** — **Legacy roaming installs launch again + safe opt-in migration + manual-only updates.** Root cause of "v3.0 won't start after upgrading from an old roaming install": v3.0.0 ran the data-dir migration synchronously before the first paint, which could leave users with no window at all (the only workaround was deleting the `Roaming\wan2gp-desktop` folder). v3.0.1 defers migration and surfaces it as an explicit **Migrate to new location** dialog (startup / `MODELS` banner / Manage) with editable data + checkpoints + LoRAs + outputs folders (preferred `C:\Wan2GP` + `C:\Wan2GP-Models` defaults). The move flattens the repo (no `C:\Wan2GP\Wan2GP` double), rewrites `wgp_config.json` model paths, removes the emptied roaming wrapper, and reports live progress on the slow copy path (verified by unit tests simulating a legacy roaming → 3.0.1 migration). **Auto-update is now manual-only**: the Manage toggle is renamed "Check for updates on launch" and defaults OFF; auto-download and install-on-quit are forced off, so closing the app never installs an update. Ships the same latest GPU kernel wheels as v3.0.0 (Python 3.11.14, PyTorch 2.10 + CUDA 13, Triton, SageAttention per GPU, Sparge 0.1.0, Flash-Attention 2.8.3, Nunchaku 1.2.1, GGUF llama.cpp CUDA 1.0.11, Lightx2v 0.0.2 on RTX 50, bitsandbytes 0.49.2), auto-installed per hardware and re-synced on every update. See [CHANGELOG-v3.0.1.md](changelogs/CHANGELOG-v3.0.1.md).
 - **v3.0.0** — **Self-contained install layout — folders moved (breaking).** Wan2GP + venv + `wgp_config.json` now default to a dedicated **`C:\Wan2GP`** (not roaming AppData), and model checkpoints/LoRAs default to a **separate `C:\Wan2GP-Models`** (`ckpts` = `C:\Wan2GP-Models\ckpts`). This kills the old `Wan2GP\Wan2GP` doubling and keeps tens–hundreds of GB of models off your roaming profile. Existing v2.8.x installs **auto-migrate** into `C:\Wan2GP` on first launch (rollback-safe); uninstall-then-reinstall is the cleaner path. The clone step no longer renames the live data dir (the EPERM-on-reinstall bug), and legacy repo-relative model paths are upgraded to the separate default. See [📁 Folder-change notice](#️-v30--install-folders-moved-read-this) and [CHANGELOG-v3.0.0.md](changelogs/CHANGELOG-v3.0.0.md).
 - **v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** During the gallery/plugin-tab refactor `#installer` (+ floating-terminal) were placed *inside* `#dashboard`'s closing tag, so they became children of `#dashboard`. The launcher shows a screen by toggling a single `.active` class; `#dashboard` is `display:none` when another screen is active, so the nested `#installer` inherited that hidden state and collapsed to 0×0 (the "title bar only" blank). Fix: restore them as **siblings of `#dashboard`** under `#app` (as in 2.6.0); `.screen` now fills `#app` via `position:absolute; inset:0`; removed the 1px resize-nudge that caused a window "shake". The 2.8.6 stale-data-dir self-heal remains valid. See [CHANGELOG-v2.8.7.md](changelogs/CHANGELOG-v2.8.7.md).
 - **v2.8.6** — **Blank-screen (presentation class) — misdiagnosed, superseded by 2.8.7.** v2.8.6 added a present hammer (`invalidate()` + resize nudge) on the (wrong) theory that the compositor dropped a committed frame. The real bug was the nested-`.screen` DOM regression (v2.8.7), so the hammer did not fix the affected hardware. **(B) Stale data-dir override** self-heal (still valid) — the launcher pins its data dir once and never re-validated it; renaming/moving the Wan2GP folder then reinstalling left a dead pin so the launcher blanked. Now self-heals: the override is dropped and the default re-derived if stale. See [CHANGELOG-v2.8.6.md](changelogs/CHANGELOG-v2.8.6.md).
