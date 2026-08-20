@@ -186,7 +186,7 @@ function initSettingsToggles() {
     const c = await window.w2gp.configLoad()
     c.autoUpdateEnabled = el.checked
     await window.w2gp.configSave(c)
-    showToast(el.checked ? 'Auto-updates enabled' : 'Auto-updates disabled — updates only via "Check for updates"')
+    showToast(el.checked ? 'Update check on launch enabled' : 'Update check on launch disabled — updates only via "Check for updates"')
   })
   $('shareToggle')?.addEventListener('change', async () => {
     const el = $('shareToggle')
