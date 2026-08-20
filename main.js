@@ -503,7 +503,29 @@ function moveDirAtomic(src, dst) {
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
-// One-time migration prompt (asks the user, does NOT auto-move).
+// Move the CONTENTS of src into dst (not the src folder itself), so a legacy
+// `Roaming\wan2gp-desktop` (or `...\Wan2GP`) merges into `C:\Wan2GP` WITHOUT
+// creating a nested C:\Wan2GP\Wan2GP. Same-volume renames ignore file locks.
+function mergeDirContents(src, dst) {
+  try {
+    fs.mkdirSync(dst, { recursive: true })
+    const items = fs.readdirSync(src)
+    if (items.length === 0) { fs.rmSync(src, { recursive: true, force: true }); return true }
+    let moved = 0
+    for (const name of items) {
+      const s = path.join(src, name)
+      const d = path.join(dst, name)
+      if (fs.existsSync(d)) continue // don't clobber existing target item
+      try { fs.renameSync(s, d); moved++ } catch { /* locked/cross-vol → skip */ }
+    }
+    // Done if everything relocated (or target already held it).
+    if (moved === items.length || items.every(n => fs.existsSync(path.join(dst, n)))) {
+      try { fs.rmSync(src, { recursive: true, force: true }) } catch {}
+      return true
+    }
+    return false
+  } catch (e) { logError('mergeDirContents', e); return false }
+}
 // If a legacy Roaming\wan2gp-desktop\Wan2GP exists and the new default data dir
 // (C:\Wan2GP, when writable) is empty/absent, ask the user what to do:
 //   0 = Move old data into C:\Wan2GP (recommended, self-contained)
@@ -518,9 +540,17 @@ async function promptMigration() {
   try {
     const inst = defaultDataDir()
     if (!inst) return
-    const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
-    if (legacy === inst) return
-    if (!fs.existsSync(legacy)) return
+    // Legacy data dir from pre-v3.0 installs. Old v2.8.x stored its data
+    // DIRECTLY in `Roaming\wan2gp-desktop` (no `Wan2GP` subfolder); some builds
+    // used `Roaming\wan2gp-desktop\Wan2GP`. Detect whichever actually exists so
+    // the migration prompt fires for real old installs (it previously probed
+    // only the `...\Wan2GP` variant and silently missed v2.8.x users).
+    const candidates = [
+      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop', 'Wan2GP'),
+      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop')
+    ]
+    let legacy = candidates.find(c => c !== inst && fs.existsSync(c))
+    if (!legacy) return
     if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target already populated — nothing to do
     if (fs.existsSync(_MIGRATION_DECISION())) return // user already decided
     const result = await dialog.showMessageBox({
@@ -537,7 +567,7 @@ async function promptMigration() {
     if (r === 0) {
       // Try to move. Same-volume rename ignores file locks (atomic metadata
       // move), so a locked file in the old folder does NOT block the move.
-      let ok = moveDirAtomic(legacy, inst)
+      let ok = mergeDirContents(legacy, inst)
       if (!ok) {
         // Move failed (e.g. copy fallback hit a still-locked file, or cross-
         // volume). Tell the user instead of failing silently, and let them retry
@@ -554,7 +584,7 @@ async function promptMigration() {
             detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
                     'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it separate and delete it yourself later.'
           })
-          if (retry.response === 0) ok = moveDirAtomic(legacy, inst)
+          if (retry.response === 0) ok = mergeDirContents(legacy, inst)
         } catch { /* ignore — fall through, leave folder in place */ }
       }
       logError('migrate', ok
