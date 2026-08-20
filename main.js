@@ -526,76 +526,86 @@ function mergeDirContents(src, dst) {
     return false
   } catch (e) { logError('mergeDirContents', e); return false }
 }
-// If a legacy Roaming\wan2gp-desktop\Wan2GP exists and the new default data dir
-// (C:\Wan2GP, when writable) is empty/absent, ask the user what to do:
-//   0 = Move old data into C:\Wan2GP (recommended, self-contained)
-//   1 = Keep separate — leave the old folder, install fresh in C:\Wan2GP
-//       (the user deletes the old one themselves later)
+// If v3.0's data dir is (or was) the old roaming location, offer to move it to
+// the preferred dedicated folder (C:\Wan2GP). This fires for BOTH cases:
+//   • a fresh v3.0 launch resolving to C:\Wan2GP with a legacy roaming dir present
+//   • an IN-PLACE auto-update from v2.8.x that inherited Roaming\wan2gp-desktop
+//     as its current data dir (the prompt must appear here too, not just the
+//     MODELS banner).
+//   0 = Move into C:\Wan2GP (recommended, self-contained)
+//   1 = Keep separate — leave the old folder, keep using it as-is
 //   2 / cancel = Ask later (no decision recorded; prompts again next launch)
-// The prompt is shown at most once per decision via a marker file, and only
-// after the window has painted (called deferred, post-createWindow) so it can
-// never block startup.
+// Shown at most once per decision via a marker file, and only after the window
+// has painted (called deferred, post-createWindow) so it can never block startup.
 const _MIGRATION_DECISION = () => path.join(getDataDir(), '.migration-decision')
 async function promptMigration() {
   try {
-    const inst = defaultDataDir()
-    if (!inst) return
-    // Legacy data dir from pre-v3.0 installs. Old v2.8.x stored its data
-    // DIRECTLY in `Roaming\wan2gp-desktop` (no `Wan2GP` subfolder); some builds
-    // used `Roaming\wan2gp-desktop\Wan2GP`. Detect whichever actually exists so
-    // the migration prompt fires for real old installs (it previously probed
-    // only the `...\Wan2GP` variant and silently missed v2.8.x users).
+    const target = defaultDataDir()            // preferred: C:\Wan2GP when writable
+    if (!target) return
+    const current = getDataDir()               // where v3.0 is actually running from
+    // Legacy data dirs from pre-v3.0 installs live under roaming AppData.
     const candidates = [
       path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop', 'Wan2GP'),
       path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop')
     ]
-    let legacy = candidates.find(c => c !== inst && fs.existsSync(c))
+    // The legacy dir is either a separate old folder, OR the current data dir
+    // itself (in-place upgrade kept Roaming\wan2gp-desktop). Either way it's the
+    // thing we may want to move.
+    let legacy = candidates.find(c => fs.existsSync(c))
     if (!legacy) return
-    if (fs.existsSync(inst) && fs.readdirSync(inst).length > 0) return // target already populated — nothing to do
+    const isRoaming = legacy.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
+    if (!isRoaming) return                       // not a roaming legacy — nothing to do
+    if (legacy === target) return                // already at the preferred target
     if (fs.existsSync(_MIGRATION_DECISION())) return // user already decided
     const result = await dialog.showMessageBox({
       type: 'question',
-      buttons: ['Move into C:\\Wan2GP (recommended)', 'Keep separate — I\'ll delete it myself', 'Ask me later'],
+      buttons: ['Move into C:\\Wan2GP (recommended)', 'Keep using it as-is', 'Ask me later'],
       defaultId: 0, cancelId: 2,
       parent: mainWin, modal: true,
-      title: 'Old Wan2GP data found',
-      message: 'Wan2GP v3.0 installs to a dedicated folder (C:\\Wan2GP) instead of your roaming AppData.',
+      title: 'Old Wan2GP data found in AppData',
+      message: 'Wan2GP v3.0 prefers a dedicated folder (C:\\Wan2GP) instead of your roaming AppData profile.',
       detail: 'Found an old Wan2GP install at:\n  ' + legacy + '\n\n' +
-              'What would you like to do with it? (The new install will use ' + inst + ' either way.)'
+              'Moving it into ' + target + ' keeps your data out of a synced profile and away from model-checkpoint bloat.\n' +
+              'Choose "Keep using it as-is" to leave it where it is (you can move it later).'
     })
     const r = result.response
     if (r === 0) {
       // Try to move. Same-volume rename ignores file locks (atomic metadata
       // move), so a locked file in the old folder does NOT block the move.
-      let ok = mergeDirContents(legacy, inst)
+      let ok = mergeDirContents(legacy, target)
       if (!ok) {
-        // Move failed (e.g. copy fallback hit a still-locked file, or cross-
-        // volume). Tell the user instead of failing silently, and let them retry
-        // or keep the folder separate. Don't record a "moved" decision so the
-        // prompt can re-appear if they close the blocking app and retry.
         try {
           const retry = await dialog.showMessageBox({
             type: 'warning',
-            buttons: ['Retry move', 'Keep separate — I\'ll delete it myself'],
+            buttons: ['Retry move', 'Keep using it as-is'],
             defaultId: 0, cancelId: 1,
             parent: mainWin, modal: true,
             title: 'Could not move the old Wan2GP folder',
-            message: 'The old Wan2GP folder could not be moved into ' + inst + '.',
+            message: 'The old Wan2GP folder could not be moved into ' + target + '.',
             detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
-                    'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it separate and delete it yourself later.'
+                    'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
           })
-          if (retry.response === 0) ok = mergeDirContents(legacy, inst)
+          if (retry.response === 0) ok = mergeDirContents(legacy, target)
         } catch { /* ignore — fall through, leave folder in place */ }
       }
-      logError('migrate', ok
-        ? 'User chose MOVE: ' + legacy + ' -> ' + inst
-        : 'User chose MOVE but move failed; left at ' + legacy)
-      if (ok) { try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {} }
-      // On failure: no marker written → prompt can re-appear next launch.
+      if (ok) {
+        try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
+        // Repoint the data dir to the target and relaunch so everything
+        // (repo dir, config, models) re-resolves against C:\Wan2GP cleanly.
+        try {
+          fs.writeFileSync(DATA_DIR_OVERRIDE, target)
+          app.relaunch()
+          app.exit(0)
+          return
+        } catch (e) { logError('migrate-relaunch', e) }
+      } else {
+        logError('migrate', 'User chose MOVE but move failed; left at ' + legacy)
+        // No marker written → prompt can re-appear next launch.
+      }
     } else if (r === 1) {
-      // Keep separate: leave the old folder, do not move. Record decision so we
-      // don't prompt again; the user deletes the old folder whenever they want.
-      logError('migrate', 'User chose KEEP SEPARATE: left legacy at ' + legacy + '; v3.0 uses ' + inst)
+      // Keep as-is: leave the old folder, keep using it. Record decision so we
+      // don't prompt again.
+      logError('migrate', 'User chose KEEP AS-IS: left legacy at ' + legacy + '; v3.0 uses ' + current)
       try { fs.writeFileSync(_MIGRATION_DECISION(), 'separate') } catch {}
     }
     // r === 2 (Ask later): no marker written, prompts again next launch.
