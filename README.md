@@ -325,6 +325,12 @@ it; only genuinely fresh installs get the clean flat layout.
 
 > Either path lands you at `C:\Wan2GP`. Uninstall-first is cleaner; update-in-place
 > is fine if you just want the new build. **No data is deleted by the migration.**
+>
+> **All paths are user-selectable** — `C:\Wan2GP` (Wan2GP install) and
+> `C:\Wan2GP-Models\ckpts` (checkpoints) are just the **recommended defaults**,
+> pre-filled on the install screen. Click **Browse** to place the repo, the
+> checkpoints, the LoRAs, or the outputs on any drive/folder you like; your
+> choice is saved. Nothing is hard-coded.
 
 ### Installation process (v3.0)
 
@@ -339,6 +345,8 @@ it; only genuinely fresh installs get the clean flat layout.
 │    • Wan2GP install location : C:\Wan2GP          ⚠ keep OUT of AppData│
 │    • Model folders           : C:\Wan2GP-Models\ckpts  (loras/outputs)│
 │      ⚠ checkpoints/LoRAs are large — use a fast, non-system drive    │
+│    • 📝 ALL paths are editable — C:\Wan2GP / C:\Wan2GP-Models are     │
+│      recommended defaults only; click Browse to put them anywhere    │
 └───────────────────────────────────┬─────────────────────────────────┘
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
