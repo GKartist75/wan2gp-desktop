@@ -379,6 +379,35 @@ C:\Wan2GP-Models\               ← SEPARATE, your large files
 > model folders still point inside AppData. The dashboard shows a `MODELS`
 > banner if it detects checkpoints/LoRAs under your roaming profile.
 
+## ⚙️ GPU kernel wheels (installed automatically)
+
+Wan2GP runs far faster with vendor attention/quantization kernels than with
+stock PyTorch. The installer detects your GPU and pulls the matching **prebuilt
+wheels** during install (and re-syncs them on every update, so you never get a
+stale wheel when upstream bumps one). On an NVIDIA RTX 30/40/50 install you'll
+see these go down:
+
+| Wheel | What it does |
+|-------|--------------|
+| **PyTorch + CUDA** (`torch`/`torchvision`/`torchaudio`) | The base tensor + GPU runtime (CUDA 13.0 build on v3.0). |
+| **Triton** (`triton-windows`) | JIT compiler for custom CUDA/attention kernels on Windows. |
+| **SageAttention** (`sageattention`) | Fast fused attention — big speed-up for sampling, low VRAM overhead. |
+| **Sparge Attention** (`spas-sage-attn`) | Sparsity-aware attention kernel (drop-in speed-up alongside Sage). |
+| **Flash-Attention** (`flash-attn`) | Memory-efficient exact attention for long contexts/high-res. |
+| **Nunchaku** (`nunchaku`) | SVD-quantized (NF4/SVDQ) checkpoint runtime — runs 4-bit/8-bit models fast. |
+| **GGUF llama.cpp CUDA** (`llamacpp-gguf-cuda`) | CUDA-backed GGUF LLM/quant kernels for the text/image backbones. |
+| **bitsandbytes** (`bitsandbytes`) | 8-bit/NF4 optimizers + dequant for NF4 checkpoints (since v2.8.1). |
+
+The exact versions come from Wan2GP's own `setup_config.json` per hardware
+profile (e.g. RTX 30 → `RTX_30`), so the installer shows **exactly** what it
+will install before you click. Kernels are installed into the `C:\Wan2GP\env_uv`
+venv, not into the repo — so the flat `C:\Wan2GP` layout above keeps the wheels
+with the environment, separately from your model files.
+
+> GTX 10/16 cards deliberately stay on the legacy **CUDA 12.8** stack (no R580
+> driver requirement); the modern RTX 20–50 stack uses CUDA 13.0. AMD/Apple
+> paths install their respective ROCm/MPS kernels instead.
+
 ## 🗺️ Visual Guide
 
 👉 **[Open the infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — a single-page visual walkthrough covering install steps, hardware profiles, the dashboard layout, Auto-Tune, launch modes, and every feature.
