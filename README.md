@@ -408,6 +408,30 @@ with the environment, separately from your model files.
 > driver requirement); the modern RTX 20–50 stack uses CUDA 13.0. AMD/Apple
 > paths install their respective ROCm/MPS kernels instead.
 
+### What the 1-click installer covers (mapped to the manual guide)
+
+Everything in Wan2GP's [manual `INSTALLATION.md`](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/INSTALLATION.md) is done for you — you don't run any of those `pip`/`conda` commands by hand. The launcher picks the **per-GPU stack** the manual guide recommends and installs it into `C:\Wan2GP\env_uv`:
+
+| Manual guide section | What the launcher does |
+|----------------------|------------------------|
+| **Minimal install** (clone + venv + PyTorch + `requirements.txt`) | Clones Wan2GP → creates a uv venv (Python **3.11.14** for RTX 20–50, **3.10.9** for GTX 10) → installs PyTorch (see matrix) + `requirements.txt`. |
+| **Triton** | Installs `triton-windows` (pinned `<3.3` on RTX 20/30, latest on RTX 40/50). |
+| **Sage Attention** | RTX 30 → `sageattention` 1.0.6; RTX 40/50 → Sage**2** 2.2.0 wheel. (GTX 10 unsupported — skipped.) |
+| **Sparge Attention** (`spas_sage_attn`) | Installs the matching `cu130`/`py3.11` wheel. |
+| **Flash Attention** (`flash-attn`) | Installs the `2.8.3` prebuilt wheel for Windows. |
+| **GGUF llama.cpp CUDA** (`llamacpp_gguf_cuda`) | Installs `1.0.11` (CUDA-graph-safe Stream-K, quantized KV-cache). Synced on every update. |
+| **INT4 / FP4 quantized** | **Nunchaku** 1.2.1 (SVD/NF4/FP4) and **bitsandbytes** 0.49.2 (NF4 dequant). **Lightx2v** FP4 kernels install **only on RTX 50xx / sm120+** (FP4 is hardware-dependent). |
+
+**Recommended Python / PyTorch / CUDA matrix** (straight from the manual guide — the launcher follows it):
+
+- **RTX 20 / 30 / 40 / 50** → Python 3.11.14, **PyTorch 2.10 + CUDA 13.0/13.1**
+- **GTX 10xx** → Python 3.10.9, **PyTorch 2.7.1 + CUDA 12.8**
+- RTX 50xx **FP4** kernels require the 3.11 / PyTorch 2.10 / CUDA 13 stack (which the launcher already uses for RTX 30–50).
+
+> The manual guide explicitly says **avoid PyTorch 2.8.0** (System-RAM leaks when switching models) and **2.9.0** (3D-convolution perf bug — VAE VRAM explodes). The launcher installs **2.10**, so it sidesteps both.
+>
+> You only need the manual guide if you want a fully custom/hand-rolled environment. For everyone else, the installer is the supported path and stays in sync with `setup_config.json` on every update.
+
 ## 🗺️ Visual Guide
 
 👉 **[Open the infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — a single-page visual walkthrough covering install steps, hardware profiles, the dashboard layout, Auto-Tune, launch modes, and every feature.
