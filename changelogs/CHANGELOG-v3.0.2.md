@@ -58,6 +58,15 @@ revealed a **second, independent gap** (separate from the SageAttention one):
   pattern. This guarantees the dependency the bootstrap (and accelerate-backed
   pipelines) needs is actually present.
 
+## SageAttention sync banner (RTX 40/50 users)
+
+Existing users who update the launcher but don't run Kernel sync stay on the
+broken `cu130torch2.9.0andhigher` SageAttention wheel. The dashboard now shows a
+top **SAGE** banner (red) on **RTX 40/50** when the installed wheel still matches
+that broken build, with a one-click **Sync Kernels** button that runs
+`setSageAttentionSafe()` and clears the banner. RTX 30/20/older are unaffected
+(different kernel paths) and never see it. Dismissible.
+
 ## Install progress visibility (no more "frozen" UI)
 
 `setup.py` has long silent stretches (uv resolving torch, venv creation before

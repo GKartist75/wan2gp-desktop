@@ -991,6 +991,8 @@ async function refreshDashboard(){
   refreshEnvUnlink()
   // Warn if model checkpoints/LoRAs still live in a roaming AppData profile.
   checkModelsPathWarning()
+  // Warn RTX 40/50 users still on the broken fp8 SageAttention wheel to sync.
+  checkSageSyncBanner(status)
   // Enable/disable no-GPU button based on Chrome availability
   ;(async () => {
     const available = await window.w2gp.chromeAvailable()
@@ -1027,6 +1029,50 @@ async function checkModelsPathWarning() {
 $('modelsWarnMigrateBtn')?.addEventListener('click', () => openMigrationModal())
 $('modelsWarnDismissBtn')?.addEventListener('click', () => {
   const b = $('modelsWarnBanner')
+  if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
+})
+
+// ── SageAttention broken-wheel banner ──
+// RTX 40/50 users who updated the launcher but haven't yet run Kernel sync are
+// still on the upstream `cu130torch2.9.0andhigher` SageAttention wheel, whose fp8
+// PV kernel corrupts the CUDA context under torch 2.10 (false OOM / stalling).
+// The launcher's setSageAttentionSafe() swaps it for the stable cu128 build on
+// install / update / Kernel sync. Until they sync, show a top banner telling
+// them to click Sync Kernels. Only RTX 40/50 are affected (RTX 30 routes to the
+// safe Triton fp16 kernel, RTX 20/older use Sage v1 — neither needs this).
+const SAGE_BROKEN = /cu130torch2\.9\.0andhigher/
+function checkSageSyncBanner(status) {
+  const banner = $('sageSyncBanner')
+  if (!banner) return
+  if (banner.dataset.dismissed === '1') { banner.classList.add('hidden'); return }
+  try {
+    const profile = status?.kernelProfile
+    const sage = status?.versions?.sageattention || status?.versions?.spas_sage_attn || ''
+    const affected = (profile === 'RTX_40' || profile === 'RTX_50')
+    const brokenWheel = SAGE_BROKEN.test(sage)
+    const show = !!(affected && brokenWheel)
+    banner.classList.toggle('hidden', !show)
+  } catch { banner.classList.add('hidden') }
+}
+$('sageSyncBtn')?.addEventListener('click', async () => {
+  const banner = $('sageSyncBanner')
+  const btn = $('sageSyncBtn')
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…' }
+  try {
+    const r = await window.w2gp.syncKernels()
+    if (r && r.success) {
+      if (banner) { banner.classList.add('hidden'); banner.dataset.dismissed = '1' }
+      refreshDashboard()
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Sync Kernels' }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Kernels' }
+    alert('Kernel sync failed: ' + (e?.message || e))
+  }
+})
+$('sageSyncDismissBtn')?.addEventListener('click', () => {
+  const b = $('sageSyncBanner')
   if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
 })
 
