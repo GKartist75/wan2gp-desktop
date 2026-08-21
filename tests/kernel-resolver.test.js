@@ -71,10 +71,12 @@ const SAGE_CU130 = 'https://github.com/woct0rdho/SageAttention/releases/download
 // replacement is the cu130.post6 build (cp310-abi3 → installs on Python 3.11, fp8 fixed).
 const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post6/sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl'
 
-test('applySageOverride swaps broken cu130→safe cu130.post6 for RTX 40/50 under torch>=2.10', () => {
-  const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true })
-  assert.ok(out.includes('cu130torch2.10.0andhigher.post6'), 'swapped to the stable cu130.post6 build')
-  assert.ok(!out.includes('cu130torch2.9.0andhigher.post4'), 'broken cu130 build gone')
+test('applySageOverride swaps broken cu130→safe cu130.post6 for RTX 30/40/50 under torch>=2.10', () => {
+  for (const gpu of [{ name: 'RTX 3090' }, { name: 'RTX 4090' }, { name: 'RTX 5080' }]) {
+    const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', ...gpu }, { torchGte210: true })
+    assert.ok(out.includes('cu130torch2.10.0andhigher.post6'), `swapped ${gpu.name} to the stable cu130.post6 build`)
+    assert.ok(!out.includes('cu130torch2.9.0andhigher.post4'), `broken cu130 build gone for ${gpu.name}`)
+  }
 })
 
 test('applySageOverride leaves RTX 40/50 alone when torch < 2.10', () => {
@@ -82,8 +84,7 @@ test('applySageOverride leaves RTX 40/50 alone when torch < 2.10', () => {
   assert.strictEqual(out, SAGE_CU130, 'no change on older torch')
 })
 
-test('applySageOverride leaves RTX 30/20 alone (safe fp16/triton paths)', () => {
-  assert.strictEqual(k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 3090' }, { torchGte210: true }), SAGE_CU130)
+test('applySageOverride leaves RTX 20 / GTX 10 alone (Sage1 / no sage — no broken wheel)', () => {
   assert.strictEqual(k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 2070' }, { torchGte210: true }), SAGE_CU130)
 })
 
