@@ -197,7 +197,15 @@ function buildOverviewWheels(cfg, gpu, osKey) {
  * @returns {string} the (possibly overridden) wheel URL
  */
 const SAGE_CU130_WHEEL = 'sageattention-2.2.0+cu130torch2.9.0andhigher.post4'
-const SAGE_CU128_WHEEL = 'sageattention-2.2.0+cu128torch2.7.1-cp310-cp310-win_amd64.whl'
+// Stable, fp8-safe SageAttention2++ build for Python 3.11 (the env the launcher
+// installs for RTX 30–50).
+//
+// IMPORTANT: must be a **cp311** wheel. The launcher provisions Python 3.11.14,
+// and a cp310-only build (e.g. the old `cu128torch2.7.1-cp310-cp310` wheel) is
+// REJECTED by pip on 3.11 ("not a supported wheel on this platform"). The
+// v2.2.0-windows cu128 family ships per-python wheels; the correct 3.11 one is
+// `cu128torch2.8.0-cp311-cp311` (cu128 → not the broken cu130 fp8-PV path).
+const SAGE_CU128_WHEEL = 'sageattention-2.2.0+cu128torch2.8.0-cp311-cp311-win_amd64.whl'
 const SAGE_CU128_BASE  = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows/'
 
 function applySageOverride(key, cmd, gpu, opts = {}) {

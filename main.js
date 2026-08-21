@@ -2510,9 +2510,11 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
  * (sageattn_qk_int8_pv_fp8_cuda) corrupts the CUDA context under the torch 2.10
  * + CUDA 13 runtime this launcher installs, causing false OOM / stall / abort and
  * silent black frames in MiniMax H3's VAE decode on sm89/sm120. SageAttention
- * ignores CUDA minor (12.8 vs 13.0); the cu128torch2.7.1 build is the stable
- * fp8 build, so we swap the broken wheel for it. This keeps the
- * SageAttention2++ speedup while dispatching the kernel correctly.
+ * ignores CUDA minor (12.8 vs 13.0); the stable fp8 build for the launcher's
+ * Python 3.11 env is the **cu128torch2.8.0-cp311-cp311** wheel (NOT the old
+ * cu128torch2.7.1-cp310-cp310, which pip rejects on Python 3.11), so we swap
+ * the broken wheel for it. This keeps the SageAttention2++ speedup while
+ * dispatching the kernel correctly.
  * sage is a setup_config.json PROFILE field (not in the kernels[] array), so it
  * is installed silently by setup.py and NOT covered by syncKernelWheels. Hence
  * this dedicated self-heal runs after install + update + manual kernel sync.

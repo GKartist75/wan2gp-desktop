@@ -6,6 +6,16 @@ SageAttention wheel that corrupts the CUDA context) and **RTX 3080** (a missing
 improvements (visible progress during silent setup, and a banner that tells
 affected users to sync). No layout change.
 
+> **⚠️ v3.0.2 wheel-target correction (post-release):** the first v3.0.2 build
+> swapped the broken `cu130torch2.9.0andhigher` SageAttention wheel for
+> `sageattention-2.2.0+cu128torch2.7.1-**cp310-cp310**-win_amd64.whl`. That is a
+> **Python 3.10-only** wheel, but the launcher provisions **Python 3.11.14** for
+> RTX 30–50 — so pip would **reject** it on RTX 40/50 (`Sync Kernels` would fail
+> with "not a supported wheel on this platform"). Corrected to
+> `sageattention-2.2.0+**cu128torch2.8.0-cp311-cp311**-win_amd64.whl` (verified
+> live, HTTP 200, 12.1 MB), which is the stable fp8 build for Python 3.11. The
+> published v3.0.2 release asset was updated with this fix.
+
 ## 🐞 Bug 1 (RTX 40/50): SageAttention `cu130torch2.9.0andhigher` wheel corrupts the CUDA context
 
 ### Symptom
