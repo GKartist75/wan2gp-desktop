@@ -361,9 +361,6 @@ body {
 .launch-btn.launch-muted:hover { background: #374151; border-color: #6b7280; }
 .launch-btn.launch-term { background: #0c4a6e; color: #7dd3fc; border: 1px solid #075985; }
 .launch-btn.launch-term:hover { background: #075985; border-color: #0ea5e9; }
-.launch-btn.launch-stop { background: #5b1414; color: #fca5a5; border: 1px solid #7f1d1d; }
-.launch-btn.launch-stop:hover { background: #7f1d1d; border-color: #ef4444; }
-.launch-btn.launch-stop svg { fill: currentColor; stroke: none; }
 .launch-btn:hover { background: var(--accent-hover); }
 .launch-btn:active { transform: scale(0.98); }
 .launch-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

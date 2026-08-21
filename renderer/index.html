@@ -363,6 +363,9 @@
           </button>
           <button class="btn-icon wv-btn" id="ftToggleBtn" title="Toggle floating terminal">⊞</button>
         </div>
+        <button class="btn-icon" id="stopWangpBtn" title="Stop Wan2GP server" style="display:none">
+          <svg viewBox="0 0 24 24" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
+        </button>
         <button class="btn-icon" id="refreshBtn" title="Refresh dashboard &amp; metrics">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
@@ -523,10 +526,6 @@
         <button class="launch-btn launch-green" id="appBtn" style="margin-top:4px">
             <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             Launch Wan2GP in Desktop
-        </button>
-        <button class="launch-btn launch-stop" id="stopWangpBtn" style="margin-top:4px; display:none">
-            <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
-            Stop Wan2GP server
         </button>
         <div class="launch-info hidden" id="launchInfo">
           <div class="li-text">⏳ First launch loads models + compiles CUDA kernels — this will take some extra time. Subsequent starts are faster.</div>

@@ -58,14 +58,6 @@ revealed a **second, independent gap** (separate from the SageAttention one):
   pattern. This guarantees the dependency the bootstrap (and accelerate-backed
   pipelines) needs is actually present.
 
-## Stop button moved next to the launch buttons
-
-The small Stop Wan2GP server icon in the top-right toolbar is removed. A full
-**Stop Wan2GP server** button (red, `.launch-stop`) now sits directly under the
-four launch buttons in the dashboard action column, so start/stop are co-located.
-Same `window.w2gp.stopWangp()` handler and running-LED behavior; the topbar
-running indicator (LED) is kept as a status signal.
-
 ## SageAttention sync banner (RTX 40/50 users)
 
 Existing users who update the launcher but don't run Kernel sync stay on the
