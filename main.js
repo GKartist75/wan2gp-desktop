@@ -2558,8 +2558,8 @@ async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
     log('[*] SageAttention: no unsafe fp8 wheel detected (have "' + (installedTag || 'unknown') + '") - left as-is.')
     return
   }
-  const safeUrl = kernelResolver.SAGE_CU128_BASE + kernelResolver.SAGE_CU128_WHEEL
-  log('[*] SageAttention: broken fp8 wheel (' + installedTag + ') detected under torch ' + torchVer + ' on ' + (gpu.name || prof) + ' - replacing with the stable cu128 build (keeps SageAttention2++ speedup; fixes CUDA-context corruption / false OOM / H3 black frames).')
+  const safeUrl = kernelResolver.SAGE_CU130_SAFE_BASE + kernelResolver.SAGE_CU130_SAFE_WHEEL
+  log('[*] SageAttention: broken fp8 wheel (' + installedTag + ') detected under torch ' + torchVer + ' on ' + (gpu.name || prof) + ' - replacing with the stable cu130.post6 build (same CUDA 13.0 stack, fp8 out-of-bounds fixed; keeps SageAttention2++ speedup; fixes CUDA-context corruption / false OOM / H3 black frames).')
   try {
     await new Promise((resolve, reject) => {
       const p = spawn(py, ['-m', 'pip', 'install', '--no-input', '--force-reinstall', safeUrl], {

@@ -63,17 +63,18 @@ test('wheelDistVersion parses a normal wheel', () => {
   assert.strictEqual(w.version, '1.2.1+cu130torch2.10')
 })
 
-// ── applySageOverride: RTX 40/50 under torch>=2.10 swap cu130→cu128 (issue #64) ──
+// ── applySageOverride: RTX 40/50 under torch>=2.10 swap broken cu130→safe cu130.post6 ──
 const SAGE_CU130 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu130torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl'
-// NOTE: must be a **cp311** wheel. The launcher provisions Python 3.11.14 for
-// RTX 30–50, so the old `cu128torch2.7.1-cp310-cp310` build is REJECTED by pip.
-// (Verified live: v2.2.0-windows ships cu128torch2.8.0-cp311-cp311 for 3.11.)
-const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows/sageattention-2.2.0+cu128torch2.8.0-cp311-cp311-win_amd64.whl'
+// NOTE: the safe replacement must be **cu130-native** (NOT cu128). The launcher runs
+// torch 2.10 + CUDA 13.0; a cu128 wheel's `_fused.pyd` links CUDA 12.8 runtimes that
+// are absent in a cu130 env → "DLL load failed while importing _fused". The correct
+// replacement is the cu130.post6 build (cp310-abi3 → installs on Python 3.11, fp8 fixed).
+const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post6/sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl'
 
-test('applySageOverride swaps cu130→cu128 for RTX 40/50 under torch>=2.10', () => {
+test('applySageOverride swaps broken cu130→safe cu130.post6 for RTX 40/50 under torch>=2.10', () => {
   const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true })
-  assert.ok(out.includes('cu128torch2.8.0'), 'swapped to the stable cu128 cp311 build')
-  assert.ok(!out.includes('cu130torch2.9.0andhigher'), 'broken cu130 build gone')
+  assert.ok(out.includes('cu130torch2.10.0andhigher.post6'), 'swapped to the stable cu130.post6 build')
+  assert.ok(!out.includes('cu130torch2.9.0andhigher.post4'), 'broken cu130 build gone')
 })
 
 test('applySageOverride leaves RTX 40/50 alone when torch < 2.10', () => {
