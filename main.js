@@ -1056,7 +1056,22 @@ async function runSetup(args, extraPath) {
     })
     setupProc = proc
     let lineBuf = ''
+    let lastOutputTs = Date.now()
+    // Activity heartbeat: setup.py has long silent stretches (uv resolving torch,
+    // venv creation before any "[1/3]" line, large wheel downloads) where no
+    // output is emitted for minutes. Without a visible sign the UI looks frozen.
+    // While the process is alive but quiet, re-emit the current phase label every
+    // ~15s. Uses a leading \r so the renderer overwrites the previous heartbeat
+    // line (carriage-return handling) instead of flooding the log.
+    let heartbeatLabel = 'Working… (this can take several minutes on first install)'
+    const heartbeat = setInterval(() => {
+      if (Date.now() - lastOutputTs >= 15000) {
+        send('setup-output', '\r[*] ' + heartbeatLabel)
+      }
+    }, 15000)
+    const clearHb = () => clearInterval(heartbeat)
     const emit = (text) => {
+      lastOutputTs = Date.now()
       send('setup-output', text)
       lineBuf += text
       const lines = lineBuf.split('\n')
@@ -1065,17 +1080,21 @@ async function runSetup(args, extraPath) {
         const profileMatch = line.match(/Hardware Profile:\s*(\S+)/)
         if (profileMatch) send('setup-profile', profileMatch[1])
         const phase = detectPhase(line)
-        if (phase) send('setup-phase', phase)
+        if (phase) {
+          heartbeatLabel = phase.label + ' (still running…)'
+          send('setup-phase', phase)
+        }
       }
     }
     proc.stdout.on('data', (d) => { const s = d.toString(); emit(s); process.stdout.write(s) })
     proc.stderr.on('data', (d) => { const s = d.toString(); emit(s); process.stderr.write(s) })
     proc.on('close', (code) => {
       setupProc = null
+      clearHb()
       if (code === 0) resolve()
       else reject(new Error(`setup.py exited code ${code}`))
     })
-    proc.on('error', reject)
+    proc.on('error', (e) => { clearHb(); reject(e) })
   })
 }
 

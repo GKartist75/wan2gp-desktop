@@ -58,10 +58,21 @@ revealed a **second, independent gap** (separate from the SageAttention one):
   pattern. This guarantees the dependency the bootstrap (and accelerate-backed
   pipelines) needs is actually present.
 
+## Install progress visibility (no more "frozen" UI)
+
+`setup.py` has long silent stretches (uv resolving torch, venv creation before
+any `[1/3]` line, large CUDA wheel downloads) where no output is emitted for
+minutes, making the installer look stuck. `runSetup` now runs a 15s activity
+heartbeat: while the python process is alive but quiet, it re-emits the current
+phase label (or a generic "Working…" during the pre-phase window) as a
+carriage-return line that the renderer overwrites in place — so the console
+always shows live activity instead of going blank. Heartbeat stops the moment
+real output arrives and is cleared on process exit/error.
+
 ## Files changed
 
-- `main.js` — `ensureAccelerate()` (install + update); deferred z-image bootstrap patch.
-- `scripts/bootstrap.py` — mirrored deferred z-image fix (kept in sync with inline copy).
+- `main.js` — `runSetup` activity heartbeat; `ensureAccelerate()` (install + update); deferred z-image bootstrap patch.
+- `scripts/bootstrap.py` — mirrored deferred z-image fix.
 - `services/kernel-resolver.js` — `applySageOverride()` + `sageWheelFamily()`.
 - `README.md` — corrected SageAttention row + safety note.
 - `tests/kernel-resolver.test.js` — resolver cases for the sage swap.
