@@ -246,6 +246,7 @@ module.exports = {
   sageWheelFamily,
   SAGE_CU130_WHEEL,
   SAGE_CU128_WHEEL,
+  SAGE_CU128_BASE,
   GGUF_TARGET_VERSION,
   KERNEL_DISPLAY,
 }
