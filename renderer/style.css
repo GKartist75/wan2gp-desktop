@@ -445,6 +445,10 @@ body {
 .update-banner.hidden { display: none; }
 .models-warn-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .models-warn-actions .btn { white-space: nowrap; }
+.sage-warn { background: var(--danger-bg, #3a1414); border-color: var(--danger, #c0392b); }
+.sage-warn .update-info { color: var(--text, #f0f0f0); }
+.sage-warn-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.sage-warn-actions .btn { white-space: nowrap; }
 .update-info { display: flex; align-items: center; gap: 8px; flex: 1; }
 .update-badge {
   background: var(--signal-green); color: #fff; padding: 2px 6px;

@@ -402,6 +402,18 @@
       </button>
     </div>
 
+    <!-- SageAttention sync banner (shown on RTX 40/50 with the broken fp8 wheel) -->
+    <div id="sageSyncBanner" class="update-banner sage-warn hidden">
+      <div class="update-info">
+        <span class="update-badge" style="background:var(--danger,#c0392b)">SAGE</span>
+        <span id="sageSyncText">Your SageAttention wheel (cu130torch2.9.0andhigher) has a known fp8 CUDA bug on RTX 40/50 that causes false out-of-memory errors and stalling. Click <b>Sync Kernels</b> to apply the stable build.</span>
+      </div>
+      <div class="sage-warn-actions">
+        <button id="sageSyncBtn" class="btn btn-primary small">Sync Kernels</button>
+        <button id="sageSyncDismissBtn" class="btn btn-ghost small">Dismiss</button>
+      </div>
+    </div>
+
     <!-- Model-path warning banner (shown when checkpoints/LoRAs resolve under AppData) -->
     <div id="modelsWarnBanner" class="update-banner models-warn hidden">
       <div class="update-info">
