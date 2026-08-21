@@ -2505,19 +2505,25 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
 
 /**
  * SageAttention safety self-heal (issue #64 / upstream #2178 / #199).
- * upstream setup.py installs the RTX 40/50 profile wheel
+ * upstream setup.py installs the RTX 40/50 profile wheel declared in
+ * setup_config.json as `sage.v220_cu13` =
  * sageattention-2.2.0+cu130torch2.9.0andhigher.post4. Its fp8-PV CUDA kernel
  * (sageattn_qk_int8_pv_fp8_cuda) corrupts the CUDA context under the torch 2.10
  * + CUDA 13 runtime this launcher installs, causing false OOM / stall / abort and
- * silent black frames in MiniMax H3's VAE decode on sm89/sm120. SageAttention
- * ignores CUDA minor (12.8 vs 13.0); the stable fp8 build for the launcher's
- * Python 3.11 env is the **cu128torch2.8.0-cp311-cp311** wheel (NOT the old
- * cu128torch2.7.1-cp310-cp310, which pip rejects on Python 3.11), so we swap
- * the broken wheel for it. This keeps the SageAttention2++ speedup while
- * dispatching the kernel correctly.
+ * silent black frames in MiniMax H3's VAE decode on sm89/sm120.
+ *
+ * Per the "config_json is the base" rule, the launcher installs what setup_config.json
+ * declares, then applies ONE documented correction (see services/kernel-resolver.js
+ * SAGE_CU130_SAFE_*): substitute the broken `v220_cu13` (post4) wheel with the
+ * cu130-native, fp8-fixed `cu130torch2.10.0andhigher.post6` wheel. That wheel is
+ * abi3 (installs on Python 3.11.14), cu130-linked (matches the env's CUDA 13.0
+ * runtimes, so _fused.pyd loads), and has the out-of-bounds fix (SageAttention #98).
+ * We do NOT use upstream's other sage option `v220` (cu128torch2.7.1-cp310-cp310):
+ * it is cu128 (DLL-load crash under cu130) and cp310-only (pip-rejected on py3.11).
+ *
  * sage is a setup_config.json PROFILE field (not in the kernels[] array), so it
  * is installed silently by setup.py and NOT covered by syncKernelWheels. Hence
- * this dedicated self-heal runs after install + update + manual kernel sync.
+ * this dedicated self-heal runs after install + update + manual kernel sync + Launch.
  * Idempotent: no-op unless the broken wheel is actually installed.
  * @param {(text:string)=>void} log line sink
  */
@@ -2528,7 +2534,12 @@ async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
   const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
   if ((gpu.vendor || '').toUpperCase() !== 'NVIDIA') return
   const prof = kernelResolver.kernelProfileKey(gpu)
-  if (prof !== 'RTX_40' && prof !== 'RTX_50') return
+  // NOTE: we no longer hard-gate on RTX_40/RTX_50. setup_config.json is the
+  // base of truth, and it declares `sage: v220_cu13` (the broken post4 wheel) for
+  // RTX_30, RTX_40 AND RTX_50. The fp8 self-heal must cover every profile that
+  // config_json puts the broken wheel on. The `isBroken` check below is the real
+  // guard: only GPUs actually carrying the post4 wheel are touched; RTX_20 (Sage1)
+  // and GTX_10 (no sage) never match, so they stay a safe no-op.
   let torchVer = ''
   try {
     const code = 'import importlib.metadata as m; print(m.version("torch"))'

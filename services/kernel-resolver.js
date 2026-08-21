@@ -214,8 +214,9 @@ const SAGE_CU130_SAFE_BASE  = 'https://github.com/woct0rdho/SageAttention/releas
 function applySageOverride(key, cmd, gpu, opts = {}) {
   if (key !== 'sage' || typeof cmd !== 'string') return cmd
   const prof = kernelProfileKey(gpu)
-  // Only RTX 40/50 are on the broken fp8-PV path under torch >= 2.10.
-  if (prof !== 'RTX_40' && prof !== 'RTX_50') return cmd
+  // setup_config.json declares `sage: v220_cu13` (broken post4) for RTX_30/40/50.
+  // Cover all three (the broken wheel only appears on those profiles anyway).
+  if (prof !== 'RTX_30' && prof !== 'RTX_40' && prof !== 'RTX_50') return cmd
   if (!(opts.torchGte210)) return cmd
   if (!cmd.includes(SAGE_CU130_WHEEL)) return cmd
   // Swap the broken cu130 (torch2.9.0andhigher.post4) build for the stable
