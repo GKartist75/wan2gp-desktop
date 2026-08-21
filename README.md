@@ -429,7 +429,7 @@ down (v3.0.0 pinned versions):
 | **Python** (uv) | `3.11.14` (RTX 20–50) / `3.10.9` (GTX 10) | The venv interpreter. |
 | **PyTorch + CUDA** (`torch`/`torchvision`/`torchaudio`) | `2.10.0` + CUDA 13.0 | Base tensor + GPU runtime. |
 | **Triton** (`triton-windows`) | `latest` (3.7.1 on the v3.0 build) | JIT compiler for custom CUDA/attention kernels on Windows. |
-| **SageAttention** (`sageattention`) | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | Fast fused attention — big speed-up for sampling, low VRAM overhead. |
+| **SageAttention** (`sageattention`) | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | Fast fused attention — big speed-up for sampling, low VRAM overhead. **RTX 40/50 safety note:** the upstream `2.2.0+cu130torch2.9.0andhigher` wheel ships fp8-PV CUDA kernels that corrupt the CUDA context under the torch 2.10 + CUDA 13 runtime (false OOM / stall / black MiniMax H3 frames — GitHub #64, upstream #2178). The launcher auto-swaps RTX 40/50 to the stable `cu128torch2.7.1` SageAttention 2.2.0 build after install / update / Kernel sync, keeping the speed-up. If you ever see a "FALSE OOM" hint, switch attention to `flash`/`sdpa` (Manage → Advanced) and re-run Kernel sync. |
 | **Sparge Attention** (`spas-sage-attn`) | `0.1.0` | Sparsity-aware attention kernel (drop-in speed-up alongside Sage). |
 | **Flash-Attention** (`flash-attn`) | `2.8.3` | Memory-efficient exact attention for long contexts/high-res. |
 | **Nunchaku** (`nunchaku`) | `1.2.1` | SVD-quantized (NF4/SVDQ) checkpoint runtime — runs 4-bit/8-bit models fast. |

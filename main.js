@@ -1291,6 +1291,14 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   } catch (e) {
     send('setup-output', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
+  // SageAttention fp8 safety self-heal (issue #64): setup.py install lays down
+  // the broken cu130torch2.9.0andhigher wheel on RTX 40/50; swap it for the
+  // stable cu128 build so first generation doesn't hit the CUDA-context bug.
+  try {
+    await setSageAttentionSafe((t) => send('setup-output', t))
+  } catch (e) {
+    send('setup-output', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
   send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
   invalidateGitCache()
   return true
@@ -1652,6 +1660,14 @@ ipcMain.handle('get-status', async () => {
 ipcMain.handle('sync-kernels', async () => mutating('sync-kernels', async () => {
   const log = (m) => send('launch-log', m.endsWith('\n') ? m : m + '\n')
   await syncKernelWheels(log)
+  // SageAttention fp8 safety self-heal (issue #64): the manual sync button only
+  // covers kernels[] (nunchaku/gguf/light2xv); the sage wheel is a profile field
+  // setup.py installs, so enforce the safe cu128 build here too.
+  try {
+    await setSageAttentionSafe(log)
+  } catch (e) {
+    log(`[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
   return { success: true }
 }))
 
@@ -1945,6 +1961,19 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
         notifyFromLog(s)
         if (s.includes('localhost is not accessible') || s.includes('shareable link must be created')) {
           send('launch-log', '[!] Gradio localhost check failed. If this persists, enable "Share Link" in Settings (Manage → Launch tab) or add --share to Extra Launch Args.\n')
+        }
+        // False-OOM hint (issue #64): a tiny allocation refused while GiB are free
+        // is NOT real VRAM exhaustion — it is a corrupted CUDA context caused by the
+        // broken SageAttention fp8-PV kernel under torch 2.10. Point the user at the
+        // real fix instead of letting them think their GPU is too small.
+        if (/OutOfMemoryError/i.test(s) && /is free/i.test(s)) {
+          const allocM = /Tried to allocate ([\d.]+) MiB/i.exec(s)
+          const freeG = /of which ([\d.]+) GiB is free/i.exec(s)
+          const tiny = allocM && parseFloat(allocM[1]) < 256
+          const lotsFree = freeG && parseFloat(freeG[1]) > 2
+          if (tiny && lotsFree) {
+            send('launch-log', '[!] FALSE OOM detected: only ' + (allocM ? allocM[1] : '?') + ' MiB was refused while ' + (freeG ? freeG[1] : 'several') + ' GiB are free. This is a corrupted CUDA context from the SageAttention fp8 kernel under torch 2.10 — NOT a VRAM limit. Fix: set Wan2GP attention to "flash" or "sdpa" (Manage → Advanced), or re-run Kernel sync (the launcher swaps the broken wheel for the safe cu128 build). Restart the generation after switching.\n')
+          }
         }
       }
     })
@@ -2435,6 +2464,78 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
   log(updated ? `[*] Kernel wheels synced (${updated} updated).\n` : '[*] Kernel wheels up to date.\n')
 }
 
+/**
+ * SageAttention safety self-heal (issue #64 / upstream #2178 / #199).
+ * upstream setup.py installs the RTX 40/50 profile wheel
+ * sageattention-2.2.0+cu130torch2.9.0andhigher.post4. Its fp8-PV CUDA kernel
+ * (sageattn_qk_int8_pv_fp8_cuda) corrupts the CUDA context under the torch 2.10
+ * + CUDA 13 runtime this launcher installs, causing false OOM / stall / abort and
+ * silent black frames in MiniMax H3's VAE decode on sm89/sm120. SageAttention
+ * ignores CUDA minor (12.8 vs 13.0); the cu128torch2.7.1 build is the stable
+ * fp8 build, so we swap the broken wheel for it. This keeps the
+ * SageAttention2++ speedup while dispatching the kernel correctly.
+ * sage is a setup_config.json PROFILE field (not in the kernels[] array), so it
+ * is installed silently by setup.py and NOT covered by syncKernelWheels. Hence
+ * this dedicated self-heal runs after install + update + manual kernel sync.
+ * Idempotent: no-op unless the broken wheel is actually installed.
+ * @param {(text:string)=>void} log line sink
+ */
+async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (!py) return
+  const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
+  if ((gpu.vendor || '').toUpperCase() !== 'NVIDIA') return
+  const prof = kernelResolver.kernelProfileKey(gpu)
+  if (prof !== 'RTX_40' && prof !== 'RTX_50') return
+  let torchVer = ''
+  try {
+    const code = 'import importlib.metadata as m; print(m.version("torch"))'
+    torchVer = await new Promise((res) => {
+      const p = spawn(py, ['-c', code], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let o = ''; p.stdout.on('data', (d) => { o += d.toString() }); p.on('close', () => res(o.trim())); p.on('error', () => res(''))
+    })
+  } catch { torchVer = '' }
+  const parts = torchVer.split('.').map((n) => parseInt(n, 10))
+  const maj = parts[0] || 0, min = parts[1] || 0
+  if (!(maj > 2 || (maj === 2 && min >= 10))) return
+  let installedTag = ''
+  try {
+    const code = [
+      'import importlib.metadata as m, os',
+      'd = m.distribution("sageattention")',
+      'name = os.path.basename(str(d._path)) if hasattr(d, "_path") else ""',
+      'print(name)',
+    ].join('; ')
+    installedTag = await new Promise((res) => {
+      const p = spawn(py, ['-c', code], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let o = ''; p.stdout.on('data', (d) => { o += d.toString() }); p.on('close', () => res(o.trim())); p.on('error', () => res(''))
+    })
+  } catch { installedTag = '' }
+  const isBroken = installedTag.toUpperCase().includes('CU130TORCH2.9.0ANDHIGHER')
+  if (!isBroken) {
+    log('[*] SageAttention: no unsafe fp8 wheel detected (have "' + (installedTag || 'unknown') + '") - left as-is.')
+    return
+  }
+  const safeUrl = kernelResolver.SAGE_CU128_BASE + kernelResolver.SAGE_CU128_WHEEL
+  log('[*] SageAttention: broken fp8 wheel (' + installedTag + ') detected under torch ' + torchVer + ' on ' + (gpu.name || prof) + ' - replacing with the stable cu128 build (keeps SageAttention2++ speedup; fixes CUDA-context corruption / false OOM / H3 black frames).')
+  try {
+    await new Promise((resolve, reject) => {
+      const p = spawn(py, ['-m', 'pip', 'install', '--no-input', '--force-reinstall', safeUrl], {
+        cwd: getRepoDir(), windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PIP_DISABLE_PIP_VERSION_CHECK: '1' },
+      })
+      p.stdout.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+      p.stderr.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+      p.on('close', (c) => c === 0 ? resolve() : reject(new Error('pip exited ' + c)))
+      p.on('error', reject)
+    })
+    log('[*] SageAttention: safe wheel installed.')
+  } catch (e) {
+    log('[!] SageAttention: could not replace wheel (' + (e.message || e) + '). Manual fallback: set Wan2GP attention to "flash" or "sdpa" in Manage -> Advanced until resolved.')
+  }
+}
+
 ipcMain.handle('update', async () => mutating('update', async () => {
   // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
   // need R580+, and setup.py's own pull/install won't warn about it.
@@ -2615,6 +2716,15 @@ ipcMain.handle('update', async () => mutating('update', async () => {
     await syncKernelWheels()
   } catch (e) {
     send('launch-log', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
+  // SageAttention fp8 safety self-heal (issue #64): setup.py update never
+  // touches the sage wheel (it is a profile field, not in kernels[]), so the
+  // broken cu130torch2.9.0andhigher wheel can persist across updates. Replace
+  // it with the stable cu128 build on RTX 40/50 under torch >= 2.10.
+  try {
+    await setSageAttentionSafe()
+  } catch (e) {
+    send('launch-log', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
   invalidateGitCache() // don't return stale pre-update hashes
   return true

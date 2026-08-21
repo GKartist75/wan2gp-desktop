@@ -63,6 +63,37 @@ test('wheelDistVersion parses a normal wheel', () => {
   assert.strictEqual(w.version, '1.2.1+cu130torch2.10')
 })
 
+// ── applySageOverride: RTX 40/50 under torch>=2.10 swap cu130→cu128 (issue #64) ──
+const SAGE_CU130 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu130torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl'
+const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows/sageattention-2.2.0+cu128torch2.7.1-cp310-cp310-win_amd64.whl'
+
+test('applySageOverride swaps cu130→cu128 for RTX 40/50 under torch>=2.10', () => {
+  const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true })
+  assert.ok(out.includes('cu128torch2.7.1'), 'swapped to the stable cu128 build')
+  assert.ok(!out.includes('cu130torch2.9.0andhigher'), 'broken cu130 build gone')
+})
+
+test('applySageOverride leaves RTX 40/50 alone when torch < 2.10', () => {
+  const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: false })
+  assert.strictEqual(out, SAGE_CU130, 'no change on older torch')
+})
+
+test('applySageOverride leaves RTX 30/20 alone (safe fp16/triton paths)', () => {
+  assert.strictEqual(k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 3090' }, { torchGte210: true }), SAGE_CU130)
+  assert.strictEqual(k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 2070' }, { torchGte210: true }), SAGE_CU130)
+})
+
+test('applySageOverride ignores non-sage keys and non-win cu130 wheels', () => {
+  assert.strictEqual(k.applySageOverride('flash', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true }), SAGE_CU130)
+  assert.strictEqual(k.applySageOverride('sage', SAGE_CU128, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true }), SAGE_CU128)
+})
+
+// ── sageWheelFamily: treats cu128 as equivalent to cu130 (sync must not overwrite a good wheel) ──
+test('sageWheelFamily normalizes cu130 and cu128 to the same family', () => {
+  assert.strictEqual(k.sageWheelFamily(SAGE_CU130), 'sageattention-2.2.0')
+  assert.strictEqual(k.sageWheelFamily(SAGE_CU128), 'sageattention-2.2.0')
+})
+
 // ── buildOverviewWheels: profile-driven, real dist names ──
 test('RTX 50 overview lists nunchaku_cu13 + light2xv + gguf with configured versions', () => {
   const wheels = k.buildOverviewWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 5090' }, 'win')

@@ -170,12 +170,74 @@ function buildOverviewWheels(cfg, gpu, osKey) {
   })
 }
 
+/**
+ * SageAttention wheel safety override.
+ *
+ * ROOT CAUSE (issue #64, upstream #2178/#199): the upstream profile wheel
+ * `sage.v220_cu13` = `sageattention-2.2.0+cu130torch2.9.0andhigher.post4`
+ * ships CUDA kernels built against torch 2.9. Under the torch 2.10 + CUDA 13
+ * runtime the launcher installs, its fp8-PV kernel (`sageattn_qk_int8_pv_fp8_cuda`)
+ * corrupts the CUDA context on RTX 40/50 (sm89/sm120) → false OOM / stall /
+ * abort and silent black frames in MiniMax H3's VAE decode.
+ *
+ * SageAttention deliberately ignores CUDA *minor* (12.8 vs 13.0), and the
+ * `sage.v220` wheel (`sageattention-2.2.0+cu128torch2.7.1-...`) is the
+ * stable fp8 build (cu128 >= 12.8 satisfies the fp32+fp16 path). So for
+ * RTX 40/50 we swap the cu130 wheel for the cu128 wheel, keeping the
+ * SageAttention2++ speedup while dispatching the kernel correctly.
+ *
+ * RTX 20 is untouched (uses sage v1, no fp8 kernel). RTX 30 is sm86 → routes
+ * to the safe Triton fp16 kernel, also left as-is. GTX 10/16 have no sage.
+ *
+ * @param {string} key kernel name from the profile (e.g. 'sage')
+ * @param {string} cmd the setup_config.json wheel URL for this key
+ * @param {{name?:string, vendor?:string}} gpu detected GPU
+ * @param {object} [opts] extra context
+ * @param {boolean} [opts.torchGte210] whether the active env runs torch >= 2.10
+ * @returns {string} the (possibly overridden) wheel URL
+ */
+const SAGE_CU130_WHEEL = 'sageattention-2.2.0+cu130torch2.9.0andhigher.post4'
+const SAGE_CU128_WHEEL = 'sageattention-2.2.0+cu128torch2.7.1-cp310-cp310-win_amd64.whl'
+const SAGE_CU128_BASE  = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows/'
+
+function applySageOverride(key, cmd, gpu, opts = {}) {
+  if (key !== 'sage' || typeof cmd !== 'string') return cmd
+  const prof = kernelProfileKey(gpu)
+  // Only RTX 40/50 are on the broken fp8-PV path under torch >= 2.10.
+  if (prof !== 'RTX_40' && prof !== 'RTX_50') return cmd
+  if (!(opts.torchGte210)) return cmd
+  if (!cmd.includes(SAGE_CU130_WHEEL)) return cmd
+  // Swap the cu130 (torch2.9.0andhigher) build for the stable cu128 (torch2.7.1) build.
+  return `${SAGE_CU128_BASE}${SAGE_CU128_WHEEL}`
+}
+
+/**
+ * Normalize a SageAttention wheel URL to its canonical dist-version fragment so
+ * the sync version check treats a *good* wheel (cu128) as equivalent to the
+ * (broken) cu130 wheel the profile declares. Without this, a user who landed on
+ * the working cu128 wheel would have it overwritten on the next sync by the
+ * broken cu130 wheel (the old code compared exact parsed versions).
+ *
+ * @param {string} url wheel URL
+ * @returns {string|null} e.g. 'sageattention-2.2.0' (version stripped of CUDA/torch tag)
+ */
+function sageWheelFamily(url) {
+  if (typeof url !== 'string') return null
+  const base = url.split('/').pop().replace(/\.whl$/i, '')
+  const m = /^(sageattention-2\.2\.0)/i.exec(base)
+  return m ? m[1] : null
+}
+
 module.exports = {
   kernelProfileKey,
   wheelDistVersion,
   resolveKernelWheels,
   buildOverviewWheels,
   applyGgufOverride,
+  applySageOverride,
+  sageWheelFamily,
+  SAGE_CU130_WHEEL,
+  SAGE_CU128_WHEEL,
   GGUF_TARGET_VERSION,
   KERNEL_DISPLAY,
 }
