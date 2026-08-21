@@ -1,94 +1,132 @@
-# Wan2GP Desktop Launcher v3.0.2 — SageAttention fp8 safety fix
+# Changelog — v3.0.2
 
-## Root cause (GitHub #64, upstream Wan2GP #2178 / #199)
+**Topic:** Two independent regressions surfaced by users on **RTX 40/50** (a broken
+SageAttention wheel that corrupts the CUDA context) and **RTX 3080** (a missing
+`accelerate` dependency that skipped the z-image VAE fix), **plus** installer UX
+improvements (visible progress during silent setup, and a banner that tells
+affected users to sync). No layout change.
 
-On **RTX 40 / 50** the launcher installed the upstream-recommended
-`SageAttention 2.2.0` wheel `sageattention-2.2.0+cu130torch2.9.0andhigher.post4`
-alongside **PyTorch 2.10 + CUDA 13**. That wheel's fp8-PV CUDA kernel
-(`sageattn_qk_int8_pv_fp8_cuda`) was built against torch 2.9 and **corrupts the
-CUDA context under torch 2.10** → false `OutOfMemoryError` (a 26 MiB allocation
-refused while ~21 GiB is free), generation stalls/aborts, and silent black frames
-in **MiniMax H3** (its video VAE decode runs on the same fp8 path and never pins a
-safe backend — upstream #2178). torch 2.10 itself is correct (upstream docs warn
-*against* 2.8/2.9); only the SageAttention kernel pairing was wrong.
+## 🐞 Bug 1 (RTX 40/50): SageAttention `cu130torch2.9.0andhigher` wheel corrupts the CUDA context
 
-RTX 30 (sm86) is unaffected — it routes to the safe Triton fp16 kernel. RTX 20
-uses Sage v1 (no fp8). GTX 10/16 have no SageAttention.
+### Symptom
+On RTX 40/50 under PyTorch 2.10, generation could:
+- abort with a **false `OutOfMemoryError`** ("Tried to allocate X MiB … GiB free") on a tiny allocation while gigabytes were free,
+- **stall / hang with the GPU at full VRAM** (the context was corrupted, not OOM), or
+- produce **black / garbled MiniMax H3** videos (a second, separate fp16-overflow cause — see below).
 
-## Fix
+This matched community reports (GitHub #64, upstream Wan2GP #2178 / #199, and the
+same wheel shipped by Pinokio).
 
-- **Launcher-side SageAttention self-heal** (`setSageAttentionSafe`): after
-  **install**, **update**, and the manual **Kernel sync** button, on RTX 40/50
-  with torch ≥ 2.10 it detects the broken `cu130torch2.9.0andhigher` wheel and
-  replaces it, in place, with the **stable `cu128torch2.7.1` SageAttention 2.2.0**
-  build. SageAttention ignores CUDA *minor* (12.8 vs 13.0), so the cu128 build
-  dispatches the fp8 path correctly while keeping the SageAttention2++ speed-up
-  (no fallback to the slow `flash`/`sdpa` path). Idempotent — never touches a
-  good/already-safe wheel, so Kernel sync can no longer re-break a working install.
-- **False-OOM hint**: the launch log now recognises a tiny allocation refused
-  while GiB are free and tells the user it is a corrupted CUDA context (not a VRAM
-  limit), pointing them to `flash`/`sdpa` attention or a Kernel re-sync.
-- **Docs**: README wheel table no longer presents the cu130 SageAttention combo as
-  an unqualified clean set; it documents the auto-swap and the FALSE-OOM recovery.
+### Root cause
+Upstream `setup_config.json` installs, for the RTX 40/50 profile, the wheel
+`sageattention-2.2.0+cu130torch2.9.0andhigher.post4`. Under torch 2.10 on
+sm89/sm120, its **fp8 PV kernel** (`sageattn_qk_int8_pv_fp8_cuda`) corrupts the
+CUDA context → the false-OOM / stall above. (RTX 30 routes to the **Triton fp16**
+PV kernel and is unaffected; RTX 20 uses Sage v1.)
 
-## MiniMax H3 note
+### Fix (v3.0.2)
+- **`setSageAttentionSafe()`** — on RTX 40/50 with torch ≥ 2.10, detects the broken
+  `cu130torch2.9.0andhigher` SageAttention wheel and replaces it **in place** with the
+  stable `sageattention-2.2.0+cu128torch2.7.1` build. CUDA minor is ignored by
+  SageAttention (12.8 ≥ 12.8 satisfies the fp8 path), so correctness + speed are
+  preserved — **no fallback to slow `flash`/`sdpa`**.
+- Runs after **install**, **update**, and **Kernel sync**, so it self-heals existing
+  installs. **Idempotent**: a good/cu128 wheel is left alone, so Kernel sync can never
+  re-break a working install.
+- A **top SAGE banner** now appears for RTX 40/50 users still on the broken wheel,
+  with a one-click **Sync Kernels** button. Dismissible; RTX 30/20/older never see it.
 
-The H3 *black-video* reports have **two** independent causes: (1) the SageAttention
-fp8 decode corruption above — fixed by this release — and (2) raw **FP16 overflow**
-on H3 when not on BF16 (upstream #2156), which is a Wan2GP-core issue and needs a
-core fix (out of launcher scope). If H3 still blacks out after this update, the
-remaining cause is #2156, not the attention kernel.
+## 🐞 Bug 2 (RTX 3080 / all GPUs): missing `accelerate` skipped the z-image VAE fix
 
-## RTX 3080 / z-image bootstrap fix (accelerate missing)
+### Symptom
+Update log showed:
+```
+[bootstrap] z-image VAE dtype fix skipped: ModuleNotFoundError("No module named 'accelerate'")
+```
+Z-Image generation was then prone to the `F.conv2d "Input type (BFloat16) and bias
+type (Half)"` crash.
 
-The update log `z-image VAE dtype fix skipped: ModuleNotFoundError("No module named 'accelerate'")`
-revealed a **second, independent gap** (separate from the SageAttention one):
+### Root cause
+The z-image VAE bf16 bootstrap patch **eagerly imported `models.z_image` at launch**,
+whose import chain pulls in `accelerate`. `accelerate>=1.1.1` is required by upstream
+`requirements.txt`, but a broken/incomplete requirements install can drop it — so the
+fix was skipped.
 
-- The z-image VAE dtype bootstrap fix eagerly imported `models.z_image.z_image_main`
-  at launch, whose import chain pulls in `accelerate`. When `accelerate` was missing
-  from the env (it is required by upstream `requirements.txt` `accelerate>=1.1.1` but a
-  broken requirements install can drop it), the fix was **skipped**, leaving Z-Image
-  prone to the `F.conv2d "Input type (BFloat16) and bias type (Half)"` crash.
-- **Fix 1 (robustness):** the bootstrap now *defers* the z-image patch via a
-  meta-path finder — it arms the monkeypatch on the first real import of
-  `models.z_image.z_image_main` during the run, so a missing unrelated dep at
-  bootstrap startup can no longer abort the fix.
-- **Fix 2 (root cause):** `ensureAccelerate()` now runs after install / update and
-  installs `accelerate>=1.1.1` only when absent, mirroring the existing AMD-numpy-pin
-  pattern. This guarantees the dependency the bootstrap (and accelerate-backed
-  pipelines) needs is actually present.
+### Fix (v3.0.2)
+- The bootstrap now **defers** the z-image patch via a meta-path finder: it arms the
+  monkeypatch on the first real import of `models.z_image` during the run, so a missing
+  unrelated dep at bootstrap startup can no longer abort the fix.
+- **`ensureAccelerate()`** runs after install / update and installs `accelerate>=1.1.1`
+  only when absent (mirrors the existing AMD-numpy-pin pattern).
 
-## SageAttention sync banner (RTX 40/50 users)
+## ✨ UX: installer progress is now visible
 
-Existing users who update the launcher but don't run Kernel sync stay on the
-broken `cu130torch2.9.0andhigher` SageAttention wheel. The dashboard now shows a
-top **SAGE** banner (red) on **RTX 40/50** when the installed wheel still matches
-that broken build, with a one-click **Sync Kernels** button that runs
-`setSageAttentionSafe()` and clears the banner. RTX 30/20/older are unaffected
-(different kernel paths) and never see it. Dismissible.
+`setup.py` has long silent stretches (uv resolving torch, venv creation before any
+`[1/3]` line, large CUDA wheel downloads) where no output is emitted for minutes,
+making the installer look frozen. `runSetup` now runs a **15s activity heartbeat** that
+re-emits the current phase label (or a generic "Working…") as a carriage-return line
+the renderer overwrites in place. The heartbeat stops the moment real output arrives
+and is cleared on process exit/error.
 
-## Install progress visibility (no more "frozen" UI)
+## What changed
 
-`setup.py` has long silent stretches (uv resolving torch, venv creation before
-any `[1/3]` line, large CUDA wheel downloads) where no output is emitted for
-minutes, making the installer look stuck. `runSetup` now runs a 15s activity
-heartbeat: while the python process is alive but quiet, it re-emits the current
-phase label (or a generic "Working…" during the pre-phase window) as a
-carriage-return line that the renderer overwrites in place — so the console
-always shows live activity instead of going blank. Heartbeat stops the moment
-real output arrives and is cleared on process exit/error.
-
-## Files changed
-
-- `main.js` — `runSetup` activity heartbeat; `ensureAccelerate()` (install + update); deferred z-image bootstrap patch.
-- `scripts/bootstrap.py` — mirrored deferred z-image fix.
-- `services/kernel-resolver.js` — `applySageOverride()` + `sageWheelFamily()`.
-- `README.md` — corrected SageAttention row + safety note.
+- `services/kernel-resolver.js` — `applySageOverride()` + `sageWheelFamily()` (single
+  source of truth for the cu130→cu128 swap; unit-tested).
+- `main.js` — `setSageAttentionSafe()` (install / update / `sync-kernels`),
+  `ensureAccelerate()` (install / update), deferred z-image bootstrap patch, and the
+  `runSetup` activity heartbeat.
+- `scripts/bootstrap.py` — mirrored deferred z-image fix (kept in sync with inline copy).
+- `renderer/index.html` — SAGE banner; topbar Stop button unchanged.
+- `renderer/app.js` — `checkSageSyncBanner()` + Sync Kernels handler.
+- `renderer/style.css` — `.sage-warn` banner styling.
+- `README.md` — corrected SageAttention row + v3.0.2 note.
 - `tests/kernel-resolver.test.js` — resolver cases for the sage swap.
+
+## GPU kernel wheels (same set as v3.0.1, auto-installed per hardware)
+
+v3.0.2 keeps the v3.0.1 wheel set and **additionally self-heals the RTX 40/50
+SageAttention wheel** to the stable cu128 build. Pinned set:
+
+| Wheel | Version (v3.0.2) | Notes |
+|-------|------------------|-------|
+| **Python** (uv) | `3.11.14` (RTX 20–50) / `3.10.9` (GTX 10) | venv interpreter |
+| **PyTorch + CUDA** | `2.10.0` + CUDA 13.0 | base tensor + GPU runtime |
+| **Triton** | `latest` (~3.7.1) | JIT compiler for custom kernels on Windows |
+| **SageAttention** | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | **RTX 40/50 auto-swapped to the stable `cu128torch2.7.1` build** |
+| **Sparge Attention** | `0.1.0` | sparsity-aware attention |
+| **Flash-Attention** | `2.8.3` | exact attention |
+| **Nunchaku** | `1.2.1` | SVD/NF4/FP4 quantized runtime |
+| **GGUF llama.cpp CUDA** | `1.0.11` | CUDA GGUF kernels (Stream-K) |
+| **Lightx2v** | `0.0.2` | FP4 — RTX 50xx / sm120+ only |
+| **bitsandbytes** | `0.49.2` | NF4 dequant |
+
+Per-hardware set: RTX 20 → Sage 1.0.6 + Flash 2.8.3 + Nunchaku + GGUF 1.0.11.
+RTX 30/40 → add Sparge 0.1.0 + Sage 2.2.0 (RTX 40 auto-healed to cu128).
+RTX 50 → add Lightx2v 0.0.2. All profiles also get bitsandbytes 0.49.2.
+GTX 10/16 stay on the legacy CUDA 12.8 stack.
 
 ## Verification
 
-- `node --check main.js` / `services/kernel-resolver.js` → syntax OK.
-- `npm test` → 118 tests pass (incl. 6 new resolver cases).
-- Safe wheel URL verified live (302 → `sageattention-2.2.0+cu128torch2.7.1-cp310-cp310-win_amd64.whl`).
-- Built `Wan2GP-Desktop-Launcher-3.0.2-win-x64.exe`.
+- `node --check main.js` / `renderer/app.js` → syntax OK.
+- `npm test` → 118 tests pass (incl. new `tests/kernel-resolver.test.js` cases for the
+  cu130→cu128 swap: swap / no-op on RTX 30/20 / torch<2.10 / non-sage; family normalization).
+- Built `Wan2GP-Desktop-Launcher-3.0.2-win-x64.exe` (unsigned — matches the tested build).
+- Confirmed in a real RTX 3080 install log: `z-image VAE dtype fix deferred`,
+  `accelerate: present — ok.`, GGUF `1.0.8 → 1.0.11`, `Installation complete!`.
+
+## Upgrade guidance
+
+- **From v3.0.1:** install v3.0.2. RTX 40/50 users will see a red **SAGE** banner —
+  click **Sync Kernels** once (or run one Update) to apply the stable SageAttention
+  wheel. The fix is then permanent. RTX 30/20/older are unaffected and need no action.
+- **New installs / reinstalls:** the fix applies automatically at the end of install.
+- **MiniMax H3 black videos:** if H3 still blacks out after the SageAttention swap, the
+  remaining cause is a **separate** fp16-overflow bug in Wan2GP core (upstream #2156),
+  outside the launcher's scope — not the SageAttention wheel.
+
+## Credits
+
+- **[DeepBeepMeep](https://github.com/deepbeepmeep)** — creator of
+  [Wan2GP](https://github.com/deepbeepmeep/Wan2GP).
+- **Community testers** — the RTX 40/50 false-OOM and RTX 3080 `accelerate` reports
+  that surfaced both regressions.
