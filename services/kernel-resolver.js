@@ -197,16 +197,19 @@ function buildOverviewWheels(cfg, gpu, osKey) {
  * @returns {string} the (possibly overridden) wheel URL
  */
 const SAGE_CU130_WHEEL = 'sageattention-2.2.0+cu130torch2.9.0andhigher.post4'
-// Stable, fp8-safe SageAttention2++ build for Python 3.11 (the env the launcher
-// installs for RTX 30–50).
+// Stable, fp8-safe SageAttention2++ replacement for the broken `cu130torch2.9.0andhigher.post4`
+// wheel on RTX 40/50 under torch >= 2.10.
 //
-// IMPORTANT: must be a **cp311** wheel. The launcher provisions Python 3.11.14,
-// and a cp310-only build (e.g. the old `cu128torch2.7.1-cp310-cp310` wheel) is
-// REJECTED by pip on 3.11 ("not a supported wheel on this platform"). The
-// v2.2.0-windows cu128 family ships per-python wheels; the correct 3.11 one is
-// `cu128torch2.8.0-cp311-cp311` (cu128 → not the broken cu130 fp8-PV path).
-const SAGE_CU128_WHEEL = 'sageattention-2.2.0+cu128torch2.8.0-cp311-cp311-win_amd64.whl'
-const SAGE_CU128_BASE  = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows/'
+// IMPORTANT — must be **cu130-native**, NOT cu128:
+// the launcher installs torch 2.10 + CUDA 13.0 (cu130). A `cu128` SageAttention wheel's
+// compiled `_fused.pyd` links against CUDA 12.8 runtimes that are NOT present in a cu130
+// env, so it fails at import with "DLL load failed while importing _fused". The correct
+// replacement is the **cu130** build from the same v2.2.0-windows.post6 release:
+//   sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl
+// `cp310-abi3` → installs fine on Python 3.11 (abi3, not cp310-only). `.post6` is the
+// build where the fp8 out-of-bounds bug (black/noise outputs) is fixed — see SageAttention #98.
+const SAGE_CU130_SAFE_WHEEL = 'sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl'
+const SAGE_CU130_SAFE_BASE  = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post6/'
 
 function applySageOverride(key, cmd, gpu, opts = {}) {
   if (key !== 'sage' || typeof cmd !== 'string') return cmd
@@ -215,8 +218,9 @@ function applySageOverride(key, cmd, gpu, opts = {}) {
   if (prof !== 'RTX_40' && prof !== 'RTX_50') return cmd
   if (!(opts.torchGte210)) return cmd
   if (!cmd.includes(SAGE_CU130_WHEEL)) return cmd
-  // Swap the cu130 (torch2.9.0andhigher) build for the stable cu128 (torch2.7.1) build.
-  return `${SAGE_CU128_BASE}${SAGE_CU128_WHEEL}`
+  // Swap the broken cu130 (torch2.9.0andhigher.post4) build for the stable
+  // cu130.post6 build (same CUDA 13.0 stack, fp8 out-of-bounds fixed).
+  return `${SAGE_CU130_SAFE_BASE}${SAGE_CU130_SAFE_WHEEL}`
 }
 
 /**
@@ -245,8 +249,8 @@ module.exports = {
   applySageOverride,
   sageWheelFamily,
   SAGE_CU130_WHEEL,
-  SAGE_CU128_WHEEL,
-  SAGE_CU128_BASE,
+  SAGE_CU130_SAFE_WHEEL,
+  SAGE_CU130_SAFE_BASE,
   GGUF_TARGET_VERSION,
   KERNEL_DISPLAY,
 }
