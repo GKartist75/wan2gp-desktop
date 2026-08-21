@@ -39,15 +39,32 @@ on H3 when not on BF16 (upstream #2156), which is a Wan2GP-core issue and needs 
 core fix (out of launcher scope). If H3 still blacks out after this update, the
 remaining cause is #2156, not the attention kernel.
 
+## RTX 3080 / z-image bootstrap fix (accelerate missing)
+
+The update log `z-image VAE dtype fix skipped: ModuleNotFoundError("No module named 'accelerate'")`
+revealed a **second, independent gap** (separate from the SageAttention one):
+
+- The z-image VAE dtype bootstrap fix eagerly imported `models.z_image.z_image_main`
+  at launch, whose import chain pulls in `accelerate`. When `accelerate` was missing
+  from the env (it is required by upstream `requirements.txt` `accelerate>=1.1.1` but a
+  broken requirements install can drop it), the fix was **skipped**, leaving Z-Image
+  prone to the `F.conv2d "Input type (BFloat16) and bias type (Half)"` crash.
+- **Fix 1 (robustness):** the bootstrap now *defers* the z-image patch via a
+  meta-path finder — it arms the monkeypatch on the first real import of
+  `models.z_image.z_image_main` during the run, so a missing unrelated dep at
+  bootstrap startup can no longer abort the fix.
+- **Fix 2 (root cause):** `ensureAccelerate()` now runs after install / update and
+  installs `accelerate>=1.1.1` only when absent, mirroring the existing AMD-numpy-pin
+  pattern. This guarantees the dependency the bootstrap (and accelerate-backed
+  pipelines) needs is actually present.
+
 ## Files changed
 
-- `services/kernel-resolver.js` — `applySageOverride()` + `sageWheelFamily()`
-  (single source of truth for the cu130→cu128 swap; unit-tested).
-- `main.js` — `setSageAttentionSafe()` self-heal wired into install / update /
-  `sync-kernels`; false-OOM detector in the Wan2GP stderr stream.
+- `main.js` — `ensureAccelerate()` (install + update); deferred z-image bootstrap patch.
+- `scripts/bootstrap.py` — mirrored deferred z-image fix (kept in sync with inline copy).
+- `services/kernel-resolver.js` — `applySageOverride()` + `sageWheelFamily()`.
 - `README.md` — corrected SageAttention row + safety note.
-- `tests/kernel-resolver.test.js` — 6 new cases (swap / no-op on RTX 30/20 /
-  torch<2.10 / non-sage; family normalization).
+- `tests/kernel-resolver.test.js` — resolver cases for the sage swap.
 
 ## Verification
 

@@ -79,22 +79,33 @@ def _patch_zimage_vae_dtype():
     default (vae_precision=16) -> F.conv2d "Input type (BFloat16) and bias type
     (Half)" crash. The ZImageTurbo VAE checkpoint is natively bf16 (and fp32
     VAE crashes too), so force the z-image factory to load the VAE as bf16.
+    Deferred via a meta-path finder so a missing unrelated dep at bootstrap
+    startup (e.g. accelerate) can't abort the fix.
     """
-    try:
-        import torch
-        import models.z_image.z_image_main as _zim
+    import importlib.abc
 
-        _orig_init = _zim.model_factory.__init__
+    class _ZImageArm(importlib.abc.MetaPathFinder):
+        def find_spec(self, name, path, target=None):
+            if name == "models.z_image.z_image_main":
+                sys.meta_path.remove(self)
+                try:
+                    import torch
+                    import models.z_image.z_image_main as _zim
 
-        def _init(self, *a, **kw):
-            kw["VAE_dtype"] = torch.bfloat16
-            print("[bootstrap] z-image VAE dtype fix APPLIED (bf16)", flush=True)
-            return _orig_init(self, *a, **kw)
+                    _orig_init = _zim.model_factory.__init__
 
-        _zim.model_factory.__init__ = _init
-        print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)
-    except Exception as e:
-        print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)
+                    def _init(self, *a, **kw):
+                        kw["VAE_dtype"] = torch.bfloat16
+                        return _orig_init(self, *a, **kw)
+
+                    _zim.model_factory.__init__ = _init
+                    print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)
+                except Exception as e:
+                    print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)
+            return None
+
+    sys.meta_path.insert(0, _ZImageArm())
+    print("[bootstrap] z-image VAE dtype fix deferred (armed on first z_image import)", flush=True)
 
 
 def main():

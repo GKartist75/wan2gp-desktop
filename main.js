@@ -648,17 +648,29 @@ const BOOTSTRAP_LINES = [
     '    # (vae_precision=16) -> F.conv2d "Input type (BFloat16) and bias type (Half)" crash.',
     '    # The ZImageTurbo VAE checkpoint is natively bf16 (and fp32 VAE crashes too),',
     '    # so force the z-image factory to load the VAE as bf16 to match the latents.',
-    '    try:',
-    '        import torch, models.z_image.z_image_main as _zim',
-    '        _orig_init = _zim.model_factory.__init__',
-    '        def _init(self, *a, **kw):',
-    '            kw["VAE_dtype"] = torch.bfloat16',
-    '            print("[bootstrap] z-image VAE dtype fix APPLIED (bf16)", flush=True)',
-    '            return _orig_init(self, *a, **kw)',
-    '        _zim.model_factory.__init__ = _init',
-    '        print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)',
-    '    except Exception as e:',
-    '        print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)',
+    '    # Deferred: wgp.py imports models.z_image lazily (its chain pulls optional',
+    '    # deps like accelerate). Importing it here at bootstrap startup would make a',
+    '    # missing unrelated dep (e.g. a not-yet-installed accelerate) skip the fix.',
+    '    # Instead, arm a meta-path finder that applies the monkeypatch the moment',
+    '    # models.z_image.z_image_main is first imported during the real run.',
+    '    import importlib.abc',
+    '    class _ZImageArm(importlib.abc.MetaPathFinder):',
+    '        def find_spec(self, name, path, target=None):',
+    '            if name == "models.z_image.z_image_main":',
+    '                sys.meta_path.remove(self)',
+    '                try:',
+    '                    import torch, models.z_image.z_image_main as _zim',
+    '                    _orig_init = _zim.model_factory.__init__',
+    '                    def _init(self, *a, **kw):',
+    '                        kw["VAE_dtype"] = torch.bfloat16',
+    '                        return _orig_init(self, *a, **kw)',
+    '                    _zim.model_factory.__init__ = _init',
+    '                    print("[bootstrap] z-image VAE dtype fix armed (bf16)", flush=True)',
+    '                except Exception as e:',
+    '                    print("[bootstrap] z-image VAE dtype fix skipped: " + repr(e), flush=True)',
+    '            return None',
+    '    sys.meta_path.insert(0, _ZImageArm())',
+    '    print("[bootstrap] z-image VAE dtype fix deferred (armed on first z_image import)", flush=True)',
     'def main():',
     '    if len(sys.argv) < 2 or sys.argv[1].startswith("-"):',
     '        print("Usage: bootstrap.py <target> [args...]", file=sys.stderr)',
@@ -1298,6 +1310,14 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
     await setSageAttentionSafe((t) => send('setup-output', t))
   } catch (e) {
     send('setup-output', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
+  // Ensure `accelerate` is present (required by upstream requirements.txt
+  // `accelerate>=1.1.1`). A missing accelerate breaks the z-image VAE dtype
+  // bootstrap fix (ModuleNotFoundError) and any accelerate-backed pipeline.
+  try {
+    await ensureAccelerate((t) => send('setup-output', t))
+  } catch (e) {
+    send('setup-output', `[!] accelerate install check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
   send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
   invalidateGitCache()
@@ -2536,6 +2556,47 @@ async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
   }
 }
 
+/**
+ * Ensure the `accelerate` package is installed in the active env.
+ *
+ * Upstream requirements.txt pins `accelerate>=1.1.1`, but a broken/incomplete
+ * requirements install can leave it missing. That breaks the z-image VAE dtype
+ * bootstrap fix (ModuleNotFoundError: No module named 'accelerate') AND any
+ * accelerate-backed pipeline. Idempotent: installs only when absent.
+ *
+ * @param {(text:string)=>void} log line sink
+ */
+async function ensureAccelerate(log = (t) => send('launch-log', t)) {
+  const env = getActiveEnv()
+  const py = env ? getPythonForEnv(env) : null
+  if (!py) return
+  let has = false
+  try {
+    has = await new Promise((res) => {
+      const p = spawn(py, ['-c', 'import importlib.metadata as m; m.version("accelerate")'], { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] })
+      p.on('close', (c) => res(c === 0))
+      p.on('error', () => res(false))
+    })
+  } catch { has = false }
+  if (has) { log('[*] accelerate: present — ok.\n'); return }
+  log('[*] accelerate: missing (required by requirements.txt) — installing...\n')
+  try {
+    await new Promise((resolve, reject) => {
+      const p = spawn(py, ['-m', 'pip', 'install', 'accelerate>=1.1.1', '--no-input'], {
+        cwd: getRepoDir(), windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PIP_DISABLE_PIP_VERSION_CHECK: '1' },
+      })
+      p.stdout.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+      p.stderr.on('data', (d) => { const s = d.toString(); if (s) log(s) })
+      p.on('close', (c) => c === 0 ? resolve() : reject(new Error('pip exited ' + c)))
+      p.on('error', reject)
+    })
+    log('[*] accelerate: installed.\n')
+  } catch (e) {
+    log('[!] accelerate: could not install (' + (e.message || e) + '). Z-Image generation may hit a VAE dtype crash until this is fixed.\n')
+  }
+}
+
 ipcMain.handle('update', async () => mutating('update', async () => {
   // NVIDIA driver pre-check (upstream parity) — same gate as install; cu130 wheels
   // need R580+, and setup.py's own pull/install won't warn about it.
@@ -2725,6 +2786,14 @@ ipcMain.handle('update', async () => mutating('update', async () => {
     await setSageAttentionSafe()
   } catch (e) {
     send('launch-log', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
+  }
+  // Ensure `accelerate` is present (required by requirements.txt). A missing
+  // accelerate breaks the z-image VAE dtype bootstrap fix and accelerate-backed
+  // pipelines; it can survive an incomplete requirements install across updates.
+  try {
+    await ensureAccelerate()
+  } catch (e) {
+    send('launch-log', `[!] accelerate check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
   invalidateGitCache() // don't return stale pre-update hashes
   return true
