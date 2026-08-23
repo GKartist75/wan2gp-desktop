@@ -15,7 +15,7 @@ const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
 const migrate = require('./lib/migrate.js')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths } = migrate
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -518,6 +518,12 @@ async function runMigrationMove(legacy, choices) {
   if (ok) {
     // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
     try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
+    // Issue #74: mergeDirContents moved the user's real ckpts/loras/outputs into
+    // `target`, but the model paths were rewritten to the chosen destinations
+    // (choices.ckpts/loras/output, e.g. C:\Wan2GP-Models\…). Move those folders
+    // out of the data dir to where wgp_config.json actually points so the app
+    // finds the existing data instead of re-downloading it.
+    try { reconcileModelFolders(target, choices) } catch (e) { logError('migrate-reconcile', e) }
   }
   if (!ok) {
     try {
