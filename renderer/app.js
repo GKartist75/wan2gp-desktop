@@ -371,6 +371,9 @@ window.addEventListener('unhandledrejection', e => {
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+  // Start with a clean Desktop-Updates indicator — it's only set when a check
+  // reports an available update, so clear any stale dot from a prior render.
+  setDesktopUpdateIndicator(false)
   const installed = await window.w2gp.checkInstalled()
 
   // If the launcher renderer just crashed and was auto-reloaded, restore the
@@ -2181,6 +2184,8 @@ $('updateInstallBtn').addEventListener('click', () => {
 })
 $('updateDismissBtn').addEventListener('click', () => {
   $('updateBanner').classList.add('hidden')
+  // Keep the persistent button indicator — the user dismissed the banner, not
+  // the fact that an update is still available. It clears on Download/Install.
 })
 
 // ── Settings ──
@@ -2320,9 +2325,30 @@ $('cliDocsLink')?.addEventListener('click', (e) => {
 // ── Auto-Update ──
 let updateState = null
 
+// Reflect Desktop-Launcher update availability on the dashboard "Check Desktop
+// Updates" action button itself (persistent dot + green border), so users who
+// turned off launch-time checking still see there is an update available — not
+// only in the transient top banner.
+function setDesktopUpdateIndicator(on) {
+  const btn = $('updateCheckBtn')
+  if (!btn) return
+  if (on) {
+    btn.classList.add('has-update')
+    if (!btn.querySelector('.update-dot')) {
+      const dot = document.createElement('span')
+      dot.className = 'update-dot'
+      btn.appendChild(dot)
+    }
+  } else {
+    btn.classList.remove('has-update')
+    btn.querySelector('.update-dot')?.remove()
+  }
+}
+
 window.w2gp.onUpdateStatus((status) => {
   switch (status.status) {
     case 'checking':
+      setDesktopUpdateIndicator(false)
       $('updateText').textContent = 'Checking for updates...'
       $('updateBanner').classList.remove('hidden')
       $('updateDownloadBtn').classList.add('hidden')
@@ -2332,6 +2358,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateDismissBtn').classList.add('hidden')
       break
     case 'available':
+      setDesktopUpdateIndicator(true)
       updateState = status
       if (status.autoDownload === false) {
         // Auto-updates disabled: don't auto-download — offer the manual
@@ -2356,6 +2383,7 @@ window.w2gp.onUpdateStatus((status) => {
       }
       break
     case 'up-to-date':
+      setDesktopUpdateIndicator(false)
       $('updateText').textContent = 'Up to date ✓'
       $('updateDownloadBtn').classList.add('hidden')
       $('updateActions').classList.remove('hidden')
@@ -2376,6 +2404,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateDismissBtn').classList.add('hidden')
       break
     case 'downloaded':
+      setDesktopUpdateIndicator(false)
       $('updateText').textContent = `v${status.version} downloaded — ready to install`
       $('updateDownloadBtn').classList.add('hidden')
       $('updateInstallBtn').classList.remove('hidden')
@@ -2385,6 +2414,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateDismissBtn').classList.remove('hidden')
       break
     case 'error':
+      setDesktopUpdateIndicator(false)
       $('updateText').textContent = (status.message || '').includes('401') || (status.message || '').includes('403') || (status.message || '').includes('authentication')
         ? 'GitHub rate limited — add token in Manage settings'
         : `Update error: ${status.message}`
