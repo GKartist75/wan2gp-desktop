@@ -20,11 +20,6 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 
 **The launcher removes all of it.** It detects your GPU, installs the exact kernel wheels it needs, wraps Wan2GP in a managed Python environment, and keeps everything current with a one-click update.
 
-### The two problems users hit most — now solved
-
-- **Models in the wrong place.** Older versions stuffed multi-GB checkpoints into roaming `AppData` (OneDrive sync, AV locks, OS-disk competition). **v3.0 moves the install to a dedicated `C:\Wan2GP` + `C:\Wan2GP-Models`, out of roaming for good** — with an in-app migrate flow.
-- **Updates that break.** Auto-update is **manual-only and version-aware**, so a bad build never force-installs itself.
-
 **In short: Wan2GP is the engine. This launcher is the garage, the mechanic, and the fuel pump** — so you spend your time generating, not debugging environments.
 
 ---
