@@ -67,10 +67,17 @@ function isBareDriveRoot(dir) {
 }
 
 test('bare drive root is rejected for data-dir + migration targets', () => {
-  assert.strictEqual(isBareDriveRoot('D:'), true)
-  assert.strictEqual(isBareDriveRoot('D:\\'), true)
-  assert.strictEqual(isBareDriveRoot('D:\\Wan2GP'), false)
-  assert.strictEqual(isBareDriveRoot('C:\\Wan2GP'), false)
+  // Windows-only semantics: a bare drive letter/root (D: / D:\) is a root, but
+  // a root-level folder (D:\Wan2GP) is not. On POSIX, path.parse('D:') treats
+  // "D:" as a relative dir, so skip those asserts off-Windows (matches the
+  // sibling tests in this file).
+  if (os.platform() === 'win32') {
+    assert.strictEqual(isBareDriveRoot('D:'), true)
+    assert.strictEqual(isBareDriveRoot('D:\\'), true)
+    assert.strictEqual(isBareDriveRoot('D:\\Wan2GP'), false)
+    assert.strictEqual(isBareDriveRoot('C:\\Wan2GP'), false)
+  }
+  // Cross-platform: real dirs are not roots; empty string is not a root.
   assert.strictEqual(isBareDriveRoot('/mnt/ext'), false)
   assert.strictEqual(isBareDriveRoot(''), false)
 })
