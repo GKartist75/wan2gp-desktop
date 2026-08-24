@@ -712,6 +712,13 @@ async function browseModelFolder(type) {
   const folder = await window.w2gp.selectFolder()
   if (!folder) return
   setModelPath(type, folder)
+  // Persist BOTH: the user-facing choice (desktop-config.json, for the UI) AND
+  // the file Wan2GP actually reads (wgp_config.json). Previously only the former
+  // was written, so the Settings slider was cosmetic and downloads ignored it
+  // (issue #74, "Model folders" always reverted to C:\Wan2GP-Models on refresh).
+  if (type === 'ckpts') await window.w2gp.writeWgpConfig({ checkpointsPaths: [folder, '.'] })
+  else if (type === 'loras') await window.w2gp.writeWgpConfig({ lorasRoot: folder })
+  else await window.w2gp.writeWgpConfig({ savePath: folder })
   const cfg = await window.w2gp.configLoad()
   if (type === 'ckpts') cfg.modelCkptsPath = folder
   else if (type === 'loras') cfg.modelLorasPath = folder
@@ -727,6 +734,8 @@ $('clearCkptsPath')?.addEventListener('click', async () => {
   setModelPath('ckpts', '')
   const el = $('installCkptsPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
+  // Reset the real config too, so the UI and Wan2GP stay in sync (issue #74).
+  await window.w2gp.writeWgpConfig({ checkpointsPaths: [def, '.'] })
   const cfg = await window.w2gp.configLoad()
   delete cfg.modelCkptsPath
   await window.w2gp.configSave(cfg)
@@ -737,6 +746,7 @@ $('clearLorasPath')?.addEventListener('click', async () => {
   setModelPath('loras', '')
   const el = $('installLorasPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
+  await window.w2gp.writeWgpConfig({ lorasRoot: def })
   const cfg = await window.w2gp.configLoad()
   delete cfg.modelLorasPath
   await window.w2gp.configSave(cfg)
@@ -748,6 +758,7 @@ $('clearOutputPath')?.addEventListener('click', async () => {
   setModelPath('output', '')
   const el = $('installOutputPath')
   if (el) { el.textContent = def; el.style.color = 'var(--text-tertiary)' }
+  await window.w2gp.writeWgpConfig({ savePath: def })
   const cfg = await window.w2gp.configLoad()
   delete cfg.modelOutputPath
   await window.w2gp.configSave(cfg)
@@ -1366,13 +1377,23 @@ async function loadPaths(skipModelPaths) {
     $('pathFreeSpace').textContent = freeGb + ' GB free';
   });
   if (!skipModelPaths) {
-    // Prefill model folders from the dedicated default (C:\Wan2GP-Models) so the
-    // user sees the recommended separate location and can change it. Only fills
-    // when the user hasn't already chosen a custom path.
+    // Show the model folders the user actually chose. Precedence: a previously
+    // saved custom choice (desktop-config.json modelCkptsPath/…) wins; otherwise
+    // the dedicated default (C:\\Wan2GP-Models). We used to ALWAYS overwrite with
+    // the default here, which is why any custom path silently reverted to
+    // C:\\Wan2GP-Models on every refresh (issue #74).
     const md = p.modelsDefault || p.appData
-    if (!_modelCkpts) setModelPath('ckpts', pathJoin(md, 'ckpts'))
-    if (!_modelLoras) setModelPath('loras', pathJoin(md, 'loras'))
-    if (!_modelOutput) setModelPath('output', pathJoin(md, 'outputs'))
+    let saved = {}
+    try { saved = (await window.w2gp.configLoad()) || {} } catch {}
+    const savedCkpts = saved.modelCkptsPath
+    const savedLoras = saved.modelLorasPath
+    const savedOutput = saved.modelOutputPath
+    if (_modelCkpts || savedCkpts) setModelPath('ckpts', _modelCkpts || savedCkpts)
+    else setModelPath('ckpts', pathJoin(md, 'ckpts'))
+    if (_modelLoras || savedLoras) setModelPath('loras', _modelLoras || savedLoras)
+    else setModelPath('loras', pathJoin(md, 'loras'))
+    if (_modelOutput || savedOutput) setModelPath('output', _modelOutput || savedOutput)
+    else setModelPath('output', pathJoin(md, 'outputs'))
   }
 }
 // Tiny path join that tolerates both separators in the renderer (no node path).
