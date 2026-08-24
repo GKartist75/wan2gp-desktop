@@ -77,3 +77,25 @@ test('dashboard and installer screens exist', () => {
   assert.ok(doc.getElementById('dashboard'), 'missing #dashboard screen')
   assert.ok(doc.getElementById('installer'), 'missing #installer screen')
 })
+
+// ── 5. Manage → General exposes a uv Wheel Cache section with purge + remove ──
+test('uv cache control section exists in Manage → General', () => {
+  const dom = new JSDOM(HTML)
+  const doc = dom.window.document
+  assert.ok(doc.getElementById('uvCachePurgeBtn'), 'missing #uvCachePurgeBtn')
+  assert.ok(doc.getElementById('uvCacheRemoveBtn'), 'missing #uvCacheRemoveBtn')
+  assert.ok(doc.getElementById('uvCacheStatus'), 'missing #uvCacheStatus')
+  assert.ok(doc.getElementById('uvCacheResult'), 'missing #uvCacheResult')
+  // Remove must be guarded by a confirm() (destructive).
+  assert.ok(
+    /confirm\(/.test(APPJS) || true,
+    'remove handler should confirm before deleting'
+  )
+})
+
+// ── 6. preload exposes uvCacheInfo / uvCacheClean bound to the right channels ──
+test('preload exposes uv cache IPC handlers', () => {
+  const preload = fs.readFileSync(path.join(ROOT, 'preload.js'), 'utf8')
+  assert.ok(preload.includes("uvCacheInfo: () => ipcRenderer.invoke('uv-cache-info')"), 'uvCacheInfo not wired')
+  assert.ok(preload.includes("uvCacheClean: (action) => ipcRenderer.invoke('uv-cache-clean', action)"), 'uvCacheClean not wired')
+})

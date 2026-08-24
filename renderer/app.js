@@ -288,6 +288,8 @@ function openSettings() {
   loadBrowserList()
   // Check hf_xet install status
   updateXetStatus()
+  // Show current uv wheel cache size
+  refreshUvCacheInfo()
 }
 function closeSettings() { $('settingsPanel').classList.remove('open'); $('settingsOverlay').classList.remove('visible')
   // Restore the BrowserView (re-attach the still-alive view) when leaving Manage in webview mode.
@@ -676,10 +678,48 @@ $('validateInstallBtn')?.addEventListener('click', async () => {
   }
 })
 
+// When the user picks a bare drive root (e.g. D:), we DON'T apply it (installing
+// on a root fails). Instead we show a cross + message on the Install button.
+// Cleared as soon as a valid folder is chosen.
+let _pendingRoot = null
+
+function reflectRootBlock(rootPath) {
+  const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
+  set('installAppDataPath', rootPath)
+  const startBtn = $('installStartBtn')
+  const rootWarn = $('installRootWarn')
+  if (startBtn) { startBtn.disabled = true; startBtn.title = 'Choose a folder, not a drive root.' }
+  if (rootWarn) {
+    rootWarn.textContent = '⚠ Install location is a drive root (' + rootPath + '). Pick a folder using Browse.'
+    rootWarn.classList.remove('hidden')
+  }
+}
+
 $('browseAppDataPath')?.addEventListener('click', async () => {
   const folder = await window.w2gp.selectFolder()
   if (!folder) return
-  await window.w2gp.setDataDir(folder)
+  // Bare drive root: can't install on it, but offer to use <root>\Wan2GP so the
+  // user doesn't have to re-browse. Accept -> apply; Cancel -> keep the block.
+  if (isDriveRoot(folder)) {
+    const suggested = pathJoin(folder, 'Wan2GP')
+    if (window.confirm('You selected a drive root (' + folder + '). Installing directly on a drive root is not allowed.\n\nInstall into ' + suggested + ' instead?')) {
+      const res = await window.w2gp.setDataDir(suggested)
+      if (res && res.ok === false && res.error === 'drive-root') { _pendingRoot = suggested; reflectRootBlock(suggested); return }
+      _pendingRoot = null
+      loadPaths()
+    } else {
+      _pendingRoot = folder
+      reflectRootBlock(folder)
+    }
+    return
+  }
+  _pendingRoot = null
+  const res = await window.w2gp.setDataDir(folder)
+  if (res && res.ok === false && res.error === 'drive-root') {
+    _pendingRoot = folder
+    reflectRootBlock(folder)
+    return
+  }
   loadPaths()
 })
 
@@ -1381,6 +1421,18 @@ async function loadPaths(skipModelPaths) {
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
   set('pathAppData', p.repo)
   set('installAppDataPath', p.appData)
+  // Guard: if the chosen install location is a bare drive root (e.g. D:\),
+  // the install is invalid — disable the Install button and warn the user.
+  const rootBad = isDriveRoot(p.appData)
+  const startBtn = $('installStartBtn')
+  const rootWarn = $('installRootWarn')
+  if (rootBad) {
+    if (startBtn) { startBtn.disabled = true; startBtn.title = 'Choose a folder, not a drive root.' }
+    if (rootWarn) { rootWarn.textContent = '⚠ Install location is a drive root (' + p.appData + '). Pick a folder using Browse.'; rootWarn.classList.remove('hidden') }
+  } else {
+    if (startBtn) { startBtn.disabled = false; startBtn.title = '' }
+    if (rootWarn) rootWarn.classList.add('hidden')
+  }
   // The top warning banner already owns the in-launcher "Migrate to new location"
   // button (shown when legacyRoamingFound), so keep this dashboard card button
   // hidden in that case to avoid two migration buttons. It only appears as a
@@ -1422,6 +1474,12 @@ async function loadPaths(skipModelPaths) {
 }
 // Tiny path join that tolerates both separators in the renderer (no node path).
 function pathJoin(a, b) { return (a || '').replace(/[\\/]+$/, '') + '\\' + b }
+// True when the path is a bare drive root, e.g. "D:" or "D:\" (but not "D:\Wan2GP").
+function isDriveRoot(p) {
+  if (!p) return false
+  const norm = (p || '').replace(/[\\/]+$/, '')
+  return /^[A-Za-z]:$/.test(norm)
+}
 
 $('openAppDataBtn')?.addEventListener('click', () => {
   window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo) })
@@ -1504,6 +1562,12 @@ $('migrationMoveBtn')?.addEventListener('click', async () => {
     output: $('migOutput').value
   }
   if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); resetMigrationUI(); return }
+  // Don't allow a bare drive root (e.g. D:\) — the main process rejects it too,
+  // but catch it here for an immediate, friendly message.
+  if (isDriveRoot(choices.dataDir)) {
+    alert('Install/move into a folder, not a drive root.\n\nPick a folder such as D:\\Wan2GP (use Browse if unsure), then Move & restart.')
+    resetMigrationUI(); return
+  }
   try {
     const r = await window.w2gp.migrateToPreferred(choices)
     if (r && r.ok) {
@@ -2718,7 +2782,51 @@ async function silentSettingsRepair() {
   } catch {}
 }
 
+// ── uv Wheel Cache (Manage → General) ──
+function fmtBytes(n) {
+  if (!n) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(n) / Math.log(1024))
+  return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i]
+}
+async function refreshUvCacheInfo() {
+  const statusEl = $('uvCacheStatus')
+  if (!statusEl) return
+  try {
+    const info = await window.w2gp.uvCacheInfo()
+    if (info && info.exists) {
+      statusEl.textContent = `Cache present: ${fmtBytes(info.sizeBytes)} at ${info.cacheDir}`
+    } else {
+      statusEl.textContent = 'No cache folder present (fresh install or already removed).'
+    }
+  } catch { statusEl.textContent = 'Could not read cache info.' }
+}
+$('uvCachePurgeBtn')?.addEventListener('click', async function() {
+  this.disabled = true
+  const resEl = $('uvCacheResult')
+  if (resEl) resEl.textContent = 'Purging unused wheels…'
+  try {
+    const r = await window.w2gp.uvCacheClean('prune')
+    if (resEl) resEl.textContent = (r && r.success) ? 'Purge done — see log for details.' : 'Purge skipped — ' + ((r && r.error) || 'unknown error')
+  } catch (e) { if (resEl) resEl.textContent = 'Error: ' + e }
+  this.disabled = false
+  refreshUvCacheInfo()
+})
+$('uvCacheRemoveBtn')?.addEventListener('click', async function() {
+  if (!confirm('Remove the entire uv wheel cache? Next Wan2GP update will re-download everything (one-time).')) return
+  this.disabled = true
+  const resEl = $('uvCacheResult')
+  if (resEl) resEl.textContent = 'Removing cache…'
+  try {
+    const r = await window.w2gp.uvCacheClean('remove')
+    if (resEl) resEl.textContent = (r && r.success) ? (r.removed ? 'Cache removed.' : 'No cache to remove.') : 'Remove failed — ' + ((r && r.error) || 'unknown error')
+  } catch (e) { if (resEl) resEl.textContent = 'Error: ' + e }
+  this.disabled = false
+  refreshUvCacheInfo()
+})
+
 // ── Repair Settings (Manage → General) — fixes "Value: N is not in the list of choices" ──
+
 $('repairSettingsBtn')?.addEventListener('click', async function() {
   this.disabled = true
   this.textContent = 'Scanning...'

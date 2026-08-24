@@ -473,6 +473,25 @@ function dirIsWritable(p) {
     return true
   } catch { return false }
 }
+// Create a directory without ever trying to "create" a drive root, which throws
+// EPERM on Windows (fs.mkdirSync('D:\\', {recursive:true})). If p is the root or
+// a root-level path whose parent is the root, create only the non-root component
+// non-recursively so the drive letter itself is never passed to mkdir.
+function safeMkdir(p) {
+  try {
+    const rp = path.resolve(p)
+    const root = path.parse(rp).root
+    if (rp === root) return // drive root already exists; nothing to create
+    try { fs.mkdirSync(rp, { recursive: true }); return } catch (e) {
+      // Fallback: a recursive mkdir may still choke on the root component on some
+      // Node/Windows versions — retry creating just the leaf non-recursively.
+      fs.mkdirSync(rp, { recursive: false })
+    }
+  } catch (e) {
+    // If the dir already existed or the leaf already exists, that's fine.
+    if (e && e.code !== 'EEXIST') throw e
+  }
+}
 function computeInstallDataDir() {
   try {
     const ex = process.execPath
@@ -1053,6 +1072,12 @@ async function runSetup(args, extraPath) {
   return new Promise((resolve, reject) => {
     var env = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
         TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+    // Keep uv's package cache on the SAME drive as the install target so venv
+    // creation can hardlink wheels instead of copying (avoids the noisy
+    // "Failed to hardlink files; falling back to full copy" + faster install).
+    // Default uv cache lives on a different volume (usually C:), which is why
+    // the warning appeared when installing to D:\Wan2GP.
+    try { env.UV_CACHE_DIR = path.join(getRepoDir(), '.uv-cache') } catch (_) {}
     if (extraPath) {
       env.PATH = extraPath + path.delimiter + (env.PATH || '')
     }
@@ -1186,19 +1211,68 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   if (_drvWarn) send('setup-output', _drvWarn)
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
-    fs.mkdirSync(getDataDir(), { recursive: true })
+    // Guard the data dir: if the user picked a bare drive root (e.g. D:\),
+    // fs.mkdirSync('D:\', { recursive: true }) throws EPERM ("operation not
+    // permitted, mkdir 'D:\'") — you cannot "create" a drive root. Safe-mkdir
+    // skips the root itself and never throws for that.
+    safeMkdir(getDataDir())
     // Clone into a TEMP dir, then merge into the repo target. We must NEVER
     // rename the live data dir (getRepoDir() === getDataDir() in the flat
     // self-contained layout) — that caused EPERM and would move the user's
     // config/models. Merging preserves any existing user files.
-    const cloneTarget = getRepoDir()
-    const tmpClone = path.join(os.tmpdir(), 'wan2gp-clone-' + Date.now())
+    let cloneTarget = getRepoDir()
+    // ── Pre-flight: the install location MUST be a writable FOLDER ──
+    // git clones into a temp dir first; if that folder refuses writes we'd
+    // otherwise only learn about it from a raw EACCES stack trace mid-clone (git
+    // writing its internal .git/objects/pack). Probe up front and fail with an
+    // actionable message instead of a git crash.
+    //
+    // RULE: always install into a FOLDER (e.g. D:\Wan2GP), never a bare drive
+    // root (e.g. D:\). A freshly formatted drive (new NVMe with no Windows)
+    // commonly grants the *root* only to SYSTEM/Administrators, so direct writes
+    // to D:\ fail with EPERM — but a subfolder the user creates is writable. We
+    // must also never fs.mkdirSync('D:\', {recursive:true}) because that itself
+    // throws EPERM ("operation not permitted, mkdir 'D:\'").
+    if (path.parse(cloneTarget).root === path.resolve(cloneTarget)) {
+      send('setup-output', '[!] Install into a FOLDER, not a drive root.\n')
+      send('setup-output', `[!]   You selected: ${cloneTarget}\n`)
+      send('setup-output', '[!] Choose a folder on that drive instead, e.g.:\n')
+      send('setup-output', `[!]   ${path.join(cloneTarget, 'Wan2GP')}\n`)
+      send('setup-output', '[!] (A bare drive root is not writable on a fresh/empty disk.)\n')
+      throw new Error(`Install location must be a folder, not a drive root: ${cloneTarget}`)
+    }
+    let _writable = false
+    try { safeMkdir(cloneTarget); _writable = dirIsWritable(cloneTarget) } catch { _writable = false }
+    if (!_writable) {
+      send('setup-output', '[!] The chosen install folder is not writable:\n')
+      send('setup-output', `[!]   ${cloneTarget}\n`)
+      send('setup-output', '[!] Windows reported "Permission denied". Choose a writable folder\n')
+      send('setup-output', '[!] (e.g. C:\\Wan2GP) or grant your user write access, then retry.\n')
+      throw new Error(`Install location not writable: ${cloneTarget}`)
+    }
+    // Clone into a temp subfolder INSIDE the install target (same volume) rather
+    // than os.tmpdir(). This avoids the foreign-TEMP footgun where TEMP points to
+    // another drive (e.g. F:) the user can't write to — git would fail writing its
+    // internal .git/objects/pack onto that foreign volume. The temp dir is removed
+    // after the merge below; .git is always replaced so a half-failed clone can't
+    // leave a broken repo.
+    const tmpClone = path.join(cloneTarget, '.wan2gp-clone-tmp-' + Date.now())
     if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true })
     try {
       // Async — the clone used to block the entire app (execSync, up to 2 min).
       await runCmd('git', ['clone', '--depth', '1', 'https://github.com/deepbeepmeep/Wan2GP.git', tmpClone], { timeout: 120000 })
     } catch (e) {
       try { if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true }) } catch {}
+      // Distinguish a genuine permission error from an AV/timeout block so we
+      // don't mislead the user with antivirus advice for a permissions problem.
+      const _cloneMsg = String((e && e.message) || '')
+      if (/EACCES|Permission denied/i.test(_cloneMsg)) {
+        send('setup-output', '[!] Git clone was refused with "Permission denied":\n')
+        send('setup-output', `[!]   ${cloneTarget}\n`)
+        send('setup-output', '[!] That folder/drive is not writable by your account.\n')
+        send('setup-output', '[!] Choose a writable location (e.g. C:\\Wan2GP) or grant write access, then retry.\n')
+        throw new Error(`Clone failed — install location not writable: ${cloneTarget}`)
+      }
       // A fresh install that previously worked but now times out here is almost
       // always antivirus interference (MalwareBytes etc.) blocking git or the
       // download — the same AV that may have quarantined the uv-managed Python.
@@ -1586,6 +1660,83 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Ready for fresh install.\n')
   return true
 }))
+
+ipcMain.handle('uv-cache-info', async () => {
+  try {
+    const repo = getRepoDir()
+    const cacheDir = path.join(repo, '.uv-cache')
+    if (!fs.existsSync(cacheDir)) return { exists: false, sizeBytes: 0, cacheDir }
+    let sizeBytes = 0
+    const walk = (p) => {
+      const st = fs.statSync(p)
+      if (st.isDirectory()) { for (const e of fs.readdirSync(p)) walk(path.join(p, e)) }
+      else if (st.isFile()) sizeBytes += st.size
+    }
+    walk(cacheDir)
+    return { exists: true, sizeBytes, cacheDir }
+  } catch (e) { return { exists: false, sizeBytes: 0, error: String(e) } }
+})
+
+ipcMain.handle('uv-cache-clean', async (_, action) => {
+  const log = (m) => send('launch-log', m + '\n')
+  const repo = getRepoDir()
+  const cacheDir = path.join(repo, '.uv-cache')
+  // Locate the uv binary. The official installer drops it at
+  // %LOCALAPPDATA%\uv\uv.exe (no bin/ subdir); other managers use
+  // ~/.local/bin or ~/.cargo/bin.
+  const userHome = process.env.USERPROFILE || process.env.HOME || ''
+  const appdata = process.env.APPDATA || ''
+  const candidates = [
+    path.join(appdata, 'uv', 'uv.exe'),
+    path.join(userHome, '.local', 'bin', 'uv.exe'),
+    path.join(userHome, '.cargo', 'bin', 'uv.exe'),
+    path.join(appdata, 'hermes', 'bin', 'uv.exe'),
+  ]
+  let uvBin = null
+  for (const c of candidates) { if (fs.existsSync(c)) { uvBin = c; break } }
+  // Fall back to whatever `where` resolves on PATH (the installer itself runs
+  // uv, so a copy is normally reachable this way at runtime too).
+  if (!uvBin) {
+    try {
+      const found = execSync('where uv.exe', { windowsHide: true, timeout: 5000 }).toString().trim().split(/\r?\n/)[0]
+      if (found && fs.existsSync(found)) uvBin = found
+    } catch { /* not on PATH — leave null */ }
+  }
+  const useCacheDir = { ...process.env, UV_CACHE_DIR: cacheDir }
+
+  if (action === 'remove') {
+    if (!fs.existsSync(cacheDir)) return { success: true, removed: false, message: 'No cache folder to remove.' }
+    try {
+      // Async delete so the main process (and the UI) doesn't freeze while a
+      // multi-GB tree of hardlinked wheels is recursively removed.
+      await fs.promises.rm(cacheDir, { recursive: true, force: true })
+      log(`[*] Removed uv wheel cache: ${cacheDir}`)
+      return { success: true, removed: true, message: 'uv wheel cache removed.' }
+    } catch (e) {
+      log(`[!] Could not remove cache: ${String(e)}`)
+      return { success: false, error: String(e) }
+    }
+  }
+
+  // action === 'prune' (default)
+  if (!uvBin) {
+    // uv binary not found — fall back to a manual prune: drop any cache entry
+    // not hardlinked by the active env (conservative: only remove broken entries).
+    log('[!] uv binary not found — cannot run `uv cache prune`. Use "Remove" to delete the whole cache folder instead.')
+    return { success: false, error: 'uv binary not found' }
+  }
+  try {
+    // runCmd returns a single trimmed string (stdout). uv prints
+    // "No unused entries found" to stdout, so surface that directly.
+    const out = await runCmd(uvBin, ['cache', 'prune', '--cache-dir', cacheDir], { env: useCacheDir })
+    log(out && out.trim() ? out : '[*] uv cache prune finished (no unused entries found).')
+    return { success: true, pruned: true }
+  } catch (e) {
+    log(`[!] uv cache prune failed: ${String(e)}`)
+    return { success: false, error: String(e) }
+  }
+})
+
 
 ipcMain.handle('uninstall', async () => mutating('uninstall', async () => {
   const log = (m) => send('launch-log', m + '\n')
@@ -3266,6 +3417,13 @@ ipcMain.handle('migrate-choose', () => {
 ipcMain.handle('migrate-to-preferred', async (_, choices) => {
   try {
     if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
+    // Reject a bare drive root (e.g. D:\) — same rule as install/set-data-dir.
+    // Merging the whole Wan2GP tree onto a drive root fails with EPERM on a
+    // fresh/empty disk (the root isn't writable) and leaves a half-moved tree.
+    if (path.parse(path.resolve(choices.dataDir)).root === path.resolve(choices.dataDir)) {
+      return { ok: false, error: 'drive-root', dir: choices.dataDir,
+               message: 'Pick a folder (e.g. D:\\Wan2GP), not a drive root.' }
+    }
     const current = getDataDir()
     if (!fs.existsSync(current)) return { ok: false, error: 'current data dir missing: ' + current }
     if (path.resolve(current) === path.resolve(choices.dataDir))
@@ -3295,13 +3453,19 @@ ipcMain.handle('move-folder', async (_, src, dst) => {
   } catch (e) { return { ok: false, error: String(e) } }
 })
 ipcMain.handle('set-data-dir', (_, dir) => {
+  // Reject a bare drive root (e.g. D:\) — installing directly on a drive root
+  // fails with EPERM on a fresh/empty disk (the root isn't writable), and
+  // fs.mkdirSync('D:\\', {recursive:true}) itself throws. Insist on a folder.
+  if (dir && path.parse(path.resolve(dir)).root === path.resolve(dir)) {
+    return { ok: false, error: 'drive-root', dir }
+  }
   fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
   try {
     const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
     app.setPath('userData', ed)
   } catch {}
-  return true
+  return { ok: true, dir }
 })
 ipcMain.handle('open-folder', (_, dir) => {
   try { shell.openPath(dir) } catch {}

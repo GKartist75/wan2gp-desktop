@@ -143,6 +143,16 @@
           <button class="btn btn-primary small" id="repairSettingsBtn" style="margin-top:8px">Scan & Repair Settings</button>
         </div>
         <div class="settings-section">
+          <h3>uv Wheel Cache</h3>
+          <p class="token-hint">Wan2GP installs into a Python venv on the same drive as your install. <code>uv</code> keeps a wheel cache here (<code>.uv-cache</code>) so future updates are fast — it can grow to several GB. Free the space if you don't need to keep it.</p>
+          <p class="token-hint" id="uvCacheStatus" style="margin-top:8px">Checking cache…</p>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-ghost small" id="uvCachePurgeBtn">Purge unused</button>
+            <button class="btn btn-ghost small" id="uvCacheRemoveBtn" style="color:var(--signal-red);border-color:var(--signal-red)">Remove cache</button>
+          </div>
+          <p class="token-hint" id="uvCacheResult" style="margin-top:8px"></p>
+        </div>
+        <div class="settings-section">
           <h3 style="color:var(--signal-red)">Uninstall Wan2GP</h3>
           <p class="token-hint">Removes the Wan2GP app, its Python environment, and all installed packages. Downloaded models can be kept. The Desktop launcher itself stays installed.</p>
           <button class="btn btn-ghost small" id="uninstallBtn" style="margin-top:8px;color:var(--signal-red);border-color:var(--signal-red)">Uninstall Wan2GP…</button>
@@ -646,7 +656,8 @@
           <button class="btn btn-ghost small" id="browseAppDataPath">Browse</button>
           <button class="btn btn-ghost small" id="clearAppDataPath" title="Reset to default">✕</button>
         </div>
-        <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile.</p>
+        <div id="installRootWarn" class="install-root-warn hidden"></div>
+        <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile. Always pick a <strong>folder</strong> — a bare drive root is not allowed.</p>
         <div id="moveToPreferredWrap" class="migrate-note hidden">
           <span class="migrate-warn">⚠ Your Wan2GP data is currently inside your roaming AppData profile (<code id="currentDataDirPath">…</code>).</span>
           <button class="btn btn-primary small" id="moveToPreferredBtn">Migrate to new location</button>
