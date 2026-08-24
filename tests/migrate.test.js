@@ -7,7 +7,7 @@ const assert = require('node:assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = require('../lib/migrate.js')
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders, ensureRepoGit, cleanupLegacyRuntime } = require('../lib/migrate.js')
 
 function makeLegacyRoaming(root) {
   // Mirror: AppData\Roaming\wan2gp-desktop\Wan2GP\<repo with wgp.py + config>
@@ -159,6 +159,64 @@ test('reconcileModelFolders: no-op when destinations already exist (idempotent)'
     assert.ok(fs.existsSync(path.join(dst, 'already.safetensors')))
     // With no model folders in target at all, still a clean no-op.
     assert.strictEqual(reconcileModelFolders(target, { dataDir: target, ckpts: dst }), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Regression for the "what stays in the old directory after migrate?" question:
+// the repo's .git MUST travel with the move (git pull / updates depend on it),
+// while the launcher's runtime state (.electron, boot.log — children of the data
+// dir) gets moved too but is swept from the OLD location by cleanupLegacyRuntime.
+test('migration leaves user repo intact and sweeps launcher runtime from old dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const legacy = path.join(root, 'old', 'Wan2GP')
+    fs.mkdirSync(legacy, { recursive: true })
+    fs.writeFileSync(path.join(legacy, 'wgp.py'), '# entry')
+    // git is real repo data -> must move with the repo
+    fs.mkdirSync(path.join(legacy, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main')
+    // launcher runtime/state (children of the data dir) -> moved, then swept old
+    fs.mkdirSync(path.join(legacy, '.electron'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.electron', 'state.json'), '{}')
+    fs.writeFileSync(path.join(legacy, 'boot.log'), 'launched')
+    const target = path.join(root, 'Wan2GP')
+    const ok = mergeDirContents(legacy, target)
+    assert.strictEqual(ok, true)
+    // .git arrived at target (fact: it must, for git pull/updates)
+    assert.ok(fs.existsSync(path.join(target, '.git', 'HEAD')), '.git must travel with the repo')
+    // launcher runtime moved into the new install (harmless; recreated next run)
+    assert.ok(fs.existsSync(path.join(target, '.electron')), '.electron carried into new install')
+    // Now sweep the OLD location: leftovers must be gone.
+    cleanupLegacyRuntime(legacy)
+    assert.ok(!fs.existsSync(path.join(legacy, 'boot.log')), 'boot.log cleaned from old dir')
+    assert.ok(!fs.existsSync(path.join(legacy, '.electron')), '.electron cleaned from old dir')
+    assert.ok(!fs.existsSync(path.join(path.dirname(legacy), '.electron')), '.electron sibling cleaned from old dir')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ensureRepoGit must recover a missing .git when the generic merge skipped it
+// (e.g. target already had a partial .git, or a cross-volume copy dropped it).
+test('ensureRepoGit: lifts nested or legacy .git into the flat target repo', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const target = path.join(root, 'Wan2GP')
+    fs.mkdirSync(target, { recursive: true })
+    fs.writeFileSync(path.join(target, 'wgp.py'), '# entry')
+    // Simulated doubled layout: the repo's .git landed nested.
+    fs.mkdirSync(path.join(target, 'Wan2GP', '.git'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'Wan2GP', '.git', 'HEAD'), 'ref: refs/heads/nested')
+    const legacy = path.join(root, 'old', 'Wan2GP')
+    fs.mkdirSync(legacy, { recursive: true })
+    fs.mkdirSync(path.join(legacy, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.git', 'HEAD'), 'ref: refs/heads/legacy')
+    ensureRepoGit(target, legacy)
+    // flat target now has a .git (nested lifted wins; legacy not duplicated)
+    assert.ok(fs.existsSync(path.join(target, '.git', 'HEAD')), 'target repo has .git')
+    assert.strictEqual(fs.readFileSync(path.join(target, '.git', 'HEAD'), 'utf8'), 'ref: refs/heads/nested')
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

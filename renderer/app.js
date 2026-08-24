@@ -1029,12 +1029,10 @@ async function checkModelsPathWarning() {
       .filter(Boolean)
       .some(p => (p || '').toLowerCase().replace(/\\/g, '/').startsWith(appDataRoot))
     banner.classList.toggle('hidden', !bad)
-    // The "Move data to C:\Wan2GP" button is relevant when the Wan2GP DATA dir
-    // itself is still in roaming AppData (legacy install / auto-update kept it),
-    // not only when model folders are under AppData. Show it whenever the data
-    // dir is roaming — that's the user-actionable migration.
+    // Top warning banner: show its "Migrate to new location" button when a legacy
+    // roaming data dir exists — this is the in-launcher entry point the user wants.
     const migrateBtn = $('modelsWarnMigrateBtn')
-    if (migrateBtn) migrateBtn.classList.toggle('hidden', !ip.dataDirInRoaming)
+    if (migrateBtn) migrateBtn.classList.toggle('hidden', !ip.legacyRoamingFound)
   } catch { banner.classList.add('hidden') }
 }
 $('modelsWarnMigrateBtn')?.addEventListener('click', () => openMigrationModal())
@@ -1321,24 +1319,45 @@ async function loadModelPaths() {
   $('dashOutputPath').textContent = breakPath(paths?.output) || '(default)'; $('dashOutputPath').title = paths?.output || ''
 }
 
-$('dashBrowseCkpt').addEventListener('click', async () => {
+// When changing a model folder via the pencil, ask whether to physically MOVE
+// the existing files (so nothing is re-downloaded) or just point Wan2GP at the
+// new (empty) location. Then write wgp_config.json accordingly.
+async function changeModelFolder(type, key, cfgKey, singular) {
   const dir = await window.w2gp.selectFolder()
   if (!dir) return
-  $('dashCkptPath').textContent = breakPath(dir); $('dashCkptPath').title = dir
-  await window.w2gp.writeWgpConfig({ checkpointsPaths: [dir, '.'] })
-})
-$('dashBrowseLora').addEventListener('click', async () => {
-  const dir = await window.w2gp.selectFolder()
-  if (!dir) return
-  $('dashLoraPath').textContent = breakPath(dir); $('dashLoraPath').title = dir
-  await window.w2gp.writeWgpConfig({ lorasRoot: dir })
-})
-$('dashBrowseOutput').addEventListener('click', async () => {
-  const dir = await window.w2gp.selectFolder()
-  if (!dir) return
-  $('dashOutputPath').textContent = breakPath(dir); $('dashOutputPath').title = dir
-  await window.w2gp.writeWgpConfig({ savePath: dir })
-})
+  const cur = await window.w2gp.getModelPaths().then(p => ({ ckpts: p?.checkpoints, loras: p?.loras, output: p?.output })[type])
+  if (cur && cur.toLowerCase() === dir.toLowerCase()) { window.w2gp.openFolder(dir); return }
+  const choice = await window.w2gp.confirmDialog({
+    title: 'Move ' + singular + '?',
+    message: 'Change ' + singular + ' folder to:\n  ' + dir,
+    detail: cur
+      ? 'Do you want to MOVE the existing files from the old location into the new folder, or just point Wan2GP at the new (empty) folder?\n\nOld: ' + cur
+      : 'Point Wan2GP at the new folder?',
+    buttons: cur ? ['Move existing files', 'Just point (no move)', 'Cancel'] : ['OK', 'Cancel'],
+    defaultId: cur ? 0 : 0,
+    cancelId: cur ? 2 : 1
+  })
+  if (choice === 'cancel') { window.w2gp.openFolder(dir); return }
+  if (choice === 'move' && cur) {
+    const r = await window.w2gp.moveFolder(cur, dir)
+    if (!r || !r.ok) { alert('Could not move files:\n' + (r && r.error || 'unknown')) }
+  }
+  // Write the real config (what Wan2GP reads) so the change takes effect next launch.
+  const patch = {}
+  patch[key] = (type === 'ckpts') ? [dir, '.'] : dir
+  await window.w2gp.writeWgpConfig(patch)
+  const cfg = await window.w2gp.configLoad()
+  if (type === 'ckpts') cfg.modelCkptsPath = dir
+  else if (type === 'loras') cfg.modelLorasPath = dir
+  else cfg.modelOutputPath = dir
+  await window.w2gp.configSave(cfg)
+  await loadModelPaths()
+  showToast('✓ ' + singular + ' folder updated — restart Wan2GP to apply')
+}
+
+$('dashBrowseCkpt').addEventListener('click', () => changeModelFolder('ckpts', 'checkpointsPaths', 'checkpoints', 'Checkpoints'))
+$('dashBrowseLora').addEventListener('click', () => changeModelFolder('loras', 'lorasRoot', 'loras', 'LoRAs'))
+$('dashBrowseOutput').addEventListener('click', () => changeModelFolder('output', 'savePath', 'output', 'Output'))
 
 $('desktopRepoLink').addEventListener('click', (e) => {
   e.preventDefault()
@@ -1359,11 +1378,13 @@ async function loadPaths(skipModelPaths) {
   const set = (id, val) => { const e = $(id); if (e) { e.textContent = breakPath(val) || '—'; e.title = val || '' } }
   set('pathAppData', p.repo)
   set('installAppDataPath', p.appData)
-  // Show the on-demand "Move data to C:\Wan2GP" button when the current data
-  // dir is still inside roaming AppData (legacy install / auto-update kept it).
+  // The top warning banner already owns the in-launcher "Migrate to new location"
+  // button (shown when legacyRoamingFound), so keep this dashboard card button
+  // hidden in that case to avoid two migration buttons. It only appears as a
+  // manual re-trigger when there is no legacy roaming dir to migrate.
   const wrap = $('moveToPreferredWrap')
   if (wrap) {
-    if (p.dataDirInRoaming) {
+    if (!p.legacyRoamingFound) {
       wrap.classList.remove('hidden')
       const cp = $('currentDataDirPath')
       if (cp) cp.textContent = p.appData
@@ -1399,9 +1420,17 @@ async function loadPaths(skipModelPaths) {
 // Tiny path join that tolerates both separators in the renderer (no node path).
 function pathJoin(a, b) { return (a || '').replace(/[\\/]+$/, '') + '\\' + b }
 
-$('openAppDataBtn')?.addEventListener('click', function() {
-  window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo); });
-});
+$('openAppDataBtn')?.addEventListener('click', () => {
+  window.w2gp.getInstallPaths().then(function(p) { if (p) window.w2gp.openFolder(p.repo) })
+})
+// Move the entire Wan2GP install (no reinstall) — reuse the migration modal
+// pre-filled with the current location as the source.
+$('changeAppDataBtn')?.addEventListener('click', () => openMigrationModal())
+
+// Per-folder "open" buttons (folder icon) for the three model paths.
+$('openCkptBtn')?.addEventListener('click', () => window.w2gp.getModelPaths().then(p => p?.checkpoints && window.w2gp.openFolder(p.checkpoints)))
+$('openLoraBtn')?.addEventListener('click', () => window.w2gp.getModelPaths().then(p => p?.loras && window.w2gp.openFolder(p.loras)))
+$('openOutputBtn')?.addEventListener('click', () => window.w2gp.getModelPaths().then(p => p?.output && window.w2gp.openFolder(p.output)))
 
 $('moveToPreferredBtn')?.addEventListener('click', () => openMigrationModal())
 
@@ -1420,6 +1449,21 @@ async function openMigrationModal() {
   $('migCkpts').value = prefs.ckpts || ''
   $('migLoras').value = prefs.loras || ''
   $('migOutput').value = prefs.output || ''
+  // Context-aware copy: the modal is reused both for the first migration out of
+  // a roaming AppData profile AND for later re-location of an already-migrated
+  // install (e.g. C:\Wan2GP → D:\Wan2GP). Don't claim "AppData" when it isn't.
+  const roaming = !!prefs.fromRoaming
+  const cur = prefs.legacy || ''
+  const title = $('migrationTitle')
+  const sub = $('migrationSub')
+  if (title) title.textContent = roaming
+    ? 'Move Wan2GP out of AppData'
+    : 'Move Wan2GP to a new location'
+  if (sub) {
+    sub.textContent = roaming
+      ? 'Your Wan2GP data currently lives in your roaming AppData profile. Move it to a dedicated, fast drive — AppData is meant for small settings, not multi-GB model checkpoints (it can slow logins, trigger antivirus locks, and bloat your profile). Our recommended locations are pre-filled — change any of them if you like.'
+      : 'Your Wan2GP is currently at ' + cur + '. Move it to a different drive or folder — your repo, venv, settings, and model folders travel with it. The recommended location is pre-filled — change it if you like.'
+  }
   // Reset to idle state (in case a previous attempt left the progress UI showing).
   _migBusy = false
   const btn = $('migrationMoveBtn')

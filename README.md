@@ -330,12 +330,26 @@ large files separate from the code so backups and drive swaps are trivial.
 
 ### How to upgrade — pick one
 
+> **🧹 For v3.x, a clean reinstall is the recommended path.** v3.0 moved Wan2GP
+> out of roaming AppData into dedicated `C:\Wan2GP` (repo) and `C:\Wan2GP-Models`
+> (models) folders. Because of that structural change, the most reliable upgrade
+> is to **uninstall the old version and install v3.x fresh** — this sidesteps any
+> leftover path/legacy confusion from a previous install.
+
 **✅ Preferred: uninstall, then install fresh**
 1. Launcher → **Manage** → **Uninstall** (keep or delete your old models — they
    sit in the old AppData path).
 2. **Close the launcher completely.**
-3. Run the new v3.0.0 `.exe` → it creates `C:\Wan2GP` fresh.
+3. Run the new v3.x `.exe` → it creates `C:\Wan2GP` fresh.
 4. Copy/point your checkpoints at `C:\Wan2GP-Models\ckpts`.
+
+**🧪 Built-in migration (experimental — test it, no guarantee).** If you'd rather
+keep your current install, v3.x also ships an in-app **"Migrate to new location"**
+button (dashboard `MODELS` banner or Manage). It moves your data off AppData and
+rewrites `wgp_config.json` to the new folders. **This is experimental software:**
+please test it, and **back up your models first** — there is **no guarantee** it
+will work correctly on every setup. Use it at your own risk; a clean reinstall
+remains the safe option.
 
 **🟡 Also works: in-place update (v3.0.0)**
 Updating an existing v2.8.x install **auto-migrated** your old AppData data dir
