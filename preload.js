@@ -94,6 +94,10 @@ contextBridge.exposeInMainWorld('w2gp', {
   getModelPaths: () => ipcRenderer.invoke('get-model-paths'),
   repairSettings: () => ipcRenderer.invoke('repair-settings'),
 
+  // uv wheel cache management (Manage → General)
+  uvCacheInfo: () => ipcRenderer.invoke('uv-cache-info'),
+  uvCacheClean: (action) => ipcRenderer.invoke('uv-cache-clean', action),
+
   // Config
   configLoad: () => ipcRenderer.invoke('config-load'),
   configSave: (cfg) => ipcRenderer.invoke('config-save', cfg),
