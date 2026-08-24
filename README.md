@@ -58,6 +58,12 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 
 👉 **[Visual walkthrough infographic](https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html)** — install steps, hardware profiles, dashboard, Auto-Tune, launch modes, every feature on one page.
 
+## Screenshots
+
+![Launcher plugin screenshot](screenshots/launcher-plugin.png)
+![Launcher screenshot](screenshots/launcher-screenshot-2.png)
+![Launcher screenshot](screenshots/launcher-screenshot-3.png)
+
 ---
 
 ## Documentation
