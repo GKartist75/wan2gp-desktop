@@ -35,6 +35,22 @@ Install-location hardening + a user-controlled uv wheel cache.
 - **Tests:** added `tests/safemkdir.test.js` (3 cases) + renderer-HTML
   assertions for the new uv-cache UI ids; suite now **129 passing** (was 127).
 
+## v3.0.9.1 — hotfix
+
+Bug fixes found during first testing of the Manage cache controls:
+- **`uv cache prune` threw `ERR_INVALID_ARG_TYPE: callback must be of type
+  function`.** The handler called `runCmd` with a single string + an object
+  (intended as options), so `execFile` read the object as the callback. Now
+  passes `runCmd(uvBin, ['cache','prune','--cache-dir',dir], opts)` (cmd +
+  args-array), and surfaces `runCmd`'s string output directly (it returns a
+  trimmed stdout string, not `{stdout,stderr}`).
+- **"Remove cache" froze the app.** `fs.rmSync` deleted the multi-GB
+  hardlinked tree synchronously on the main process. Now `await
+  fs.promises.rm(...)` — async, so the UI stays responsive.
+- **uv binary not found on some installs.** Detection now also checks the
+  official default `%LOCALAPPDATA%\uv\uv.exe` and falls back to `where uv.exe`
+  on PATH, so prune works regardless of how uv was installed.
+
 ## Upgrade
 Install over 3.0.8 (or any 3.0.x). Non-disruptive. Existing installs keep their
 cache; use Manage → General to inspect or clear it.

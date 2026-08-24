@@ -1681,22 +1681,35 @@ ipcMain.handle('uv-cache-clean', async (_, action) => {
   const log = (m) => send('launch-log', m + '\n')
   const repo = getRepoDir()
   const cacheDir = path.join(repo, '.uv-cache')
-  // Locate uv binary (same candidates as the prereq check).
+  // Locate the uv binary. The official installer drops it at
+  // %LOCALAPPDATA%\uv\uv.exe (no bin/ subdir); other managers use
+  // ~/.local/bin or ~/.cargo/bin.
   const userHome = process.env.USERPROFILE || process.env.HOME || ''
   const appdata = process.env.APPDATA || ''
   const candidates = [
+    path.join(appdata, 'uv', 'uv.exe'),
     path.join(userHome, '.local', 'bin', 'uv.exe'),
-    path.join(appdata, 'uv', 'bin', 'uv.exe'),
     path.join(userHome, '.cargo', 'bin', 'uv.exe'),
+    path.join(appdata, 'hermes', 'bin', 'uv.exe'),
   ]
   let uvBin = null
   for (const c of candidates) { if (fs.existsSync(c)) { uvBin = c; break } }
+  // Fall back to whatever `where` resolves on PATH (the installer itself runs
+  // uv, so a copy is normally reachable this way at runtime too).
+  if (!uvBin) {
+    try {
+      const found = execSync('where uv.exe', { windowsHide: true, timeout: 5000 }).toString().trim().split(/\r?\n/)[0]
+      if (found && fs.existsSync(found)) uvBin = found
+    } catch { /* not on PATH — leave null */ }
+  }
   const useCacheDir = { ...process.env, UV_CACHE_DIR: cacheDir }
 
   if (action === 'remove') {
     if (!fs.existsSync(cacheDir)) return { success: true, removed: false, message: 'No cache folder to remove.' }
     try {
-      fs.rmSync(cacheDir, { recursive: true, force: true })
+      // Async delete so the main process (and the UI) doesn't freeze while a
+      // multi-GB tree of hardlinked wheels is recursively removed.
+      await fs.promises.rm(cacheDir, { recursive: true, force: true })
       log(`[*] Removed uv wheel cache: ${cacheDir}`)
       return { success: true, removed: true, message: 'uv wheel cache removed.' }
     } catch (e) {
@@ -1713,9 +1726,10 @@ ipcMain.handle('uv-cache-clean', async (_, action) => {
     return { success: false, error: 'uv binary not found' }
   }
   try {
-    const { stdout, stderr } = await runCmd(`${JSON.stringify(uvBin)} cache prune --cache-dir ${JSON.stringify(cacheDir)}`, { env: useCacheDir })
-    log(stdout)
-    if (stderr) log(stderr)
+    // runCmd returns a single trimmed string (stdout). uv prints
+    // "No unused entries found" to stdout, so surface that directly.
+    const out = await runCmd(uvBin, ['cache', 'prune', '--cache-dir', cacheDir], { env: useCacheDir })
+    log(out && out.trim() ? out : '[*] uv cache prune finished (no unused entries found).')
     return { success: true, pruned: true }
   } catch (e) {
     log(`[!] uv cache prune failed: ${String(e)}`)
