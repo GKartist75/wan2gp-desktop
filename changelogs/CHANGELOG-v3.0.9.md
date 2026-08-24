@@ -51,6 +51,18 @@ Bug fixes found during first testing of the Manage cache controls:
   official default `%LOCALAPPDATA%\uv\uv.exe` and falls back to `where uv.exe`
   on PATH, so prune works regardless of how uv was installed.
 
+## v3.0.9.2 — hotfix
+
+Bug fixes found during review of the root-guard parity:
+- **Migration "Move & restart" could target a bare drive root.** The
+  `migrate-to-preferred` handler accepted any `dataDir`, so editing the field
+  to `D:\` and moving would attempt to merge the whole Wan2GP tree onto a drive
+  root (EPERM on a fresh disk, half-moved tree). It now rejects a bare root with
+  `error: 'drive-root'` — the same guard `set-data-dir` already had. The
+  renderer migration handler also shows a friendly alert before calling home.
+- Added a regression test asserting the bare-drive-root check rejects `D:`/`D:\`
+  but accepts `D:\Wan2GP` / `C:\Wan2GP`. Suite now **130 passing**.
+
 ## Upgrade
 Install over 3.0.8 (or any 3.0.x). Non-disruptive. Existing installs keep their
 cache; use Manage → General to inspect or clear it.
