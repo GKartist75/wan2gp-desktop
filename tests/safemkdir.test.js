@@ -57,3 +57,20 @@ test('dirIsWritable returns false for a truly read-only/nonexistent drive letter
   assert.strictEqual(typeof writable, 'boolean')
   // We only assert it produced a boolean without throwing.
 })
+
+// Mirror the bare-drive-root rejection used by BOTH set-data-dir and
+// migrate-to-preferred (main.js). A whole drive (e.g. "D:" / "D:\") must be
+// rejected; a root-level folder (e.g. "D:\Wan2GP") must be accepted.
+function isBareDriveRoot(dir) {
+  if (!dir) return false
+  return path.parse(path.resolve(dir)).root === path.resolve(dir)
+}
+
+test('bare drive root is rejected for data-dir + migration targets', () => {
+  assert.strictEqual(isBareDriveRoot('D:'), true)
+  assert.strictEqual(isBareDriveRoot('D:\\'), true)
+  assert.strictEqual(isBareDriveRoot('D:\\Wan2GP'), false)
+  assert.strictEqual(isBareDriveRoot('C:\\Wan2GP'), false)
+  assert.strictEqual(isBareDriveRoot('/mnt/ext'), false)
+  assert.strictEqual(isBareDriveRoot(''), false)
+})

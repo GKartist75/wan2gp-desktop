@@ -1562,6 +1562,12 @@ $('migrationMoveBtn')?.addEventListener('click', async () => {
     output: $('migOutput').value
   }
   if (!choices.dataDir) { alert('Choose a Wan2GP data folder.'); resetMigrationUI(); return }
+  // Don't allow a bare drive root (e.g. D:\) — the main process rejects it too,
+  // but catch it here for an immediate, friendly message.
+  if (isDriveRoot(choices.dataDir)) {
+    alert('Install/move into a folder, not a drive root.\n\nPick a folder such as D:\\Wan2GP (use Browse if unsure), then Move & restart.')
+    resetMigrationUI(); return
+  }
   try {
     const r = await window.w2gp.migrateToPreferred(choices)
     if (r && r.ok) {

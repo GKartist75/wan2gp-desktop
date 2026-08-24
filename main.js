@@ -3417,6 +3417,13 @@ ipcMain.handle('migrate-choose', () => {
 ipcMain.handle('migrate-to-preferred', async (_, choices) => {
   try {
     if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
+    // Reject a bare drive root (e.g. D:\) — same rule as install/set-data-dir.
+    // Merging the whole Wan2GP tree onto a drive root fails with EPERM on a
+    // fresh/empty disk (the root isn't writable) and leaves a half-moved tree.
+    if (path.parse(path.resolve(choices.dataDir)).root === path.resolve(choices.dataDir)) {
+      return { ok: false, error: 'drive-root', dir: choices.dataDir,
+               message: 'Pick a folder (e.g. D:\\Wan2GP), not a drive root.' }
+    }
     const current = getDataDir()
     if (!fs.existsSync(current)) return { ok: false, error: 'current data dir missing: ' + current }
     if (path.resolve(current) === path.resolve(choices.dataDir))
