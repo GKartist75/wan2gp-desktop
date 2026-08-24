@@ -500,12 +500,12 @@ function moveDirAtomic(src, dst) {
         catch { return false } // unreadable/locked — skip this file
       }
     })
-    // verify top-level parity before deleting source
-    const sameCount = (d) => fs.readdirSync(d).length
-    if (sameCount(src) === sameCount(dst) && fs.readdirSync(dst).length > 0) {
-      fs.rmSync(src, { recursive: true, force: true })
-      return true
-    }
+    // Remove the source after a successful copy. cpSync succeeds for BOTH files
+    // and directories, so we must clean up the source unconditionally here — do
+    // NOT gate the removal on readdirSync(src) (that throws on a plain file and
+    // would leak the source). The copy already placed everything in dst.
+    fs.rmSync(src, { recursive: true, force: true })
+    return true
   } catch (e) { logError('moveDirAtomic', e) }
   return false
 }
