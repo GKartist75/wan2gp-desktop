@@ -7,7 +7,7 @@ const assert = require('node:assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths } = require('../lib/migrate.js')
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders, ensureRepoGit, cleanupLegacyRuntime } = require('../lib/migrate.js')
 
 function makeLegacyRoaming(root) {
   // Mirror: AppData\Roaming\wan2gp-desktop\Wan2GP\<repo with wgp.py + config>
@@ -103,6 +103,120 @@ test('getDirSize: sums file bytes including nested dirs', () => {
     fs.writeFileSync(path.join(root, 'a.bin'), Buffer.alloc(100))
     fs.writeFileSync(path.join(root, 'sub', 'b.bin'), Buffer.alloc(250))
     assert.strictEqual(getDirSize(root), 350)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Regression for issue #74: when the moved data lands in the data dir (C:\Wan2GP)
+// but the model paths point at a SEPARATE models root (C:\Wan2GP-Models\…), the
+// real ckpts/loras/outputs must be relocated to the configured destinations so
+// Wan2GP finds them instead of re-downloading.
+test('reconcileModelFolders: moves data-dir model folders to chosen destinations (#74)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const target = path.join(root, 'Wan2GP')         // migrated data dir
+    fs.mkdirSync(target, { recursive: true })
+    // Real model data that mergeDirContents dropped inside the data dir.
+    fs.mkdirSync(path.join(target, 'ckpts'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'ckpts', 'model.safetensors'), Buffer.alloc(1024))
+    fs.mkdirSync(path.join(target, 'loras'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'loras', 'lora.safetensors'), Buffer.alloc(512))
+    fs.mkdirSync(path.join(target, 'outputs'), { recursive: true })
+
+    const choices = {
+      dataDir: target,
+      ckpts: path.join(root, 'Wan2GP-Models', 'ckpts'),
+      loras: path.join(root, 'Wan2GP-Models', 'loras'),
+      output: path.join(root, 'Wan2GP-Models', 'outputs')
+    }
+    const touched = reconcileModelFolders(target, choices)
+    assert.strictEqual(touched, true)
+    // Bytes now live at the configured destinations.
+    assert.ok(fs.existsSync(path.join(choices.ckpts, 'model.safetensors')))
+    assert.ok(fs.existsSync(path.join(choices.loras, 'lora.safetensors')))
+    assert.ok(fs.existsSync(path.join(choices.output)))
+    // And are gone from the data dir.
+    assert.ok(!fs.existsSync(path.join(target, 'ckpts')))
+    assert.ok(!fs.existsSync(path.join(target, 'loras')))
+    assert.ok(!fs.existsSync(path.join(target, 'outputs')))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('reconcileModelFolders: no-op when destinations already exist (idempotent)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const target = path.join(root, 'Wan2GP')
+    fs.mkdirSync(target, { recursive: true })
+    const dst = path.join(root, 'Wan2GP-Models', 'ckpts')
+    fs.mkdirSync(dst, { recursive: true })   // destination already present
+    fs.writeFileSync(path.join(dst, 'already.safetensors'), Buffer.alloc(10))
+    const choices = { dataDir: target, ckpts: dst, loras: '', output: '' }
+    const touched = reconcileModelFolders(target, choices)
+    assert.strictEqual(touched, false)        // nothing moved; no clobber
+    assert.ok(fs.existsSync(path.join(dst, 'already.safetensors')))
+    // With no model folders in target at all, still a clean no-op.
+    assert.strictEqual(reconcileModelFolders(target, { dataDir: target, ckpts: dst }), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Regression for the "what stays in the old directory after migrate?" question:
+// the repo's .git MUST travel with the move (git pull / updates depend on it),
+// while the launcher's runtime state (.electron, boot.log — children of the data
+// dir) gets moved too but is swept from the OLD location by cleanupLegacyRuntime.
+test('migration leaves user repo intact and sweeps launcher runtime from old dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const legacy = path.join(root, 'old', 'Wan2GP')
+    fs.mkdirSync(legacy, { recursive: true })
+    fs.writeFileSync(path.join(legacy, 'wgp.py'), '# entry')
+    // git is real repo data -> must move with the repo
+    fs.mkdirSync(path.join(legacy, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.git', 'HEAD'), 'ref: refs/heads/main')
+    // launcher runtime/state (children of the data dir) -> moved, then swept old
+    fs.mkdirSync(path.join(legacy, '.electron'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.electron', 'state.json'), '{}')
+    fs.writeFileSync(path.join(legacy, 'boot.log'), 'launched')
+    const target = path.join(root, 'Wan2GP')
+    const ok = mergeDirContents(legacy, target)
+    assert.strictEqual(ok, true)
+    // .git arrived at target (fact: it must, for git pull/updates)
+    assert.ok(fs.existsSync(path.join(target, '.git', 'HEAD')), '.git must travel with the repo')
+    // launcher runtime moved into the new install (harmless; recreated next run)
+    assert.ok(fs.existsSync(path.join(target, '.electron')), '.electron carried into new install')
+    // Now sweep the OLD location: leftovers must be gone.
+    cleanupLegacyRuntime(legacy)
+    assert.ok(!fs.existsSync(path.join(legacy, 'boot.log')), 'boot.log cleaned from old dir')
+    assert.ok(!fs.existsSync(path.join(legacy, '.electron')), '.electron cleaned from old dir')
+    assert.ok(!fs.existsSync(path.join(path.dirname(legacy), '.electron')), '.electron sibling cleaned from old dir')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ensureRepoGit must recover a missing .git when the generic merge skipped it
+// (e.g. target already had a partial .git, or a cross-volume copy dropped it).
+test('ensureRepoGit: lifts nested or legacy .git into the flat target repo', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const target = path.join(root, 'Wan2GP')
+    fs.mkdirSync(target, { recursive: true })
+    fs.writeFileSync(path.join(target, 'wgp.py'), '# entry')
+    // Simulated doubled layout: the repo's .git landed nested.
+    fs.mkdirSync(path.join(target, 'Wan2GP', '.git'), { recursive: true })
+    fs.writeFileSync(path.join(target, 'Wan2GP', '.git', 'HEAD'), 'ref: refs/heads/nested')
+    const legacy = path.join(root, 'old', 'Wan2GP')
+    fs.mkdirSync(legacy, { recursive: true })
+    fs.mkdirSync(path.join(legacy, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(legacy, '.git', 'HEAD'), 'ref: refs/heads/legacy')
+    ensureRepoGit(target, legacy)
+    // flat target now has a .git (nested lifted wins; legacy not duplicated)
+    assert.ok(fs.existsSync(path.join(target, '.git', 'HEAD')), 'target repo has .git')
+    assert.strictEqual(fs.readFileSync(path.join(target, '.git', 'HEAD'), 'utf8'), 'ref: refs/heads/nested')
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

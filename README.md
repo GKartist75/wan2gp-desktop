@@ -155,6 +155,8 @@ generation uses. Explicit values in Extra Launch Args always win.
 
 > **New in v3.0.6** — **`setup_config.json` is now the explicit base.** The launcher installs exactly what deepbeepmeep's `setup_config.json` declares (python/torch/triton/kernels/sage per GPU profile) — it no longer keeps a parallel hand-copied wheel list. The one necessary correction remains: `sage.v220_cu13` (`cu130torch2.9.0andhigher.post4`, the broken fp8 wheel) is substituted with the cu130-native, fp8-fixed `cu130.post6` wheel. This now covers **RTX 30/40/50** (config gives all three the broken wheel; previously RTX 30 was missed). Bumped to 3.0.6 so the auto-updater offers it to 3.0.5 users. See [CHANGELOG-v3.0.6.md](changelogs/CHANGELOG-v3.0.6.md).
 
+> **New in v3.0.7** — **Migration & model-folders reconcile (#74) + cross-device clone fix (#76).** The in-app **"Migrate to new location"** flow now **rewrites `wgp_config.json`** so checkpoints/LoRAs/outputs point at the new drive (they used to stay on the old roaming path), derives `C:\Wan2GP`/`…-Models` from the launcher's **own drive** instead of hardcoding `C:`, and flattens the legacy `Wan2GP\Wan2GP` nesting. Cross-drive clone/migrate no longer crashes (`EXDEV` → copy fallback, #76). The dashboard re-location UX now has **separate Open-folder and Pencil(move) icons** per row — the Wan2GP pencil **moves** the install (no reinstall), model-folder pencils ask *move vs just point*, and the migrate modal copy is **context-aware** (no more "out of AppData" when you're already on `D:`). `.git` travels with the move and old-dir runtime (`boot.log`/`.electron`) is swept. **Test build — migration is experimental: back up models first, no guarantee.** See [CHANGELOG-v3.0.7.md](changelogs/CHANGELOG-v3.0.7.md).
+
 > **New in v2.8.7** — **Blank-screen ROOT CAUSE fixed (nested `.screen` DOM regression).** The real bug: during the gallery/plugin-tab refactor `#installer` was placed *inside* `#dashboard`'s closing tag, so it became a child of `#dashboard`. Because the launcher shows a screen by toggling a single `.active` class and `#dashboard` is `display:none` when another screen is active, the nested `#installer` inherited that hidden state and collapsed to **0×0** — the classic "title bar only" blank. (This is why the 2.8.2–2.8.6 `show`/hammer fixes never worked: you can't re-present a 0-height element.) Fix: restore `#installer` (+ floating-terminal) as **siblings of `#dashboard`** under `#app` (as in 2.6.0), and make `.screen` fill `#app` via `position:absolute; inset:0`. Also removed the 1px resize-nudge that caused a window "shake". Verified by clean reinstall + full install→open-Wan2GP flow.
 > [Full changelog →](changelogs/CHANGELOG-v2.8.7.md)
 
@@ -330,12 +332,26 @@ large files separate from the code so backups and drive swaps are trivial.
 
 ### How to upgrade — pick one
 
+> **🧹 For v3.x, a clean reinstall is the recommended path.** v3.0 moved Wan2GP
+> out of roaming AppData into dedicated `C:\Wan2GP` (repo) and `C:\Wan2GP-Models`
+> (models) folders. Because of that structural change, the most reliable upgrade
+> is to **uninstall the old version and install v3.x fresh** — this sidesteps any
+> leftover path/legacy confusion from a previous install.
+
 **✅ Preferred: uninstall, then install fresh**
 1. Launcher → **Manage** → **Uninstall** (keep or delete your old models — they
    sit in the old AppData path).
 2. **Close the launcher completely.**
-3. Run the new v3.0.0 `.exe` → it creates `C:\Wan2GP` fresh.
+3. Run the new v3.x `.exe` → it creates `C:\Wan2GP` fresh.
 4. Copy/point your checkpoints at `C:\Wan2GP-Models\ckpts`.
+
+**🧪 Built-in migration (experimental — test it, no guarantee).** If you'd rather
+keep your current install, v3.x also ships an in-app **"Migrate to new location"**
+button (dashboard `MODELS` banner or Manage). It moves your data off AppData and
+rewrites `wgp_config.json` to the new folders. **This is experimental software:**
+please test it, and **back up your models first** — there is **no guarantee** it
+will work correctly on every setup. Use it at your own risk; a clean reinstall
+remains the safe option.
 
 **🟡 Also works: in-place update (v3.0.0)**
 Updating an existing v2.8.x install **auto-migrated** your old AppData data dir

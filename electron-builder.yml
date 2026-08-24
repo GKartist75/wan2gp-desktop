@@ -3,11 +3,30 @@ productName: Wan2GP Desktop Launcher
 directories:
   buildResources: resources
 files:
-  - '**/*'
-  - '!**/.git/**'
+  - 'package.json'
+  - 'main.js'
+  - 'preload.js'
+  - 'renderer/**/*'
+  - 'lib/**/*'
+  - 'services/**/*'
+  - 'resources/**/*'
+  - 'scripts/**/*'
+  - 'docs/**/*'
+  - 'changelogs/**/*'
+  - 'infographic.html'
+  - 'README.md'
+  - 'LICENSE'
+  - 'PREREQUISITES.md'
+  - 'screenshots/**/*'
+  # Exclude dev/test artifacts, stray logs and temp files so they never land in
+  # the packed app (a stray file in the source root previously corrupted the
+  # embedded package.json and broke launch with "unable to parse").
+  - '!**/*.test.js'
   - '!tests/**'
-  - '!.github/**'
-  - '!dist/**'
+  - '!**/*.log'
+  - '!build_*.log'
+  - '!nul'
+  - '!ISSUE74_REPLY.md'
 win:
   target: nsis
   icon: resources/icon-1024.png

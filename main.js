@@ -15,7 +15,7 @@ const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
 const migrate = require('./lib/migrate.js')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths } = migrate
+const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -408,7 +408,11 @@ function getDataDir() {
 let _defaultDataDirCache = undefined
 function defaultDataDir() {
   if (_defaultDataDirCache !== undefined) return _defaultDataDirCache
-  const pref = IS_WIN ? path.join('C:\\', 'Wan2GP') : path.join(os.homedir(), 'Wan2GP')
+  // Prefer a dedicated top-level folder on the SAME DRIVE as the launcher, not a
+  // hardcoded C:\Wan2GP — users who install on another drive (e.g. E:\) shouldn't
+  // be forced onto C: (issue #74 / #76 follow-up).
+  const pref = IS_WIN ? path.join(path.parse(process.execPath).root, 'Wan2GP')
+                      : path.join(os.homedir(), 'Wan2GP')
   if (dirIsWritable(pref)) { _defaultDataDirCache = pref; return pref }
   const inst = computeInstallDataDir()
   if (inst) { _defaultDataDirCache = inst; return inst }
@@ -518,6 +522,15 @@ async function runMigrationMove(legacy, choices) {
   if (ok) {
     // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
     try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
+    // Make sure the repo's .git travels with the move (git pull / updates need
+    // it); the generic merge may have left it behind on the no-clobber guard.
+    try { ensureRepoGit(target, legacy) } catch (e) { logError('migrate-git', e) }
+    // Issue #74: mergeDirContents moved the user's real ckpts/loras/outputs into
+    // `target`, but the model paths were rewritten to the chosen destinations
+    // (choices.ckpts/loras/output, e.g. C:\Wan2GP-Models\…). Move those folders
+    // out of the data dir to where wgp_config.json actually points so the app
+    // finds the existing data instead of re-downloading it.
+    try { reconcileModelFolders(target, choices) } catch (e) { logError('migrate-reconcile', e) }
   }
   if (!ok) {
     try {
@@ -543,13 +556,15 @@ async function runMigrationMove(legacy, choices) {
   try { rewriteModelPaths(target, choices) } catch (e) { logError('migrate-config', e) }
   try { fs.writeFileSync(_MIGRATION_DECISION(), 'moved') } catch {}
   // Best-effort cleanup of the now-empty legacy location so it doesn't linger
-  // in roaming AppData. mergeDirContents already removed the migrated leaf; here
-  // we also drop the wrapper folder (e.g. Roaming\wan2gp-desktop) if it's empty,
-  // and the original legacy dir again (locked files may have been skipped).
+  // in roaming AppData. mergeDirContents already moved the whole data tree (and
+  // left the launcher's runtime state — sibling .electron + boot.log — in place);
+  // remove those now, then drop the wrapper folder (e.g. Roaming\wan2gp-desktop)
+  // if it's empty, and the original legacy dir again (locked files may remain).
   try {
-    const tryRemove = (p) => { try { if (fs.existsSync(p) && fs.readdirSync(p).length === 0) fs.rmSync(p, { recursive: true, force: true }) } catch {} }
-    tryRemove(legacy)
-    tryRemove(path.dirname(legacy))
+    const tryRemoveEmpty = (p) => { try { if (fs.existsSync(p) && fs.readdirSync(p).length === 0) fs.rmSync(p, { recursive: true, force: true }) } catch {} }
+    cleanupLegacyRuntime(legacy)
+    tryRemoveEmpty(legacy)
+    tryRemoveEmpty(path.dirname(legacy))
   } catch (e) { logError('migrate-cleanup', e) }
   try {
     app.relaunch()
@@ -575,19 +590,10 @@ async function promptMigration() {
     if (!target) return
     const current = getDataDir()               // where v3.0 is actually running from
     // Legacy data dirs from pre-v3.0 installs live under roaming AppData.
-    const candidates = [
-      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop', 'Wan2GP'),
-      path.join(ORIGINAL_USER_DATA, 'wan2gp-desktop')
-    ]
-    // The legacy dir is either a separate old folder, OR the current data dir
-    // itself (in-place upgrade kept Roaming\wan2gp-desktop). Either way it's the
-    // thing we may want to move.
-    let legacy = candidates.find(c => fs.existsSync(c))
+    // Delegated to detectLegacyRoaming() so the in-UI migrate buttons (driven by
+    // the same flag from get-install-paths) never disagree with this dialog.
+    const legacy = detectLegacyRoaming()
     if (!legacy) return
-    const isRoaming = legacy.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
-    if (!isRoaming) return                       // not a roaming legacy — nothing to do
-    if (legacy === target) return                // already at the preferred target
-    if (fs.existsSync(_MIGRATION_DECISION())) return // user already decided
     const result = await dialog.showMessageBox({
       type: 'question',
       buttons: ['Move into C:\\Wan2GP (recommended)', 'Keep using it as-is', 'Ask me later'],
@@ -1363,16 +1369,18 @@ function mergeDir(src, dst) {
     if (isDir) {
       if (name === '.git') {
         if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true })
-        fs.renameSync(s, d)
+        // Cross-device-safe: rename first, fall back to copy (issue #76 — clone
+        // temp dir can be on a different drive than the install location).
+        if (!moveDirAtomic(s, d)) fs.cpSync(s, d, { recursive: true })
       } else if (fs.existsSync(d)) {
         mergeDir(s, d)
       } else {
-        fs.renameSync(s, d)
+        if (!moveDirAtomic(s, d)) fs.cpSync(s, d, { recursive: true })
       }
     } else {
       if (fs.existsSync(d) && MERGE_KEEP_NAMES.has(name)) continue // preserve user data
       if (fs.existsSync(d)) { try { fs.rmSync(d, { force: true }) } catch {} }
-      fs.renameSync(s, d)
+      if (!moveDirAtomic(s, d)) fs.cpSync(s, d, { recursive: true })
     }
   }
 }
@@ -3174,7 +3182,10 @@ ipcMain.handle('config-save', (_, cfg) => {
 // (C:\Wan2GP-Models) so large checkpoints stay off the repo drive and out of
 // any roaming AppData profile. Editable at install; pre-filled as the example.
 function defaultModelsDir() {
-  return IS_WIN ? path.join('C:\\', 'Wan2GP-Models') : path.join(os.homedir(), 'Wan2GP-Models')
+  // Same drive as the launcher (matches defaultDataDir), so a user on E:\ gets
+  // E:\Wan2GP-Models rather than being forced onto C:\Wan2GP-Models.
+  return IS_WIN ? path.join(path.parse(process.execPath).root, 'Wan2GP-Models')
+                : path.join(os.homedir(), 'Wan2GP-Models')
 }
 // A model folder is "repo-relative" (i.e. no real user choice) when it's the
 // repo root, the repo's ckpts/loras/outputs, or the bare '.' sentinel. Such
@@ -3196,8 +3207,30 @@ ipcMain.handle('get-install-paths', () => ({
   repo: getRepoDir(),
   config: getConfigFile(),
   modelsDefault: defaultModelsDir(),
-  dataDirInRoaming: getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
+  dataDirInRoaming: getDataDir().toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()),
+  // Mirrors promptMigration()'s detection exactly: a legacy roaming data dir
+  // exists (independent of the data-dir override). Drives the native startup
+  // migration dialog AND must suppress the in-UI migrate buttons, so they never
+  // duplicate that dialog. Using a separate flag (not dataDirInRoaming) avoids
+  // the override re-pin flipping it to false while the legacy folder still exists.
+  legacyRoamingFound: detectLegacyRoaming() !== null
 }))
+// Returns the legacy roaming data dir path if one exists (pre-v3.0 install under
+// AppData), else null. Shared by promptMigration() and the get-install-paths flag
+// so the native dialog and the in-UI buttons never disagree.
+function detectLegacyRoaming() {
+  const candidates = [
+    path.join(ORIGINAL_USER_DATA, 'Wan2GP'),
+    ORIGINAL_USER_DATA
+  ]
+  const legacy = candidates.find(c => fs.existsSync(c))
+  if (!legacy) return null
+  const isRoaming = legacy.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
+  if (!isRoaming) return null
+  if (legacy === defaultDataDir()) return null
+  if (fs.existsSync(_MIGRATION_DECISION())) return null
+  return legacy
+}
 // Is the current data dir still inside roaming AppData (a legacy location the
 // user may want to move to the preferred C:\Wan2GP)?
 ipcMain.handle('is-data-dir-roaming', () =>
@@ -3207,8 +3240,16 @@ ipcMain.handle('is-data-dir-roaming', () =>
 // chooser and let the user override any of them before migrating.
 ipcMain.handle('migrate-choose', () => {
   const md = defaultModelsDir()
+  const current = getDataDir()
+  // `fromRoaming` must reflect whether the CURRENT install is actually inside
+  // roaming AppData — not merely whether a legacy roaming folder exists on disk
+  // (detectLegacyRoaming()). After a user has already moved to D:\ the old
+  // roaming folder may still linger, which would wrongly force the
+  // "out of AppData" copy on the dashboard pencil.
+  const isRoaming = current.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase())
   return {
-    legacy: getDataDir(),
+    legacy: current,
+    fromRoaming: isRoaming,
     dataDir: defaultDataDir(),
     modelsRoot: md,
     ckpts: path.join(md, 'ckpts'),
@@ -3217,16 +3258,40 @@ ipcMain.handle('migrate-choose', () => {
   }
 })
 // Execute an on-demand migration with the user's chosen folders. `choices` =
-// { dataDir, ckpts, loras, output }. Moves the current (roaming) data dir into
-// dataDir, rewrites wgp_config.json model paths, and relaunches. Returns {ok}.
+// { dataDir, ckpts, loras, output }. Moves the CURRENT data dir into dataDir,
+// rewrites wgp_config.json model paths, and relaunches. Returns {ok}.
+// NOTE: deliberately does NOT require the current dir to be roaming — the user
+// may move Wan2GP from any location (e.g. C:\Wan2GP → D:\Wan2GP) via the
+// dashboard pencil, not only from a legacy roaming install.
 ipcMain.handle('migrate-to-preferred', async (_, choices) => {
   try {
     if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
     const current = getDataDir()
-    if (!current.toLowerCase().startsWith(ORIGINAL_USER_DATA.toLowerCase()))
-      return { ok: false, error: 'not a roaming data dir' }
-    const ok = await runMigrationMove(current, choices)
-    return { ok, legacy: current, target: choices.dataDir }
+    if (!fs.existsSync(current)) return { ok: false, error: 'current data dir missing: ' + current }
+    if (path.resolve(current) === path.resolve(choices.dataDir))
+      return { ok: false, error: 'choose a different location' }
+    // Keep model folders collocated under the new data dir by default so the
+    // user's existing checkpoints/LoRAs/outputs travel with the move.
+    const target = choices.dataDir
+    const filled = {
+      dataDir: target,
+      ckpts: choices.ckpts || path.join(target, 'ckpts'),
+      loras: choices.loras || path.join(target, 'loras'),
+      output: choices.output || path.join(target, 'outputs')
+    }
+    const ok = await runMigrationMove(current, filled)
+    return { ok, legacy: current, target }
+  } catch (e) { return { ok: false, error: String(e) } }
+})
+// Physically move a folder (cross-device safe) — used when the user picks
+// "move existing files" for a model folder. Source is removed if left empty.
+ipcMain.handle('move-folder', async (_, src, dst) => {
+  try {
+    if (!src || src === dst) return { ok: true }
+    if (!fs.existsSync(src)) return { ok: true }
+    mergeDirContents(src, dst)
+    try { if (fs.existsSync(src) && fs.readdirSync(src).length === 0) fs.rmSync(src, { recursive: true, force: true }) } catch {}
+    return { ok: true }
   } catch (e) { return { ok: false, error: String(e) } }
 })
 ipcMain.handle('set-data-dir', (_, dir) => {
@@ -3575,6 +3640,30 @@ ipcMain.handle('select-folder', async () => {
   const { dialog } = require('electron')
   const result = await dialog.showOpenDialog(mainWin, { properties: ['openDirectory'] })
   return result.canceled ? null : result.filePaths[0]
+})
+// Generic confirm dialog for the renderer (returns a token identifying the
+// clicked button: 'ok' | 'move' | 'point' | 'cancel').
+ipcMain.handle('confirm-dialog', async (_, opts) => {
+  const { dialog } = require('electron')
+  const labels = opts.buttons || ['OK', 'Cancel']
+  const res = await dialog.showMessageBox(mainWin, {
+    type: opts.type || 'question',
+    title: opts.title || 'Confirm',
+    message: opts.message || '',
+    detail: opts.detail || '',
+    buttons: labels,
+    defaultId: opts.defaultId ?? 0,
+    cancelId: opts.cancelId ?? labels.length - 1,
+    modal: true
+  })
+  const idx = res.response
+  if (idx === (opts.cancelId ?? labels.length - 1)) return 'cancel'
+  // Map known button labels to tokens for the caller.
+  const label = (labels[idx] || '').toLowerCase()
+  if (label.startsWith('move')) return 'move'
+  if (label.startsWith('just point')) return 'point'
+  if (label.startsWith('ok')) return 'ok'
+  return String(idx)
 })
 
 // ── Auto-detect model folders ──
@@ -5123,7 +5212,14 @@ app.whenReady().then(() => {
   // resolved default (C:\Wan2GP when writable, else AppData) — NOT a hardcoded
   // AppData path, which would override the colocated/default preference.
   try {
-    if (!fs.existsSync(DATA_DIR_OVERRIDE)) {
+    const legacyRoaming = detectLegacyRoaming() !== null
+    // Don't eagerly create a default data-dir folder on first launch when a
+    // legacy roaming install exists — the user will be offered (via the banner
+    // button) to migrate it to a location of their choosing, and we must not
+    // pre-create C:\Wan2GP (or any drive's Wan2GP) before they decide (issues
+    // #74 / #76). If a pin already exists, trust it; otherwise leave the pin
+    // uncreated until the user migrates or the app has a real reason to pin.
+    if (!fs.existsSync(DATA_DIR_OVERRIDE) && !legacyRoaming) {
       const d = defaultDataDir()
       fs.mkdirSync(d, { recursive: true })
       fs.writeFileSync(DATA_DIR_OVERRIDE, d)
@@ -5143,8 +5239,10 @@ app.whenReady().then(() => {
       }
     }
     if (!_dataDir) {
+      // No valid pin (e.g. legacy roaming case — user hasn't migrated yet).
+      // Point Electron's runtime at the roaming profile's .electron so the app
+      // still launches, but do NOT create a top-level Wan2GP folder here.
       _dataDir = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
-      try { fs.mkdirSync(_dataDir, { recursive: true }); fs.writeFileSync(DATA_DIR_OVERRIDE, _dataDir) } catch {}
     }
     if (_dataDir) {
       const ed = path.join(_dataDir, '.electron')
@@ -5156,11 +5254,13 @@ app.whenReady().then(() => {
   createTray()
 
   // One-time migration prompt (DEFERRED, post-paint): if a legacy
-  // Roaming\wan2gp-desktop\Wan2GP exists and the install folder is empty, ASK the
-  // user whether to move it into C:\Wan2GP or keep it separate (they delete it
-  // themselves later). Runs after createWindow so it can never block the UI from
-  // opening. The dialog is modal and shown at most once per decision.
-  setTimeout(() => { promptMigration().catch(e => logError('migration', e)) }, 1500)
+  // The migration entry point is now the in-launcher "Move data to C:\Wan2GP"
+  // button (dashboard moveToPreferredWrap, shown when legacyRoamingFound), which
+  // opens the folder-chooser modal. The old standalone native message box is
+  // intentionally NOT shown — the user wants the flow inside the launcher, not a
+  // separate startup popup. detectLegacyRoaming() still powers the dashboard button
+  // via the legacyRoamingFound flag from get-install-paths.
+  // setTimeout(() => { promptMigration().catch(e => logError('migration', e)) }, 1500)
 
   // Native theme auto-follow
   try {
