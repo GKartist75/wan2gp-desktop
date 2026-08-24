@@ -28,7 +28,7 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 
 - 🚀 **One-click install** — detects your GPU, shows exactly what it will install, then sets up Git, Python, PyTorch + CUDA, and every attention kernel for you.
 - 🎯 **Always the right kernels** — pulls the per-GPU wheel set from Wan2GP's own `setup_config.json` and re-syncs on every update. No stale wheels, no manual matching.
-- 📂 **Clean data layout** — install lives in `C:\Wan2GP`, your multi-GB models in a separate `C:\Wan2GP-Models`. Out of roaming AppData.
+- 📂 **Clean data layout** — install lives in `C:\Wan2GP` (default) and your multi-GB models in a separate `C:\Wan2GP-Models` (default), out of roaming AppData. **Both are just pre-filled defaults — you can put them on any drive/folder you like at install time.**
 - ⚡ **Auto-Tune** — one-click hardware scan recommends the best memory profile (VRAM/RAM tiers) and writes it to `wgp_config.json`.
 - 🖥️ **Flexible launch** — Desktop (in-app), Browser, or External Terminal modes; pop-out, zoom, browser picker.
 - 📊 **Live monitoring** — dockable console, CPU/GPU/RAM/VRAM sparklines, running LED + stop, system tray.

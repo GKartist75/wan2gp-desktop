@@ -6,18 +6,18 @@ v3.0 changes **where Wan2GP lives on your disk**. This is the one thing you must
 
 | What | ❌ Before (v2.8.x) | ✅ Now (v3.0.0) |
 |------|--------------------|-----------------|
-| Repo + venv + `wgp_config.json` | `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP` | **`C:\Wan2GP`** |
-| Model checkpoints | `<repo>\ckpts` (inside the repo) | **`C:\Wan2GP-Models\ckpts`** |
-| LoRAs | `<repo>\loras` | **`C:\Wan2GP-Models\loras`** |
-| Generated outputs | `<repo>\outputs` | **`C:\Wan2GP-Models\outputs`** |
+| Repo + venv + `wgp_config.json` | `%APPDATA%\wan2gp-desktop\Wan2GP\Wan2GP` | **`C:\Wan2GP`** *(default)* |
+| Model checkpoints | `<repo>\ckpts` (inside the repo) | **`C:\Wan2GP-Models\ckpts`** *(default)* |
+| LoRAs | `<repo>\loras` | **`C:\Wan2GP-Models\loras`** *(default)* |
+| Generated outputs | `<repo>\outputs` | **`C:\Wan2GP-Models\outputs`** *(default)* |
 
-The old location was inside your **roaming AppData** profile — it travels with your account, can sync/backup unexpectedly, and counts against profile quotas. For tens–hundreds of GB of checkpoints that's a bad place to be. `C:\Wan2GP` is a dedicated top-level folder on a fast drive; `C:\Wan2GP-Models` keeps your large files separate from the code so backups and drive swaps are trivial.
+The old location was inside your **roaming AppData** profile — it travels with your account, can sync/backup unexpectedly, and counts against profile quotas. For tens–hundreds of GB of checkpoints that's a bad place to be. The defaults put the install on a dedicated top-level folder (`C:\Wan2GP`) and keep your large files separate (`C:\Wan2GP-Models`) so backups and drive swaps are trivial — but **all of these are just pre-filled suggestions; you can choose any drive/folder** at install or via the in-app Migrate button.
 
 > **All paths are user-selectable** — `C:\Wan2GP` and `C:\Wan2GP-Models\ckpts` are just the **recommended defaults**, pre-filled on the install screen. Click **Browse** to place the repo, checkpoints, LoRAs, or outputs on any drive/folder; your choice is saved. Nothing is hard-coded.
 
 ## How to upgrade — pick one
 
-> **🧹 For v3.x, a clean reinstall is the recommended path.** v3.0 moved Wan2GP out of roaming AppData into dedicated `C:\Wan2GP` (repo) and `C:\Wan2GP-Models` (models). Because of that structural change, the most reliable upgrade is to **uninstall the old version and install v3.x fresh** — this sidesteps any leftover path/legacy confusion.
+> **🧹 For v3.x, a clean reinstall is the recommended path.** v3.0 moved Wan2GP out of roaming AppData into dedicated **default** locations `C:\Wan2GP` (repo) and `C:\Wan2GP-Models` (models) — though you can choose any drive/folder at install. Because of that structural change, the most reliable upgrade is to **uninstall the old version and install v3.x fresh** — this sidesteps any leftover path/legacy confusion.
 
 **✅ Preferred: uninstall, then install fresh**
 1. Launcher → **Manage** → **Uninstall** (keep or delete your old models — they sit in the old AppData path).

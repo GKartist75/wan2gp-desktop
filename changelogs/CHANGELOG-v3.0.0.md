@@ -2,8 +2,8 @@
 
 **Topic:** Major layout change. Wan2GP, its environment, and your settings now
 live in a **self-contained, dedicated location** by default — `C:\Wan2GP` — and
-model checkpoints/LoRAs are kept on a **separate** drive/folder (`C:\Wan2GP-Models`)
-instead of inside the repo or your roaming AppData profile. This is a breaking
+model checkpoints/LoRAs are kept on a **separate** drive/folder (`C:\Wan2GP-Models`, also the default)
+instead of inside the repo or your roaming AppData profile. Both are pre-filled suggestions — you can choose any drive/folder at install. This is a breaking
 change for existing installs, so please **read the folder-change notice below**.
 
 ## ⚠️ BREAKING: install folders moved (please read)

@@ -12,7 +12,7 @@ Newest first. Each version links to its full standalone changelog.
 - **[v3.0.3](changelogs/CHANGELOG-v3.0.3.md)** — Critical hotfix for the v3.0.2 SageAttention swap (RTX 40/50): fixes broken release-URL prefix + Python-3.10-only wheel; installs `sageattention-2.2.0+cu128torch2.8.0-cp311-cp311`.
 - **[v3.0.2](changelogs/CHANGELOG-v3.0.2.md)** — RTX 40/50 SageAttention fix + RTX 3080 `accelerate` fix + visible install progress (15s heartbeat, red SAGE banner).
 - **[v3.0.1](changelogs/CHANGELOG-v3.0.1.md)** — Legacy roaming installs launch again; migration is opt-in + safe; auto-update is now manual-only (toggle defaults OFF).
-- **[v3.0.0](changelogs/CHANGELOG-v3.0.0.md)** — Self-contained install layout (folders moved, breaking). `C:\Wan2GP` + separate `C:\Wan2GP-Models`; latest GPU kernels auto-installed per hardware.
+- **[v3.0.0](changelogs/CHANGELOG-v3.0.0.md)** — Self-contained install layout (folders moved, breaking). Default `C:\Wan2GP` + separate default `C:\Wan2GP-Models` (user-selectable); latest GPU kernels auto-installed per hardware.
 
 ## v2.8.x
 

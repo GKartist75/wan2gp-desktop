@@ -22,7 +22,7 @@ If you had a v2.8.x install, step 3 first **migrates** your old `%APPDATA%\wan2g
 ## Where is everything now? (v3.0+)
 
 ```
-C:\Wan2GP\                      ← repo + launcher data (self-contained)
+C:\Wan2GP\                      ← repo + launcher data (self-contained)  [default location]
    ├─ wgp.py                    ← Wan2GP core
    ├─ env_uv\                   ← Python 3.11 venv (uv)
    ├─ wgp_config.json           ← your settings (ckpts → C:\Wan2GP-Models\ckpts)
@@ -30,13 +30,14 @@ C:\Wan2GP\                      ← repo + launcher data (self-contained)
    ├─ .electron\  .py-shim\  patches\  .reinstall-backup\
    └─ boot.log                  ← launcher diagnostic
 
-C:\Wan2GP-Models\               ← SEPARATE, your large files
+C:\Wan2GP-Models\               ← SEPARATE, your large files  [default location]
    ├─ ckpts\                    ← model checkpoints
    ├─ loras\                    ← LoRA models
    └─ outputs\                  ← generated videos/images/audio
 ```
 
-> 💡 The install screen pre-fills these defaults and warns if your model folders still point inside AppData. The dashboard shows a `MODELS` banner if it detects checkpoints/LoRAs under your roaming profile.
+> 💡 **`C:\Wan2GP` and `C:\Wan2GP-Models` are just the pre-filled defaults** — shown here because they're what the installer suggests. You can place the install and the model folders on **any drive or folder** at install time (Browse) or later via the in-app **Migrate to new location** button. The tree above is the default layout; your actual paths are whatever you chose.
+> The install screen pre-fills these defaults and warns if your model folders still point inside AppData. The dashboard shows a `MODELS` banner if it detects checkpoints/LoRAs under your roaming profile.
 
 ## Prerequisites
 
