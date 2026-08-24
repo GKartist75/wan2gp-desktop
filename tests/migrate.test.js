@@ -221,3 +221,58 @@ test('ensureRepoGit: lifts nested or legacy .git into the flat target repo', () 
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+// Regression for issues #76 / #73: the INITIAL INSTALL clone path (main.js
+// mergeDir -> moveDirAtomic) merges %TEMP%/wan2gp-clone-* into the target install
+// dir. When that dir is on a different drive than %TEMP%, rename throws EXDEV.
+// moveDirAtomic must fall back to copy + remove so the clone step succeeds
+// cross-drive. We load both functions from main.js and simulate EXDEV.
+test('mergeDir/install clone: cross-drive (EXDEV) falls back to copy, no throw (#76/#73)', () => {
+  const fs2 = require('fs')
+  const src = fs2.readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  // Brace-match a function starting at `startIdx` so we never over/under-grab.
+  function extractFn(startIdx) {
+    let i = src.indexOf('{', startIdx), depth = 0
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++
+      else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(startIdx, i + 1) }
+    }
+    return ''
+  }
+  const mdaStart = src.indexOf('function moveDirAtomic')
+  const mdStart = src.indexOf('function mergeDir')
+  const code = extractFn(mdaStart) + '\n' + extractFn(mdStart) + '\nreturn { moveDirAtomic, mergeDir };'
+  const fn = new Function('fs', 'path', 'logError', code)
+  const { mergeDir } = fn(fs2, require('path'), () => {})
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'))
+  try {
+    const srcDir = path.join(root, 'wan2gp-clone-123')
+    const dstDir = path.join(root, 'Wan2GP')
+    fs2.mkdirSync(path.join(srcDir, '.git'), { recursive: true })
+    fs2.writeFileSync(path.join(srcDir, '.git', 'config'), 'gitdir')
+    fs2.writeFileSync(path.join(srcDir, 'wgp.py'), '# entry')
+    fs2.mkdirSync(path.join(srcDir, 'sub'), { recursive: true })
+    fs2.writeFileSync(path.join(srcDir, 'sub', 'x.txt'), 'data')
+
+    // Force every rename to throw EXDEV (cross-drive simulation).
+    const origRename = fs2.renameSync
+    fs2.renameSync = () => {
+      const e = new Error('EXDEV: cross-device link not permitted')
+      e.code = 'EXDEV'
+      throw e
+    }
+    let threw = null
+    try { mergeDir(srcDir, dstDir) } catch (e) { threw = e }
+    fs2.renameSync = origRename
+    assert.strictEqual(threw, null, 'mergeDir should not throw on EXDEV')
+    assert.ok(fs2.existsSync(path.join(dstDir, 'wgp.py')), 'entry copied')
+    assert.ok(fs2.existsSync(path.join(dstDir, '.git', 'config')), '.git copied')
+    assert.ok(fs2.existsSync(path.join(dstDir, 'sub', 'x.txt')), 'nested file copied')
+    // Source content moved into destination (copy+remove fallback consumed children;
+    // the empty top dir is removed by the caller at main.js:1211).
+    assert.ok(fs2.readdirSync(srcDir).length === 0, 'temp clone emptied after merge')
+  } finally {
+    fs2.rmSync(root, { recursive: true, force: true })
+  }
+})
