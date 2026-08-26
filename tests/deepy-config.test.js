@@ -66,7 +66,7 @@ test('setDeepy disabled writes enabled=0 and leaves engine untouched', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('setDeepy zero writes enabled=1, type=zero and defaults enhancer_enabled to 3 (Qwen3.5-4B)', () => {
+test('setDeepy zero applies the full Deepy Zero default preset + local model', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
   try {
     const cfgPath = makeRepo(dir)
@@ -78,6 +78,21 @@ test('setDeepy zero writes enabled=1, type=zero and defaults enhancer_enabled to
     assert.strictEqual(after.deepy_enabled, 1)
     assert.strictEqual(after.deepy_type, 'zero')
     assert.strictEqual(after.enhancer_enabled, 3) // Qwen3.5-4B, required for local Deepy
+    // Full preset from shared/deepy/config.py get_deepy_default_runtime_config()
+    assert.strictEqual(after.deepy_vram_mode, 'unload')
+    assert.strictEqual(after.deepy_context_tokens, 16386)
+    assert.strictEqual(after.deepy_kv_cache_quantization, 'auto')
+    assert.strictEqual(after.deepy_compaction_type, 'discard')
+    assert.strictEqual(after.deepy_tool_gen_image, 'Krea 2 Turbo (8 Steps)')
+    assert.strictEqual(after.deepy_tool_edit_image, 'Flux Klein 9B')
+    assert.strictEqual(after.deepy_tool_gen_video, 'LTX-2 2.5 Distilled')
+    assert.strictEqual(after.deepy_tool_gen_video_with_speech, 'LTX-2.5 Distilled With Sound')
+    assert.strictEqual(after.deepy_tool_gen_song, 'ACE-Step 1.5 Turbo LM 1.7B')
+    assert.strictEqual(after.deepy_tool_gen_speech_from_description, 'Qwen3 1.7B')
+    assert.strictEqual(after.deepy_tool_gen_speech_from_sample, 'Index TTS 2')
+    assert.strictEqual(after.deepy_zero_custom_system_prompt, '')
+    assert.strictEqual(after.deepy_auto_cancel_queue_tasks, true)
+    assert.strictEqual(after.deepy_separate_requests_with_empty_line, true)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 

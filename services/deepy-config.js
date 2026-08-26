@@ -31,6 +31,28 @@ const DEEPY_MODES = {
   prime: { enabled: 1, type: 'prime' }
 }
 
+// Full Deepy Zero default preset — mirrors Wan2GP's
+// shared/deepy/config.py get_deepy_default_runtime_config() so the launcher
+// applies the exact working combination (VRAM mode, context tokens, KV-cache
+// quantization, compaction type, tool variants, local model). Read-only source
+// of truth; values copied here so the service has no Wan2GP import dep.
+const DEEPY_ZERO_PRESET = {
+  deepy_vram_mode: 'unload',
+  deepy_context_tokens: 16386,
+  deepy_kv_cache_quantization: 'auto',
+  deepy_compaction_type: 'discard',
+  deepy_tool_gen_image: 'Krea 2 Turbo (8 Steps)',
+  deepy_tool_edit_image: 'Flux Klein 9B',
+  deepy_tool_gen_video: 'LTX-2 2.5 Distilled',
+  deepy_tool_gen_video_with_speech: 'LTX-2.5 Distilled With Sound',
+  deepy_tool_gen_song: 'ACE-Step 1.5 Turbo LM 1.7B',
+  deepy_tool_gen_speech_from_description: 'Qwen3 1.7B',
+  deepy_tool_gen_speech_from_sample: 'Index TTS 2',
+  deepy_zero_custom_system_prompt: '',
+  deepy_auto_cancel_queue_tasks: true,
+  deepy_separate_requests_with_empty_line: true
+}
+
 // Derive the current Deepy mode from the persisted fields.
 function currentMode(cfg) {
   if (!cfg) return 'disabled'
@@ -99,9 +121,13 @@ function setDeepy(deps, repoDir, mode, engineId) {
       cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
     }
   } else if (mode === 'zero') {
-    // Local model path: ensure the Prompt Enhancer is a valid Qwen3.5/3.8 VL.
+    // Local model path: apply the full Deepy Zero default preset (VRAM mode,
+    // context tokens, KV-cache quantization, compaction type, tool variants)
+    // so it matches Wan2GP's working combination, then ensure the Prompt
+    // Enhancer is a valid Qwen3.5/3.8 VL local model.
     // 3 = Qwen3.5-4B (recommended default local model). Leave it alone only if
     // it is already a valid local Qwen variant; otherwise default to 3.
+    Object.assign(cfg, DEEPY_ZERO_PRESET)
     const valid = new Set([3, 4, 5])
     const cur = parseInt(cfg.enhancer_enabled, 10)
     if (!valid.has(cur)) cfg.enhancer_enabled = 3
