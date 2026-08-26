@@ -2195,7 +2195,7 @@ async function refreshLLMEngines() {
       ? `<div class="pip-advanced-hint">${e.auth.help}</div>`
       : ''
     const keyNote = e.claudeApiKeySet
-      ? `<div class="pip-advanced-hint" style="color:#4ADE80">✓ Anthropic API key active — Claude Code will connect without a Max/Pro plan.</div>`
+      ? `<div class="pip-advanced-hint" style="color:#4ADE80">✓ Anthropic API key active — Claude Code will use it instead of a Max/Pro login (needs API credits in the Console; billed per use).</div>`
       : ''
     return `<div class="llm-engine-card">
       <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>

@@ -35,6 +35,16 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 - 🔄 **Safe updates** — manual-only, version-aware; nothing downloads or installs without your action.
 - 🛡️ **Crash-proof UI** — renderer-crash watchdog, no blank-screen regressions, GPU-off recovery override.
 
+## Remote LLM engines (Deepy Prime)
+
+The Dashboard's **Remote LLMs / Deepy Prime** section has guided cards for three engines. They are **not** all free:
+
+- 🟢 **OpenCode — easiest & free.** Local models only (Llama.cpp / LM Studio / etc.). No Anthropic or OpenAI account, no credits, no API key. Install via the card's **Install via npm** button, click **Start server**, and point Wan2GP at `http://127.0.0.1:4096`. **Zero cost.**
+- 💲 **Claude Code — paid.** Either a **Max/Pro subscription** (sign in via `claude auth login --claudeai`) **or** an **Anthropic Console API key with credits** (Settings → "Claude / Anthropic API Key", injected as `ANTHROPIC_API_KEY`). The API key replaces the subscription but is **not free** — it requires API credits / billing in the Console (pay-as-you-go, billed per token).
+- 💲 **OpenAI Codex — paid.** Its own npm CLI plus an OpenAI account / API access.
+
+> New to this? **Start with OpenCode** — it's the only zero-cost option and needs no external account.
+
 ---
 
 ## Download

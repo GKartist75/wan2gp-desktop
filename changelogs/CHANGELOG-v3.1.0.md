@@ -23,11 +23,14 @@ Guided LLM engine setup for Deepy Prime — Claude Code, OpenAI Codex, and OpenC
   shows a live `pip install <spec>` preview you can copy, and accepts either a bare spec
   (`claude-agent-sdk==0.1.40`) or a full pasted command (`pip install claude-agent-sdk==0.1.40`)
   by stripping the leading `pip install` / `python -m pip install` prefix before validating.
-- **Anthropic API key option (connect without Max/Pro).** Settings → "Claude / Anthropic
-  API Key" stores a Console `sk-ant-...` key locally and injects `ANTHROPIC_API_KEY` into
-  every Wan2GP + Claude Code spawn. Per Claude Code's auth docs, a Console key takes
-  precedence over OAuth for CLI sessions, so Claude Code works without a Max/Pro plan.
-  The Claude Code card shows a green "API key active" note when set.
+- **Anthropic API key option (alternative to a Max/Pro subscription — paid API usage).**
+  Settings → "Claude / Anthropic API Key" stores a Console `sk-ant-...` key locally and
+  injects `ANTHROPIC_API_KEY` into every Wan2GP + Claude Code spawn. Per Claude Code's
+  auth docs, a Console key takes precedence over OAuth for CLI sessions, so Claude Code
+  works **without a Max/Pro subscription** — but it is **not free**: the key requires an
+  Anthropic Console account with **API credits / billing enabled** (pay-as-you-go, billed
+  per token). Buy usage credits in the Console, then create the key. The Claude Code card
+  shows a green "API key active" note when set.
 - **Windows CLI resolution fixed.** `resolveCmd` locates `.cmd` shims (`npm.cmd`,
   `opencode.cmd`, `claude`) across PATH **and** the nvm4w/Node install dirs, fixing the
   `spawn npm ENOENT` that broke Codex/OpenCode installs when the launcher was
@@ -35,6 +38,16 @@ Guided LLM engine setup for Deepy Prime — Claude Code, OpenAI Codex, and OpenC
 - **Claude sign-in reworked.** The previous silent `claude auth login --claudeai` launch
   blocked on Max/Pro with no feedback; the button now opens the official how-to page
   instead, and the API-key route covers the no-Max/Pro case.
+- **Which engine should I use? (cost reality).**
+  - **OpenCode — easiest and free.** Local models only (Llama.cpp / LM Studio / etc.).
+    No Anthropic or OpenAI account, no credits, no API key. Install via the card, click
+    **Start server**, point Wan2GP at `http://127.0.0.1:4096`. Zero cost.
+  - **Claude Code — paid.** Either a **Max/Pro subscription** (OAuth via
+    `claude auth login --claudeai`) **or** an **Anthropic Console API key with credits**
+    (the Settings key field, injected as `ANTHROPIC_API_KEY`). The API key replaces the
+    subscription but is **not free** — it needs API credits / billing in the Console
+    (pay-as-you-go, billed per token).
+  - **OpenAI Codex — paid.** Its own npm CLI plus an OpenAI account / API access.
 - **Tests:** added `tests/pip-spec.test.js`, `tests/llm-engines.test.js`,
   `tests/resolve-cmd.test.js`, `tests/normalize-pip-spec.test.js`. Suite now
   **157 passing** (was 143).
