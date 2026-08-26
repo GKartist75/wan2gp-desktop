@@ -15,7 +15,8 @@ const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
 const { assertSafePipSpec } = require('./services/pip-spec.js')
-const { LLM_ENGINES, pipModuleFor } = require('./services/llm-engines.js')
+const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('./services/llm-engines.js')
+const { resolveCmd } = require('./services/resolve-cmd.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
@@ -4446,15 +4447,23 @@ ipcMain.handle('llm-engine-install', async (_, engineId) => {
     }
 
     if (e.install.mode === 'npm') {
-      // External agent CLI (Codex / OpenCode): install via npm -g. argv only,
-      // no shell. Catalog spec is a plain package name (no injection surface).
+      // External agent CLI (Codex / OpenCode): install via npm -g. Catalog spec
+      // is a plain package name (no injection surface). npm is a .cmd shim on
+      // Windows, so resolve it and run via shell:true.
       const pkg = e.install.spec
       if (!/^[A-Za-z0-9._@/-]+$/.test(pkg)) return { error: 'Bad npm package name' }
+      const npmBin = resolveCmd('npm', {
+        path: process.env.PATH || '',
+        appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      })
+      if (!npmBin) return { error: 'npm not found on PATH. Install Node.js (https://nodejs.org) and retry.' }
       send('launch-log', `[*] Installing ${pkg} via npm (global)...\n`)
       await new Promise((resolve, reject) => {
         const args = e.install.global ? ['install', '-g', pkg] : ['install', pkg]
-        const proc = spawn('npm', args, {
-          cwd: getRepoDir(), timeout: 600000, windowsHide: true,
+        const proc = spawn(npmBin, args, {
+          cwd: getRepoDir(), timeout: 600000, windowsHide: true, shell: true,
           env: { ...process.env, PYTHONUNBUFFERED: '1' }
         })
         proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -4485,8 +4494,14 @@ ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
     }
     if (action === 'start') {
       if (_llmServerProcs[engineId]) return { success: true, running: true, already: true }
-      const proc = spawn(e.serve.cmd, e.serve.args, {
-        cwd: getRepoDir(), windowsHide: false,
+      const cmd = resolveCmd(e.serve.cmd, {
+        path: process.env.PATH || '',
+        appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      }) || e.serve.cmd
+      const proc = spawn(cmd, e.serve.args, {
+        cwd: getRepoDir(), windowsHide: false, shell: true,
         env: { ...process.env }
       })
       proc.on('exit', () => { delete _llmServerProcs[engineId] })
