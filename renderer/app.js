@@ -2180,15 +2180,23 @@ async function refreshLLMEngines() {
     if (e.serve) {
       serveBtn = `<button class="pip-install-btn llm-serve-btn" data-engine="${e.id}">Start server</button>`
     }
+    let authBtn = ''
+    if (e.auth) {
+      // Only offer sign-in once the CLI is present (no point before install).
+      authBtn = `<button class="pip-install-btn llm-auth-btn" data-engine="${e.id}" ${e.cliOnPath ? '' : 'disabled title="Install/resolve the CLI first"'}>Sign in</button>`
+    }
     const serverRow = e.serverUrl
       ? `<div class="spec-row"><span class="spec-label">Server</span><span class="spec-value">${e.serverUrl}</span></div>`
       : ''
     const notes = e.notes ? `<div class="pip-advanced-hint">${e.notes}</div>` : ''
-    const auth = e.authHint ? `<div class="pip-advanced-hint">${e.authHint}</div>` : ''
+    const auth = e.auth
+      ? `<div class="pip-advanced-hint">${e.auth.help}</div>`
+      : ''
     return `<div class="llm-engine-card">
       <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>
       <div class="env-specs">${cliRow}${pipRow}${serverRow}</div>
       ${serveBtn ? `<div class="llm-serve-row">${serveBtn}</div>` : ''}
+      ${authBtn ? `<div class="llm-serve-row">${authBtn}</div>` : ''}
       <div class="pip-advanced-hint">${e.desc}</div>${auth}${notes}
     </div>`
   }).join('')
@@ -2215,6 +2223,17 @@ async function refreshLLMEngines() {
       } else {
         showToast('✗ ' + (r && r.error ? r.error : 'server action failed'))
       }
+    })
+  })
+  list.querySelectorAll('.llm-auth-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.engine
+      btn.disabled = true; btn.textContent = 'opening...'
+      const r = await window.w2gp.llmEngineAuth(id)
+      btn.textContent = 'Sign in'
+      btn.disabled = false
+      if (r && r.success) showToast('✓ ' + id + ' sign-in window opened (complete it in the browser)')
+      else showToast('✗ ' + (r && r.error ? r.error : 'auth failed'))
     })
   })
 }

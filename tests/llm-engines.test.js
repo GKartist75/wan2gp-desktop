@@ -26,6 +26,14 @@ test('claude-code carries the pinned install spec from REMOTE_LLMS.md', () => {
   assert.strictEqual(c.cli, 'claude')
 })
 
+test('claude-code has an interactive sign-in step (auth)', () => {
+  const c = LLM_ENGINES.find(e => e.id === 'claude-code')
+  assert.ok(c.auth, 'claude-code must define an auth step')
+  assert.strictEqual(c.auth.cmd, 'claude')
+  assert.deepStrictEqual(c.auth.args, ['auth', 'login', '--claudeai'])
+  assert.ok(/does not receive or store/i.test(c.auth.help))
+})
+
 test('codex and opencode are external with npm installers + opencode has a server', () => {
   const codex = LLM_ENGINES.find(e => e.id === 'codex')
   const oc = LLM_ENGINES.find(e => e.id === 'opencode')

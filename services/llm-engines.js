@@ -33,7 +33,12 @@ const LLM_ENGINES = [
     pipPackage: 'claude_agent_sdk',
     install: { mode: 'pip', spec: 'claude-agent-sdk==0.1.40' },
     external: false,
-    authHint: 'After install, run `claude auth login --claudeai` once in a terminal.',
+    // One-time interactive sign-in required before the bridge works.
+    auth: {
+      cmd: 'claude',
+      args: ['auth', 'login', '--claudeai'],
+      help: 'WanGP does not receive or store your password or tokens. Authentication is owned by Claude Code.'
+    },
     notes: 'Pinned to 0.1.40 on purpose — a newer SDK can clobber Wan2GP’s MCP/Pydantic deps.'
   },
   {

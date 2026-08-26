@@ -4512,6 +4512,31 @@ ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
   } catch (err) { return { error: err.message } }
 })
 
+// One-time interactive sign-in for an engine (e.g. `claude auth login --claudeai`).
+// The CLI is a .cmd shim, so resolve it and run with a visible terminal.
+ipcMain.handle('llm-engine-auth', async (_, engineId) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.auth) return { error: 'This engine has no sign-in step' }
+    const cli = resolveCmd(e.auth.cmd, {
+      path: process.env.PATH || '',
+      appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+      programFiles: process.env.ProgramFiles,
+      systemDrive: process.env.SystemDrive || 'C:\\\\'
+    })
+    if (!cli) return { error: e.auth.cmd + ' not found on PATH. Install it first.' }
+    send('launch-log', `[*] Opening ${e.label} sign-in (${e.auth.cmd} ${e.auth.args.join(' ')} )...\n`)
+    const proc = spawn(cli, e.auth.args, {
+      cwd: getRepoDir(), windowsHide: false, shell: true,
+      env: { ...process.env }
+    })
+    // Auth is interactive (opens a browser). We just confirm the process spawned;
+    // success/failure is for the user to complete in the browser.
+    proc.on('error', (err) => send('launch-log', `[!] auth error: ${err.message}\n`))
+    return { success: true }
+  } catch (err) { return { error: err.message } }
+})
+
 // ── Hardware detection ──
 ipcMain.handle('detect-hardware', async () => {
   // Async, bounded — CPU/RAM come from node os (instant), GPU/VRAM from the

@@ -134,6 +134,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   llmEnginesList: () => ipcRenderer.invoke('llm-engines:list'),
   llmEngineInstall: (engineId) => ipcRenderer.invoke('llm-engine-install', engineId),
   llmEngineServe: (engineId, action) => ipcRenderer.invoke('llm-engine-serve', engineId, action),
+  llmEngineAuth: (engineId) => ipcRenderer.invoke('llm-engine-auth', engineId),
 
   // Desktop experience: tray, auto-start, notifications, theme
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
