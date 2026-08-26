@@ -255,6 +255,7 @@ function openSettings() {
     if ($('portInput')) $('portInput').value = cfg.serverPort || 7860
     if ($('githubTokenInput')) $('githubTokenInput').value = cfg.githubToken || ''
     if ($('hfTokenInput')) $('hfTokenInput').value = cfg.hfToken || ''
+    if ($('claudeApiKeyInput')) $('claudeApiKeyInput').value = cfg.claudeApiKey || ''
     // Floating terminal default dock
     const td = cfg.termDockDefault || 'bottom'
     document.querySelectorAll('input[name="termDock"]').forEach(r => { r.checked = (r.value === td) })
@@ -2457,6 +2458,21 @@ $('hfTokenClearBtn')?.addEventListener('click', async () => {
   await window.w2gp.configSave(cfg)
   if ($('hfTokenInput')) $('hfTokenInput').value = ''
   showToast('HuggingFace token cleared')
+})
+$('claudeApiKeySaveBtn')?.addEventListener('click', async () => {
+  const token = $('claudeApiKeyInput')?.value
+  if (!token) return
+  const cfg = await window.w2gp.configLoad()
+  cfg.claudeApiKey = token
+  await window.w2gp.configSave(cfg)
+  showToast('Claude API key saved — it will be used for Claude Code on next launch')
+})
+$('claudeApiKeyClearBtn')?.addEventListener('click', async () => {
+  const cfg = await window.w2gp.configLoad()
+  cfg.claudeApiKey = null
+  await window.w2gp.configSave(cfg)
+  if ($('claudeApiKeyInput')) $('claudeApiKeyInput').value = ''
+  showToast('Claude API key cleared')
 })
 $('launchArgsSaveBtn')?.addEventListener('click', async () => {
   const args = $('launchArgsInput')?.value || ''

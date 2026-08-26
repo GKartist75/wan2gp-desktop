@@ -59,6 +59,15 @@
           <p class="token-hint">Optional — needed for gated models. Saved to <code>desktop-config.json</code> and passed as <code>HF_TOKEN</code> to Wan2GP on launch.</p>
         </div>
         <div class="settings-section">
+          <h3>Claude / Anthropic API Key</h3>
+          <div class="token-field">
+            <input type="password" id="claudeApiKeyInput" class="input" placeholder="sk-ant-...">
+            <button class="btn btn-primary small" id="claudeApiKeySaveBtn">Save</button>
+            <button class="btn btn-ghost small" id="claudeApiKeyClearBtn">Clear</button>
+          </div>
+          <p class="token-hint">Optional — lets Claude Code connect without a Max/Pro subscription (a Console API key takes precedence over an OAuth login for CLI sessions). Saved locally and passed as <code>ANTHROPIC_API_KEY</code> to Wan2GP on launch. Leave blank to use OAuth (<code>claude auth login --claudeai</code>).</p>
+        </div>
+        <div class="settings-section">
           <h3>Default Browser</h3>
           <p class="token-hint">Used when launching Wan2GP in your browser ("Launch in Browser" opens the OS default).</p>
           <div class="browser-list" id="browserList"></div>

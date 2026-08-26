@@ -847,7 +847,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function saveConfig(cfg) {
@@ -1949,6 +1949,11 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
 
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
+  // Surface the optional Claude/Anthropic API key to every spawn (Wan2GP launch,
+  // and the Claude Code auth/serve terminals) so Claude Code can connect without
+  // a Max/Pro subscription. A Console key takes precedence over OAuth for CLI
+  // sessions per Claude Code's auth docs.
+  if (launchCfg.claudeApiKey) process.env.ANTHROPIC_API_KEY = launchCfg.claudeApiKey
   // AMD session env (upstream AMD-INSTALLATION.md parity): HSA override from
   // the repo's own setup_config.json profile + the guide's mandated ROCm
   // session flags. Merged into every spawn AND baked into the generated
