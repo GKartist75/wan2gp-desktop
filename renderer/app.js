@@ -2257,7 +2257,6 @@ async function refreshDeepy() {
   const opts = $('deepyEngineOptions')
   const statusMsg = $('deepyStatusMsg')
   const applyBtn = $('deepyApplyBtn')
-  const launchBtn = $('deepyLaunchBtn')
   const docsLink = $('deepyDocsLink')
   const primeOnly = $('deepyPrimeOnly')
   const modeRadios = document.querySelectorAll('input[name=deepyMode]')
@@ -2348,12 +2347,6 @@ async function refreshDeepy() {
       showToast('✗ ' + (r && r.error ? r.error : 'update failed'))
       applyBtn.disabled = false
     }
-  }
-  if (launchBtn) launchBtn.onclick = async () => {
-    launchBtn.disabled = true; launchBtn.textContent = 'Launching...'
-    try { await window.w2gp.launch(); showToast('✓ Wan2GP launching — click "Ask Deepy" once it opens') }
-    catch (e) { showToast('✗ launch failed: ' + (e.message || e)) }
-    launchBtn.disabled = false; launchBtn.textContent = 'Launch Wan2GP'
   }
   if (docsLink) docsLink.onclick = async (ev) => {
     ev.preventDefault()
