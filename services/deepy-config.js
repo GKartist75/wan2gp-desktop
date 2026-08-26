@@ -57,6 +57,19 @@ const ENHANCER_IDS_BY_MODE = {
   prime: [] // Prime uses a remote LLM; local model not used
 }
 
+// enhancer_enabled id -> Wan2GP llm_engines.deepy engine string (shared/remote_llm/config.py).
+// Wan2GP's Deepy Zero/Disabled "LLM engine" dropdown reads llm_engines.deepy and
+// DERIVES enhancer_enabled from it (local_enhancer_id). So the launcher must set
+// BOTH to a consistent pair, or Wan2GP will ignore the enhancer_enabled value and
+// show/keep the wrong model.
+const ENHANCER_ID_TO_ENGINE = {
+  1: 'local_florence_llama32',   // Florence 2 + Llama 3.2 3B
+  2: 'local_florence_llamajoy',  // Florence 2 + Llama Joy 8B
+  3: 'qwen35_4b',                // Qwen3.5 VL Abliterated 4B
+  4: 'qwen35_9b',                // Qwen3.5 VL Abliterated 9B
+  5: 'qwen38_27b'                // Qwen3.8 VL Uncensored 27B
+}
+
 // Full Deepy Zero default preset — mirrors Wan2GP's
 // shared/deepy/config.py get_deepy_default_runtime_config() so the launcher
 // applies the exact working combination (VRAM mode, context tokens, KV-cache
@@ -179,10 +192,10 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
     cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
     cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
     cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
-    const resolved = resolveCmd
-      ? resolveCmd(map.exe, { path: process.env.PATH, appData: process.env.LOCALAPPDATA, programFiles: process.env.ProgramFiles, systemDrive: process.env.SystemDrive || 'C:\\\\' })
-      : null
-    cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
+    // Write the LITERAL engine name ("opencode"), not a resolved absolute path.
+    // Wan2GP auto-detects the binary itself (shared/remote_llm/opencode_backend.py
+    // _resolve_opencode_executable) — an absolute path is brittle and bypasses that.
+    cfg.llm_engines.profiles[map.profile].executable = map.exe
     if (map.profile === 'opencode') {
       cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
     }
@@ -192,11 +205,20 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
   } else if (mode === 'zero') {
     // Apply the full Deepy Zero default preset (VRAM mode, context tokens,
     // KV-cache quantization, compaction type, tool variants) and the chosen
-    // local Qwen model (enhancer_enabled, already resolved to a valid 3/4/5).
+    // local Qwen model. Wan2GP's Deepy Zero "LLM engine" dropdown reads
+    // llm_engines.deepy and DERIVES enhancer_enabled from it, so we must set
+    // BOTH to a consistent pair (here: qwen35_4b / 9b / qwen38_27b + id 3/4/5).
+    cfg.llm_engines = cfg.llm_engines || {}
+    cfg.llm_engines.deepy = ENHANCER_ID_TO_ENGINE[enhancer.id] || 'qwen35_4b'
+    cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
     Object.assign(cfg, DEEPY_ZERO_PRESET)
   } else if (mode === 'disabled') {
-    // Disabled: keep the chosen local model (Florence 2 + Llama 3.2 3B = 1).
-    // No Deepy-specific preset needed.
+    // Disabled: keep the chosen local model (Florence 2 + Llama 3.2/3B). Set
+    // llm_engines.deepy to the matching engine string AND enhancer_enabled so
+    // the value is consistent and persisted for when Deepy is toggled back on.
+    cfg.llm_engines = cfg.llm_engines || {}
+    cfg.llm_engines.deepy = ENHANCER_ID_TO_ENGINE[enhancer.id] || 'local_florence_llama32'
+    cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
@@ -216,6 +238,6 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
 
 module.exports = {
   DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, DEEPY_ENHANCER_OPTIONS,
-  ENHANCER_IDS_BY_MODE, currentMode, currentEnhancerId, readStatus, setDeepy,
+  ENHANCER_IDS_BY_MODE, ENHANCER_ID_TO_ENGINE, currentMode, currentEnhancerId, readStatus, setDeepy,
   resolveEnhancerId
 }

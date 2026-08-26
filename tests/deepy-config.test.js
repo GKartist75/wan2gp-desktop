@@ -51,7 +51,7 @@ test('readStatus surfaces current mode', () => {
   assert.strictEqual(s.currentEngine, 'claude')
 })
 
-test('setDeepy disabled writes enabled=0 and leaves engine untouched', () => {
+test('setDeepy disabled writes enabled=0 and the Florence 2 local engine', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
   try {
     const cfgPath = makeRepo(dir)
@@ -61,7 +61,9 @@ test('setDeepy disabled writes enabled=0 and leaves engine untouched', () => {
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     assert.strictEqual(after.deepy_enabled, 0)
     assert.strictEqual(after.deepy_type, 'zero')
-    assert.strictEqual(after.llm_engines.deepy, 'opencode') // untouched
+    // Wan2GP derives enhancer_enabled from llm_engines.deepy, so both must be set.
+    assert.strictEqual(after.llm_engines.deepy, 'local_florence_llama32')
+    assert.strictEqual(after.llm_engines.prompt_enhancer, 'same_as_deepy')
     assert.strictEqual(after.enhancer_enabled, 1) // Florence 2 + Llama 3.2 3B (local)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
@@ -78,6 +80,9 @@ test('setDeepy zero applies the full Deepy Zero default preset + local model', (
     assert.strictEqual(after.deepy_enabled, 1)
     assert.strictEqual(after.deepy_type, 'zero')
     assert.strictEqual(after.enhancer_enabled, 3) // Qwen3.5-4B, required for local Deepy
+    // Wan2GP derives enhancer_enabled from llm_engines.deepy -> must be consistent.
+    assert.strictEqual(after.llm_engines.deepy, 'qwen35_4b')
+    assert.strictEqual(after.llm_engines.prompt_enhancer, 'same_as_deepy')
     // Full preset from shared/deepy/config.py get_deepy_default_runtime_config()
     assert.strictEqual(after.deepy_vram_mode, 'unload')
     assert.strictEqual(after.deepy_context_tokens, 16386)
@@ -104,6 +109,7 @@ test('setDeepy zero with explicit enhancer_id 5 (Qwen3.8-27B) is honored', () =>
     assert.strictEqual(r.ok, true)
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     assert.strictEqual(after.enhancer_enabled, 5)
+    assert.strictEqual(after.llm_engines.deepy, 'qwen38_27b')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
@@ -131,6 +137,7 @@ test('setDeepy disabled with explicit enhancer_id 1 (Florence) is honored', () =
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     assert.strictEqual(after.deepy_enabled, 0)
     assert.strictEqual(after.enhancer_enabled, 1)
+    assert.strictEqual(after.llm_engines.deepy, 'local_florence_llama32')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
@@ -164,9 +171,12 @@ test('setDeepy prime wires the chosen engine + executable + base_url', () => {
     assert.strictEqual(r.ok, true)
     assert.strictEqual(r.mode, 'prime')
     assert.strictEqual(r.engine, 'opencode')
-    assert.strictEqual(r.executable, 'C:\\nvm4w\\nodejs\\opencode.cmd')
+    // Executable must be the LITERAL engine name (Wan2GP auto-detects the
+    // binary itself); the resolved absolute path is NOT written.
+    assert.strictEqual(r.executable, 'opencode')
     assert.ok(fs.existsSync(cfgPath + '.deepy-bak'), 'backup created')
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    assert.strictEqual(after.llm_engines.profiles.opencode.executable, 'opencode')
     assert.strictEqual(after.deepy_enabled, 1)
     assert.strictEqual(after.deepy_type, 'prime')
     assert.strictEqual(after.llm_engines.deepy, 'opencode')
