@@ -478,6 +478,11 @@ body {
 .deepy-mode-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.62rem; cursor: pointer; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .deepy-mode-opt:hover { border-color: var(--accent); }
 .deepy-mode-sub { font-size: 0.5rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.deepy-sub-label { font-size: 0.56rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+.deepy-enhancer-options { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.deepy-enhancer-opt { display: flex; align-items: center; gap: 8px; font-size: 0.62rem; cursor: pointer; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-enhancer-opt:hover { border-color: var(--accent); }
+.deepy-enhancer-label { font-weight: 600; color: var(--text-primary); }
 .deepy-actions { display: flex; gap: 8px; margin-top: 10px; }
 .dot-ok { color: #4ADE80; }
 .dot-bad { color: #F87171; }

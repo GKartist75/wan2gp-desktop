@@ -2253,12 +2253,25 @@ const DEEPY_PANEL_ENGINES = [
   { id: 'codex', label: 'OpenAI Codex', paid: true }
 ]
 
+// Local-model (Prompt Enhancer) choices shown in the Deepy panel when Deepy is
+// Disabled or Zero. Mirrors services/deepy-config.js DEEPY_ENHANCER_OPTIONS.
+// modes: which Deepy modes the option is valid for.
+const DEEPY_PANEL_ENHANCERS = [
+  { id: 1, label: 'Florence 2 + Llama 3.2 3B (local)', modes: ['disabled'] },
+  { id: 3, label: 'Qwen3.5 VL Abliterated 4B (local, recommended)', modes: ['zero'] },
+  { id: 4, label: 'Qwen3.5 VL Abliterated 9B (local)', modes: ['zero'] },
+  { id: 5, label: 'Qwen3.8 VL Uncensored 27B (local)', modes: ['zero'] }
+]
+
 async function refreshDeepy() {
   const opts = $('deepyEngineOptions')
   const statusMsg = $('deepyStatusMsg')
   const applyBtn = $('deepyApplyBtn')
   const docsLink = $('deepyDocsLink')
   const primeOnly = $('deepyPrimeOnly')
+  const enhancerWrap = $('deepyEnhancerWrap')
+  const enhancerOpts = $('deepyEnhancerOptions')
+  const enhancerHint = $('deepyEnhancerHint')
   const modeRadios = document.querySelectorAll('input[name=deepyMode]')
   if (!applyBtn) return
 
@@ -2284,6 +2297,7 @@ async function refreshDeepy() {
   const profileToUi = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
   const currentUi = profileToUi[currentProfile] || null
   const currentMode = status.mode || 'disabled'
+  const currentEnhancer = (typeof status.enhancerEnabled === 'number') ? status.enhancerEnabled : null
   // Default engine for Prime is OpenCode (universal providers / external, free).
   // Preserve an already-configured engine; otherwise fall back to OpenCode.
   let selectedEngine = currentUi || 'opencode'
@@ -2291,6 +2305,27 @@ async function refreshDeepy() {
   // Pre-select the current Deepy mode (Disabled / Zero / Prime).
   modeRadios.forEach(r => { r.checked = (r.value === currentMode) })
   primeOnly.style.display = (currentMode === 'prime') ? 'block' : 'none'
+
+  // Local-model (Prompt Enhancer) selector: shown for Disabled/Zero only.
+  const enhancerVisible = (currentMode === 'disabled' || currentMode === 'zero')
+  enhancerWrap.style.display = enhancerVisible ? 'block' : 'none'
+  if (enhancerVisible) {
+    // Options valid for this mode.
+    const optsForMode = DEEPY_PANEL_ENHANCERS.filter(o => o.modes.includes(currentMode))
+    // Pre-select: current persisted id if valid for this mode, else first option.
+    let selectedEnhancer = optsForMode.find(o => o.id === currentEnhancer)
+    if (!selectedEnhancer) selectedEnhancer = optsForMode[0]
+    const sub = (currentMode === 'zero')
+      ? 'Deepy Zero runs locally — pick the Qwen model Wan2GP will use.'
+      : 'Florence 2 + Llama 3.2 3B is the default local model when Deepy is off.'
+    if (enhancerHint) enhancerHint.textContent = sub
+    enhancerOpts.innerHTML = optsForMode.map(o => {
+      return `<label class="deepy-enhancer-opt">\n` +
+        `  <input type="radio" name="deepyEnhancer" value="${o.id}" ${o.id === selectedEnhancer.id ? 'checked' : ''}>\n` +
+        `  <span class="deepy-enhancer-label">${o.label}</span>\n` +
+        `</label>`
+    }).join('')
+  }
 
   opts.innerHTML = DEEPY_PANEL_ENGINES.map(en => {
     const isReady = ready(en.id)
@@ -2316,25 +2351,31 @@ async function refreshDeepy() {
   const syncApply = () => {
     const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
     primeOnly.style.display = (mode === 'prime') ? 'block' : 'none'
+    enhancerWrap.style.display = (mode === 'disabled' || mode === 'zero') ? 'block' : 'none'
     let ok = true
     let title = ''
     if (mode === 'prime') {
       const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
       if (!eng) { ok = false; title = 'Pick an engine for Deepy Prime' }
       else if (!ready(eng)) { ok = false; title = 'Install / enable this engine first (see LLM Engines above)' }
+    } else if (mode === 'disabled' || mode === 'zero') {
+      const enh = (enhancerOpts.querySelector('input[name=deepyEnhancer]:checked') || {}).value
+      if (!enh) { ok = false; title = 'Pick a local model (Prompt Enhancer)' }
     }
     applyBtn.disabled = !ok
     applyBtn.title = title || ('Set Deepy to ' + mode)
   }
   modeRadios.forEach(r => r.addEventListener('change', syncApply))
   opts.querySelectorAll('input[name=deepyEngine]').forEach(r => r.addEventListener('change', syncApply))
+  enhancerOpts.querySelectorAll('input[name=deepyEnhancer]').forEach(r => r.addEventListener('change', syncApply))
   syncApply()
 
   applyBtn.onclick = async () => {
     const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
     const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+    const enh = (enhancerOpts.querySelector('input[name=deepyEnhancer]:checked') || {}).value
     applyBtn.disabled = true; applyBtn.textContent = 'applying...'
-    const r = await window.w2gp.deepySet(mode, eng)
+    const r = await window.w2gp.deepySet(mode, eng, enh ? parseInt(enh, 10) : null)
     applyBtn.textContent = 'Apply'
     if (r && r.ok) {
       statusMsg.innerHTML = '<span style="color:#4ADE80">✓ ' + (r.message || 'Deepy updated') + '</span>'

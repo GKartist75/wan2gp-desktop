@@ -537,6 +537,15 @@
             <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="zero"> Deepy Zero <span class="deepy-mode-sub">local model</span></label>
             <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="prime"> Deepy Prime <span class="deepy-mode-sub">remote LLM</span></label>
           </div>
+          <!-- Local model (Prompt Enhancer) selector — shown for Disabled/Zero,
+               hidden for Prime. Options are data-driven from services/deepy-config.js
+               (DEEPY_ENHANCER_OPTIONS). -->
+          <div id="deepyEnhancerWrap" style="margin-top:10px; display:none">
+            <div class="deepy-sub-label">Local model (Prompt Enhancer)</div>
+            <div id="deepyEnhancerOptions" class="deepy-enhancer-options"></div>
+            <p class="path-hint" id="deepyEnhancerHint" style="margin-top:6px"></p>
+            <p class="path-hint" style="margin-top:4px"><em>You can also change these settings any time inside Wan2GP itself (Configuration → Prompt Enhancer / Deepy).</em></p>
+          </div>
           <div id="deepyPrimeOnly" style="display:none">
             <div class="deepy-cost-note">
               <span class="dot-ok">●</span> <strong>OpenCode</strong> — free, local models, no account.

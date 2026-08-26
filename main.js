@@ -4517,8 +4517,8 @@ ipcMain.handle('deepy:activate', async (_evt, engineId) => {
 // Configure Deepy mode: 'disabled' | 'zero' | 'prime'.
 // engineId required only when mode === 'prime' (UI id: opencode/claude-code/codex).
 // Pure logic lives in services/deepy-config.js (unit-tested).
-ipcMain.handle('deepy:set', async (_evt, { mode, engineId } = {}) => {
-  try { return setDeepyConfig({ fs, path, resolveCmd }, getRepoDir(), mode, engineId) }
+ipcMain.handle('deepy:set', async (_evt, { mode, engineId, enhancerId } = {}) => {
+  try { return setDeepyConfig({ fs, path, resolveCmd }, getRepoDir(), mode, engineId, enhancerId) }
   catch (e) { return { ok: false, error: e.message } }
 })
 

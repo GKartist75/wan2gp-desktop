@@ -7,10 +7,16 @@
  *   - zero     : deepy_enabled = 1, deepy_type = "zero"   (LOCAL Qwen model, no remote LLM)
  *   - prime    : deepy_enabled = 1, deepy_type = "prime"  (requires a remote LLM engine)
  *
- * Local Deepy model: Wan2GP's Prompt Enhancer (top-level "enhancer_enabled")
- * maps 3=Qwen3.5-4B, 4=Qwen3.5-9B, 5=Qwen3.8-27B. Deepy Zero ("local model")
- * only works if enhancer_enabled is one of {3,4,5}, so we default it to 3
- * (Qwen3.5-4B, the recommended local model) when enabling Zero.
+ * Local model / Prompt Enhancer: Wan2GP's top-level "enhancer_enabled" selects
+ * the local model. Canonical mapping (shared/remote_llm/config.py):
+ *   1 = Florence 2 + Llama 3.2 3B (local)        — the default when Deepy is off
+ *   2 = Florence 2 + Llama Joy 8B (local)
+ *   3 = Qwen3.5 VL Abliterated 4B (local, recommended)
+ *   4 = Qwen3.5 VL Abliterated 9B (local)
+ *   5 = Qwen3.8 VL Uncensored 27B (local)
+ * Deepy Zero/Prime("local model") only works if enhancer_enabled is one of
+ * {3,4,5} (deepy_requirement_error), so the launcher exposes those for Zero and
+ * Florence 2 (1) for Disabled.
  * Kept free of Electron/Node-only deps so it is unit-testable. The caller
  * passes in fs / path / resolveCmd (injected); in production main.js wires
  * the real ones.
@@ -29,6 +35,25 @@ const DEEPY_MODES = {
   disabled: { enabled: 0, type: 'zero' },
   zero: { enabled: 1, type: 'zero' },
   prime: { enabled: 1, type: 'prime' }
+}
+
+// Local-model (Prompt Enhancer) choices exposed in the Deepy panel, keyed by
+// enhancer_enabled id. Data-driven: one entry = one selectable option; no UI
+// branch per model. `modes` lists which Deepy modes the option is valid for.
+//   - 1 (Florence 2 + Llama 3.2 3B) is the default local model when Deepy is off.
+//   - 3/4/5 are the Qwen3.5/3.8 VL variants Deepy Zero/Prime require.
+const DEEPY_ENHANCER_OPTIONS = [
+  { id: 1, label: 'Florence 2 + Llama 3.2 3B (local)', modes: ['disabled'], recommended: false },
+  { id: 3, label: 'Qwen3.5 VL Abliterated 4B (local, recommended)', modes: ['zero'], recommended: true },
+  { id: 4, label: 'Qwen3.5 VL Abliterated 9B (local)', modes: ['zero'], recommended: false },
+  { id: 5, label: 'Qwen3.8 VL Uncensored 27B (local)', modes: ['zero'], recommended: false }
+]
+
+// Valid enhancer ids per Deepy mode (mirrors Wan2GP's requirement check).
+const ENHANCER_IDS_BY_MODE = {
+  disabled: [1],
+  zero: [3, 4, 5],
+  prime: [] // Prime uses a remote LLM; local model not used
 }
 
 // Full Deepy Zero default preset — mirrors Wan2GP's
@@ -67,12 +92,32 @@ const DEEPY_PRIME_PRESET = {
   deepy_separate_requests_with_empty_line: true
 }
 
+// Resolve the local-model (enhancer_enabled) id for a given mode + user choice.
+// Returns { id, fallback } where fallback is true when the user's id was
+// invalid for the mode and we substituted the mode's default.
+function resolveEnhancerId(mode, chosenId) {
+  const valid = ENHANCER_IDS_BY_MODE[mode] || []
+  if (mode === 'prime') return { id: null, fallback: false } // not used for Prime
+  if (chosenId != null && valid.includes(parseInt(chosenId, 10))) {
+    return { id: parseInt(chosenId, 10), fallback: false }
+  }
+  // Default: first valid option (Florence 2=1 for disabled, Qwen3.5-4B=3 for zero)
+  return { id: valid[0], fallback: true }
+}
+
 // Derive the current Deepy mode from the persisted fields.
 function currentMode(cfg) {
   if (!cfg) return 'disabled'
   const enabled = parseInt(cfg.deepy_enabled, 10)
   if (!enabled) return 'disabled'
   return (cfg.deepy_type === 'prime') ? 'prime' : 'zero'
+}
+
+// Derive the current local-model id from the persisted enhancer_enabled.
+function currentEnhancerId(cfg) {
+  if (!cfg) return null
+  const v = parseInt(cfg.enhancer_enabled, 10)
+  return Number.isNaN(v) ? null : v
 }
 
 function readStatus(cfg) {
@@ -86,6 +131,7 @@ function readStatus(cfg) {
     deepyType: cfg.deepy_type || null,
     currentEngine: le.deepy || null,
     promptEnhancer: le.prompt_enhancer || null,
+    enhancerEnabled: currentEnhancerId(cfg),
     engines: Object.keys(le.profiles || {})
   }
 }
@@ -97,9 +143,12 @@ function readStatus(cfg) {
  * @param {string} mode     'disabled' | 'zero' | 'prime'
  * @param {string|null} engineId  UI engine id ('opencode'|'claude-code'|'codex');
  *                                 required only when mode === 'prime'
- * @returns {{ok:boolean, mode?:string, engine?:string, executable?:string, backup?:string, message?:string, error?:string}}
+ * @param {number|null} enhancerId  local-model (enhancer_enabled) id (1/3/4/5);
+ *                                 used for disabled/zero; for zero it must be a
+ *                                 valid Qwen variant (3/4/5), else defaults to 3.
+ * @returns {{ok:boolean, mode?:string, engine?:string, executable?:string, enhancerId?:number, backup?:string, message?:string, error?:string}}
  */
-function setDeepy(deps, repoDir, mode, engineId) {
+function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
   const { fs, path, resolveCmd } = deps
   if (!DEEPY_MODES[mode]) return { ok: false, error: 'Unknown Deepy mode: ' + mode }
   if (mode === 'prime' && !DEEPY_ENGINE_MAP[engineId]) {
@@ -118,8 +167,10 @@ function setDeepy(deps, repoDir, mode, engineId) {
   cfg.deepy_enabled = m.enabled
   cfg.deepy_type = m.type
 
-  // Only Prime wires a remote LLM engine. Zero uses a local Qwen model and
-  // Disabled leaves the engine config untouched.
+  // Local-model (Prompt Enhancer) selection — only meaningful for disabled/zero.
+  const enhancer = resolveEnhancerId(mode, enhancerId)
+  if (mode !== 'prime') cfg.enhancer_enabled = enhancer.id
+
   if (mode === 'prime') {
     const map = DEEPY_ENGINE_MAP[engineId]
     cfg.llm_engines = cfg.llm_engines || {}
@@ -128,7 +179,7 @@ function setDeepy(deps, repoDir, mode, engineId) {
     cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
     cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
     const resolved = resolveCmd
-      ? resolveCmd(map.exe, { path: process.env.PATH, appData: process.env.LOCALAPPDATA, programFiles: process.env.ProgramFiles, systemDrive: process.env.SystemDrive || 'C:\\' })
+      ? resolveCmd(map.exe, { path: process.env.PATH, appData: process.env.LOCALAPPDATA, programFiles: process.env.ProgramFiles, systemDrive: process.env.SystemDrive || 'C:\\\\' })
       : null
     cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
     if (map.profile === 'opencode') {
@@ -138,20 +189,13 @@ function setDeepy(deps, repoDir, mode, engineId) {
     // system access, etc.) so it matches Wan2GP's working Deepy Prime config.
     Object.assign(cfg, DEEPY_PRIME_PRESET)
   } else if (mode === 'zero') {
-    // Local model path: apply the full Deepy Zero default preset (VRAM mode,
-    // context tokens, KV-cache quantization, compaction type, tool variants)
-    // so it matches Wan2GP's working combination, then ensure the Prompt
-    // Enhancer is a valid Qwen3.5/3.8 VL local model.
-    // 3 = Qwen3.5-4B (recommended default local model). Leave it alone only if
-    // it is already a valid local Qwen variant; otherwise default to 3.
+    // Apply the full Deepy Zero default preset (VRAM mode, context tokens,
+    // KV-cache quantization, compaction type, tool variants) and the chosen
+    // local Qwen model (enhancer_enabled, already resolved to a valid 3/4/5).
     Object.assign(cfg, DEEPY_ZERO_PRESET)
-    const valid = new Set([3, 4, 5])
-    const cur = parseInt(cfg.enhancer_enabled, 10)
-    if (!valid.has(cur)) cfg.enhancer_enabled = 3
   } else if (mode === 'disabled') {
-    // Disabled: reset the Prompt Enhancer to the default local model
-    // (Florence 2 + Llama 3.2 3B), i.e. enhancer_enabled = 1.
-    cfg.enhancer_enabled = 1
+    // Disabled: keep the chosen local model (Florence 2 + Llama 3.2 3B = 1).
+    // No Deepy-specific preset needed.
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
@@ -163,9 +207,14 @@ function setDeepy(deps, repoDir, mode, engineId) {
     mode,
     engine: mode === 'prime' ? DEEPY_ENGINE_MAP[engineId].profile : null,
     executable: (mode === 'prime') ? cfg.llm_engines.profiles[DEEPY_ENGINE_MAP[engineId].profile].executable : null,
+    enhancerId: (mode !== 'prime') ? enhancer.id : null,
     backup: bak,
     message: label + '. Launch Wan2GP and click "Ask Deepy".'
   }
 }
 
-module.exports = { DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, currentMode, readStatus, setDeepy }
+module.exports = {
+  DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, DEEPY_ENHANCER_OPTIONS,
+  ENHANCER_IDS_BY_MODE, currentMode, currentEnhancerId, readStatus, setDeepy,
+  resolveEnhancerId
+}

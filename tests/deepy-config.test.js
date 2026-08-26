@@ -3,7 +3,7 @@ const assert = require('node:assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, currentMode, readStatus, setDeepy } = require('../services/deepy-config.js')
+const { DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, DEEPY_ENHANCER_OPTIONS, ENHANCER_IDS_BY_MODE, currentMode, currentEnhancerId, readStatus, setDeepy, resolveEnhancerId } = require('../services/deepy-config.js')
 
 function makeRepo(base, mutate) {
   const cfg = {
@@ -96,18 +96,64 @@ test('setDeepy zero applies the full Deepy Zero default preset + local model', (
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('setDeepy zero leaves a valid Qwen enhancer_enabled untouched (no clobber)', () => {
+test('setDeepy zero with explicit enhancer_id 5 (Qwen3.8-27B) is honored', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
   try {
     const cfgPath = makeRepo(dir)
-    const before = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    before.enhancer_enabled = 5 // Qwen3.8-27B already chosen
-    fs.writeFileSync(cfgPath, JSON.stringify(before))
-    setDeepy({ fs, path, resolveCmd: null }, dir, 'zero', null)
+    const r = setDeepy({ fs, path, resolveCmd: null }, dir, 'zero', null, 5)
+    assert.strictEqual(r.ok, true)
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     assert.strictEqual(after.enhancer_enabled, 5)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('setDeepy zero with invalid enhancer_id for mode falls back to default (3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
+  try {
+    const cfgPath = makeRepo(dir)
+    // 1 (Florence) is not valid for zero; must fall back to 3 (Qwen3.5-4B)
+    const r = setDeepy({ fs, path, resolveCmd: null }, dir, 'zero', null, 1)
+    assert.strictEqual(r.ok, true)
+    const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    assert.strictEqual(after.enhancer_enabled, 3)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('setDeepy disabled with explicit enhancer_id 1 (Florence) is honored', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
+  try {
+    const cfgPath = makeRepo(dir)
+    const before = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    before.enhancer_enabled = 3 // start from a Qwen value
+    fs.writeFileSync(cfgPath, JSON.stringify(before))
+    const r = setDeepy({ fs, path, resolveCmd: null }, dir, 'disabled', null, 1)
+    assert.strictEqual(r.ok, true)
+    const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    assert.strictEqual(after.deepy_enabled, 0)
+    assert.strictEqual(after.enhancer_enabled, 1)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('resolveEnhancerId validates per mode and defaults correctly', () => {
+  assert.deepStrictEqual(resolveEnhancerId('disabled', 1), { id: 1, fallback: false })
+  assert.deepStrictEqual(resolveEnhancerId('disabled', 3), { id: 1, fallback: true }) // 3 invalid for disabled
+  assert.deepStrictEqual(resolveEnhancerId('zero', 4), { id: 4, fallback: false })
+  assert.deepStrictEqual(resolveEnhancerId('zero', 1), { id: 3, fallback: true }) // 1 invalid for zero
+  assert.deepStrictEqual(resolveEnhancerId('prime', 3), { id: null, fallback: false }) // not used for prime
+})
+
+test('readStatus exposes enhancerEnabled', () => {
+  const s = readStatus({ deepy_enabled: 1, deepy_type: 'zero', enhancer_enabled: 4, llm_engines: { deepy: 'opencode', profiles: {} } })
+  assert.strictEqual(s.mode, 'zero')
+  assert.strictEqual(s.enhancerEnabled, 4)
+})
+
+test('DEEPY_ENHANCER_OPTIONS lists only valid per-mode ids', () => {
+  for (const o of DEEPY_ENHANCER_OPTIONS) {
+    for (const m of o.modes) assert.ok(ENHANCER_IDS_BY_MODE[m].includes(o.id), `option ${o.id} valid for ${m}`)
+  }
+})
+
 
 test('setDeepy prime wires the chosen engine + executable + base_url', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
