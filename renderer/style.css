@@ -482,6 +482,9 @@ body {
 .deepy-enhancer-options { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
 .deepy-enhancer-opt { display: flex; align-items: center; gap: 8px; font-size: 0.62rem; cursor: pointer; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .deepy-enhancer-opt:hover { border-color: var(--accent); }
+.deepy-enhancer-opt-disabled { opacity: 0.45; cursor: not-allowed; }
+.deepy-enhancer-opt-disabled:hover { border-color: var(--border); }
+.deepy-enhancer-note { font-size: 0.5rem; color: var(--text-tertiary); font-style: italic; }
 .deepy-enhancer-label { font-weight: 600; color: var(--text-primary); }
 .deepy-actions { display: flex; gap: 8px; margin-top: 10px; }
 .dot-ok { color: #4ADE80; }

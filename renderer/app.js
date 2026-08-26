@@ -2255,9 +2255,12 @@ const DEEPY_PANEL_ENGINES = [
 
 // Local-model (Prompt Enhancer) choices shown in the Deepy panel when Deepy is
 // Disabled or Zero. Mirrors services/deepy-config.js DEEPY_ENHANCER_OPTIONS.
-// modes: which Deepy modes the option is valid for.
+// modes: which Deepy modes the option is valid for. All options are rendered in
+// the UI (the non-applicable ones are shown disabled with an annotation), so
+// the user sees the full set of possible local models.
 const DEEPY_PANEL_ENHANCERS = [
   { id: 1, label: 'Florence 2 + Llama 3.2 3B (local)', modes: ['disabled'] },
+  { id: 2, label: 'Florence 2 + Llama Joy 8B (local)', modes: ['disabled'] },
   { id: 3, label: 'Qwen3.5 VL Abliterated 4B (local, recommended)', modes: ['zero'] },
   { id: 4, label: 'Qwen3.5 VL Abliterated 9B (local)', modes: ['zero'] },
   { id: 5, label: 'Qwen3.8 VL Uncensored 27B (local)', modes: ['zero'] }
@@ -2310,19 +2313,27 @@ async function refreshDeepy() {
   const enhancerVisible = (currentMode === 'disabled' || currentMode === 'zero')
   enhancerWrap.style.display = enhancerVisible ? 'block' : 'none'
   if (enhancerVisible) {
-    // Options valid for this mode.
-    const optsForMode = DEEPY_PANEL_ENHANCERS.filter(o => o.modes.includes(currentMode))
-    // Pre-select: current persisted id if valid for this mode, else first option.
-    let selectedEnhancer = optsForMode.find(o => o.id === currentEnhancer)
-    if (!selectedEnhancer) selectedEnhancer = optsForMode[0]
+    // Show ALL possible local models so the user sees the full landscape.
+    // Options not valid for the current mode are rendered disabled (greyed)
+    // with an annotation of which mode they belong to.
+    const forThisMode = o => o.modes.includes(currentMode)
+    // Pre-select: current persisted id if valid for this mode, else the first
+    // valid option for this mode.
+    const validForMode = DEEPY_PANEL_ENHANCERS.filter(forThisMode)
+    let selectedEnhancer = validForMode.find(o => o.id === currentEnhancer) || validForMode[0]
     const sub = (currentMode === 'zero')
       ? 'Deepy Zero runs locally — pick the Qwen model Wan2GP will use.'
       : 'Florence 2 + Llama 3.2 3B is the default local model when Deepy is off.'
     if (enhancerHint) enhancerHint.textContent = sub
-    enhancerOpts.innerHTML = optsForMode.map(o => {
-      return `<label class="deepy-enhancer-opt">\n` +
-        `  <input type="radio" name="deepyEnhancer" value="${o.id}" ${o.id === selectedEnhancer.id ? 'checked' : ''}>\n` +
-        `  <span class="deepy-enhancer-label">${o.label}</span>\n` +
+    enhancerOpts.innerHTML = DEEPY_PANEL_ENHANCERS.map(o => {
+      const enabled = forThisMode(o)
+      const checked = (o.id === selectedEnhancer.id) ? 'checked' : ''
+      const disabled = enabled ? '' : 'disabled'
+      const note = enabled ? '' : `<span class="deepy-enhancer-note"> — only for ${o.modes[0] === 'zero' ? 'Deepy Zero' : 'Disabled'}</span>`
+      const cls = enabled ? 'deepy-enhancer-opt' : 'deepy-enhancer-opt deepy-enhancer-opt-disabled'
+      return `<label class="${cls}">\n` +
+        `  <input type="radio" name="deepyEnhancer" value="${o.id}" ${checked} ${disabled}>\n` +
+        `  <span class="deepy-enhancer-label">${o.label}</span>${note}\n` +
         `</label>`
     }).join('')
   }

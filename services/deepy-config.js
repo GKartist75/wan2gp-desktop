@@ -44,6 +44,7 @@ const DEEPY_MODES = {
 //   - 3/4/5 are the Qwen3.5/3.8 VL variants Deepy Zero/Prime require.
 const DEEPY_ENHANCER_OPTIONS = [
   { id: 1, label: 'Florence 2 + Llama 3.2 3B (local)', modes: ['disabled'], recommended: false },
+  { id: 2, label: 'Florence 2 + Llama Joy 8B (local)', modes: ['disabled'], recommended: false },
   { id: 3, label: 'Qwen3.5 VL Abliterated 4B (local, recommended)', modes: ['zero'], recommended: true },
   { id: 4, label: 'Qwen3.5 VL Abliterated 9B (local)', modes: ['zero'], recommended: false },
   { id: 5, label: 'Qwen3.8 VL Uncensored 27B (local)', modes: ['zero'], recommended: false }
@@ -51,7 +52,7 @@ const DEEPY_ENHANCER_OPTIONS = [
 
 // Valid enhancer ids per Deepy mode (mirrors Wan2GP's requirement check).
 const ENHANCER_IDS_BY_MODE = {
-  disabled: [1],
+  disabled: [1, 2],
   zero: [3, 4, 5],
   prime: [] // Prime uses a remote LLM; local model not used
 }
