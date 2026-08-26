@@ -435,6 +435,61 @@ body {
 }
 .pip-install-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--accent); }
 .pip-install-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pip-cmd-preview {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 8px;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 4px;
+  font-family: 'Geist Mono', monospace; font-size: 0.6rem; color: var(--text-primary);
+}
+.pip-cmd-preview.pip-cmd-bad { color: #f87171; border-color: #7f1d1d; }
+.pip-cmd-preview code { flex: 1; white-space: pre-wrap; word-break: break-all; }
+.pip-copy-btn {
+  white-space: nowrap; font-size: 0.55rem; padding: 2px 7px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--surface); color: var(--text-secondary); cursor: pointer;
+}
+.pip-copy-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+
+/* spec-dot ok/bad states used by LLM engine status rows */
+.spec-dot.dot-ok { display: inline-block; background: #4ADE80; }
+.spec-dot.dot-bad { display: inline-block; background: #6B7280; }
+
+/* ── Guided LLM engine cards (Deepy Prime) ── */
+.llm-engines-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.llm-engine-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--canvas); }
+.llm-engine-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.llm-engine-title { font-size: 0.7rem; font-weight: 600; color: var(--text-primary); }
+.llm-install-btn { font-size: 0.6rem; padding: 3px 8px; }
+.llm-serve-row { margin-top: 6px; }
+.llm-serve-btn { font-size: 0.6rem; padding: 3px 8px; }
+.llm-external-hint { color: var(--text-tertiary); }
+.pip-advanced-label { font-size: 0.6rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600; }
+.pip-advanced-hint { font-size: 0.58rem; color: var(--text-tertiary); margin-top: 4px; line-height: 1.35; }
+.pip-advanced-hint code { background: var(--surface); padding: 0 4px; border-radius: 3px; color: var(--text-secondary); }
+.deepy-cost-note { font-size: 0.58rem; color: var(--text-tertiary); margin: 6px 0; line-height: 1.5; }
+.deepy-cost-note .dot-ok { color: #4ADE80; }
+.deepy-cost-note .dot-bad { color: #F87171; }
+.deepy-engine-options { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.deepy-engine-opt { display: flex; align-items: center; gap: 8px; font-size: 0.62rem; cursor: pointer; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-engine-opt:hover { border-color: var(--accent); }
+.deepy-engine-label { font-weight: 600; color: var(--text-primary); }
+.deepy-engine-cost { margin-left: auto; font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.deepy-cost-free { color: #4ADE80; }
+.deepy-cost-paid { color: #FBBF24; }
+.deepy-mode-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.deepy-mode-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.62rem; cursor: pointer; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-mode-opt:hover { border-color: var(--accent); }
+.deepy-mode-sub { font-size: 0.5rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.deepy-sub-label { font-size: 0.56rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+.deepy-enhancer-options { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.deepy-enhancer-opt { display: flex; align-items: center; gap: 8px; font-size: 0.62rem; cursor: pointer; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-enhancer-opt:hover { border-color: var(--accent); }
+.deepy-enhancer-opt-disabled { opacity: 0.45; cursor: not-allowed; }
+.deepy-enhancer-opt-disabled:hover { border-color: var(--border); }
+.deepy-enhancer-note { font-size: 0.5rem; color: var(--text-tertiary); font-style: italic; }
+.deepy-enhancer-label { font-weight: 600; color: var(--text-primary); }
+.deepy-actions { display: flex; gap: 8px; margin-top: 10px; }
+.dot-ok { color: #4ADE80; }
+.dot-bad { color: #F87171; }
+
 
 /* ── Update Banner ── */
 .update-banner {

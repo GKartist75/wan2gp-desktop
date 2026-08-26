@@ -59,6 +59,15 @@
           <p class="token-hint">Optional — needed for gated models. Saved to <code>desktop-config.json</code> and passed as <code>HF_TOKEN</code> to Wan2GP on launch.</p>
         </div>
         <div class="settings-section">
+          <h3>Claude / Anthropic API Key</h3>
+          <div class="token-field">
+            <input type="password" id="claudeApiKeyInput" class="input" placeholder="sk-ant-...">
+            <button class="btn btn-primary small" id="claudeApiKeySaveBtn">Save</button>
+            <button class="btn btn-ghost small" id="claudeApiKeyClearBtn">Clear</button>
+          </div>
+          <p class="token-hint">Optional — lets Claude Code connect without a Max/Pro <em>subscription</em> (a Console API key takes precedence over an OAuth login for CLI sessions). It is <strong>not free</strong>: the key needs an Anthropic Console account with <strong>API credits / billing enabled</strong> (pay-as-you-go, billed per token — buy credits in the Console first). Saved locally and passed as <code>ANTHROPIC_API_KEY</code> to Wan2GP on launch. Leave blank to use OAuth (<code>claude auth login --claudeai</code>, which requires Max/Pro).</p>
+        </div>
+        <div class="settings-section">
           <h3>Default Browser</h3>
           <p class="token-hint">Used when launching Wan2GP in your browser ("Launch in Browser" opens the OS default).</p>
           <div class="browser-list" id="browserList"></div>
@@ -147,6 +156,7 @@
           <p class="token-hint">Wan2GP installs into a Python venv on the same drive as your install. <code>uv</code> keeps a wheel cache here (<code>.uv-cache</code>) so future updates are fast — it can grow to several GB. Free the space if you don't need to keep it.</p>
           <p class="token-hint" id="uvCacheStatus" style="margin-top:8px">Checking cache…</p>
           <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-ghost small" id="uvCacheSizeBtn">Calculate size</button>
             <button class="btn btn-ghost small" id="uvCachePurgeBtn">Purge unused</button>
             <button class="btn btn-ghost small" id="uvCacheRemoveBtn" style="color:var(--signal-red);border-color:var(--signal-red)">Remove cache</button>
           </div>
@@ -513,9 +523,66 @@
           </div>
         </div>
         <div class="env-list" id="envList" style="margin-top:6px"></div>
-        <div class="pip-install-row">
-          <input type="text" id="pipInput" class="pip-input" placeholder="package name (e.g. triton)" spellcheck="false">
-          <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
+
+        <!-- Deepy mode selector + one-click activation. Reads/writes only
+             wgp_config.json (Wan2GP user data) — never Wan2GP source.
+             Backs the file up first. -->
+        <div class="card" id="deepyPrimeCard" style="margin-top:10px">
+          <div class="card-header">
+            <span class="card-title">Deepy (WanGP assistant)</span>
+          </div>
+          <p class="path-hint">Deepy is WanGP's conversational media assistant. Pick a mode — the launcher writes it into Wan2GP's config so the next launch applies it. <a id="deepyDocsLink" href="#" style="color:var(--accent)">What is Deepy? (docs)</a></p>
+          <div class="deepy-mode-row">
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="disabled"> Disabled</label>
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="zero"> Deepy Zero <span class="deepy-mode-sub">local model</span></label>
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="prime"> Deepy Prime <span class="deepy-mode-sub">remote LLM</span></label>
+          </div>
+          <!-- Local model (Prompt Enhancer) selector — shown for Disabled/Zero,
+               hidden for Prime. Options are data-driven from services/deepy-config.js
+               (DEEPY_ENHANCER_OPTIONS). -->
+          <div id="deepyEnhancerWrap" style="margin-top:10px; display:none">
+            <div class="deepy-sub-label">Local model (Prompt Enhancer)</div>
+            <div id="deepyEnhancerOptions" class="deepy-enhancer-options"></div>
+            <p class="path-hint" id="deepyEnhancerHint" style="margin-top:6px"></p>
+            <p class="path-hint" style="margin-top:4px"><em>You can also change these settings any time inside Wan2GP itself (Configuration → Prompt Enhancer / Deepy).</em></p>
+          </div>
+          <div id="deepyPrimeOnly" style="display:none">
+            <div class="deepy-cost-note">
+              <span class="dot-ok">●</span> <strong>OpenCode</strong> — free, local models, no account.
+              <span class="dot-bad">●</span> <strong>Claude Code / Codex</strong> — paid (subscription or API credits).
+            </div>
+            <div id="deepyEngineOptions" class="deepy-engine-options"></div>
+            <!-- Guided LLM engine setup for Deepy Prime (Claude Code / Codex / OpenCode).
+                 Shown only when Deepy Prime is selected (this block lives inside
+                 #deepyPrimeOnly). Cards render generically from services/llm-engines.js. -->
+            <div class="card" id="llmEnginesCard" style="margin-top:12px">
+              <div class="card-header">
+                <span class="card-title">LLM Engines</span>
+                <button class="btn btn-ghost small" id="llmEnginesRefresh" title="Re-check engine status" style="margin-left:auto">↻ Refresh</button>
+              </div>
+              <p class="path-hint">Deepy Prime can use Claude Code, Codex, or OpenCode as its LLM engine. Install/enable them here, then pick the engine in Wan2GP's <code>Configuration → Prompt Enhancer / Deepy</code>.</p>
+              <div id="llmEnginesList" class="llm-engines-list"></div>
+            </div>
+          </div>
+          <div class="deepy-actions">
+            <button class="btn btn-primary" id="deepyApplyBtn" disabled>Apply</button>
+          </div>
+          <div id="deepyStatusMsg" class="pip-advanced-hint" style="margin-top:8px"></div>
+        </div>
+
+        <!-- Advanced pip install: open-ended, but spec-validated (no shell, no
+             injection). Any future LLM SDK works here with no code change. -->
+        <div class="pip-install-row" style="margin-top:6px">
+          <div class="pip-advanced-label">Advanced — install any pip package</div>
+          <div style="display:flex;gap:6px;width:100%">
+            <input type="text" id="pipInput" class="pip-input" placeholder="package (e.g. claude-agent-sdk==0.1.40)" spellcheck="false">
+            <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
+          </div>
+          <div class="pip-cmd-preview" id="pipCmdPreview" style="display:none">
+            <code id="pipCmdText"></code>
+            <button class="pip-copy-btn" id="pipCmdCopy" title="Copy command">copy</button>
+          </div>
+          <div class="pip-advanced-hint">Pins allowed (==, &gt;=, ~=). Flags like <code>--index-url</code> and shell characters are blocked for safety. The exact command that runs is shown above — copy it to run in your own terminal.</div>
         </div>
       </div>
 

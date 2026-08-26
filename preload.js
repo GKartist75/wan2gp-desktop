@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('w2gp', {
   manageSetActive: (name) => ipcRenderer.invoke('manage-set-active', name),
   uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  deepyStatus: () => ipcRenderer.invoke('deepy:status'),
+  deepyActivate: (engineId) => ipcRenderer.invoke('deepy:activate', engineId),
+  deepySet: (mode, engineId, enhancerId) => ipcRenderer.invoke('deepy:set', { mode, engineId, enhancerId }),
   openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
   detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
   launchBrowser: (url) => ipcRenderer.invoke('launch-browser', url),
@@ -96,6 +99,7 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // uv wheel cache management (Manage → General)
   uvCacheInfo: () => ipcRenderer.invoke('uv-cache-info'),
+  uvCacheSize: () => ipcRenderer.invoke('uv-cache-size'),
   uvCacheClean: (action) => ipcRenderer.invoke('uv-cache-clean', action),
 
   // Config
@@ -129,6 +133,12 @@ contextBridge.exposeInMainWorld('w2gp', {
   uninstallPackage: (pkgName) => ipcRenderer.invoke('uninstall-package', pkgName),
   checkPackage: (pkgName) => ipcRenderer.invoke('check-package', pkgName),
   restoreRequirements: () => ipcRenderer.invoke('restore-requirements'),
+
+  // Guided LLM engine setup (Deepy Prime)
+  llmEnginesList: () => ipcRenderer.invoke('llm-engines:list'),
+  llmEngineInstall: (engineId) => ipcRenderer.invoke('llm-engine-install', engineId),
+  llmEngineServe: (engineId, action) => ipcRenderer.invoke('llm-engine-serve', engineId, action),
+  llmEngineAuth: (engineId) => ipcRenderer.invoke('llm-engine-auth', engineId),
 
   // Desktop experience: tray, auto-start, notifications, theme
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),

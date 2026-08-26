@@ -255,6 +255,7 @@ function openSettings() {
     if ($('portInput')) $('portInput').value = cfg.serverPort || 7860
     if ($('githubTokenInput')) $('githubTokenInput').value = cfg.githubToken || ''
     if ($('hfTokenInput')) $('hfTokenInput').value = cfg.hfToken || ''
+    if ($('claudeApiKeyInput')) $('claudeApiKeyInput').value = cfg.claudeApiKey || ''
     // Floating terminal default dock
     const td = cfg.termDockDefault || 'bottom'
     document.querySelectorAll('input[name="termDock"]').forEach(r => { r.checked = (r.value === td) })
@@ -1047,6 +1048,10 @@ async function refreshDashboard(){
   checkModelsPathWarning()
   // Warn RTX 40/50 users still on the broken fp8 SageAttention wheel to sync.
   checkSageSyncBanner(status)
+  // Refresh the guided LLM engine cards (Deepy Prime setup).
+  refreshLLMEngines().catch(() => {})
+  // Refresh the Deepy Prime activation panel.
+  refreshDeepy().catch(() => {})
   // Enable/disable no-GPU button based on Chrome availability
   ;(async () => {
     const available = await window.w2gp.chromeAvailable()
@@ -2083,9 +2088,20 @@ if (window.w2gp && window.w2gp.platform !== 'win32') {
 $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 
 // ── Quick pip install ──
+// Accept either a bare spec (claude-agent-sdk==0.1.40) or a full command
+// (pip install claude-agent-sdk==0.1.40) pasted by the user — strip any leading
+// pip invocation so both the preview and the real install behave identically.
+// (Renderer is a plain browser script — no require — so this is inlined; the
+// Node-side mirror lives in services/normalize-pip-spec.js for unit tests.)
+function normalizePipSpec(raw) {
+  let s = (raw || '').trim()
+  const m = s.match(/^(?:py(?:thon)?\s+-m\s+)?pip\s+install\s+/i)
+  if (m) s = s.slice(m[0].length).trim()
+  return s
+}
 $('pipInstallBtn').addEventListener('click', async () => {
   const input = $('pipInput')
-  const pkg = (input?.value || '').trim()
+  const pkg = normalizePipSpec(input?.value)
   if (!pkg) return
   input.disabled = true; $('pipInstallBtn').disabled = true; $('pipInstallBtn').textContent = 'installing...'
   const r = await window.w2gp.installPackage(pkg)
@@ -2099,6 +2115,306 @@ $('pipInstallBtn').addEventListener('click', async () => {
   }
 })
 $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pipInstallBtn').click() })
+
+// Live, copyable preview of the exact command the Advanced box will run.
+// Mirrors the launcher's guard: a valid spec shows `pip install <spec>`; an
+// invalid one shows the reason it would be blocked (no misleading command).
+function updatePipCmdPreview() {
+  const input = $('pipInput'); const preview = $('pipCmdPreview'); const text = $('pipCmdText')
+  if (!input || !preview || !text) return
+  const spec = normalizePipSpec(input.value)
+  if (!spec) { preview.style.display = 'none'; return }
+  // Reuse the same validation the launcher applies (kept in sync with main.js).
+  const name = spec.split(/[<>=!~]/)[0].replace(/\s/g, '')
+  const okName = /^[A-Za-z0-9._-]+$/.test(name) && /^[A-Za-z]/.test(name)
+  const hasInjection = /[;&|<>$`(){}'"]/.test(spec) || /\s-{1,2}[a-zA-Z]/.test(spec)
+  if (!okName) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Invalid package name' }
+  else if (hasInjection) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Flags/shell characters are blocked for safety' }
+  else { preview.style.display = 'flex'; preview.classList.remove('pip-cmd-bad'); text.textContent = 'pip install ' + spec + '   (runs in the active env)' }
+}
+$('pipInput').addEventListener('input', updatePipCmdPreview)
+$('pipCmdCopy')?.addEventListener('click', async () => {
+  const t = $('pipCmdText')?.textContent || ''
+  if (!t.startsWith('pip install')) return
+  try { await navigator.clipboard.writeText(t.split('   (')[0]); $('pipCmdCopy').textContent = 'copied!'; setTimeout(() => { $('pipCmdCopy').textContent = 'copy' }, 1200) } catch {}
+})
+// Clear the preview after a successful install so it doesn't linger.
+const _pipInstallOrig = $('pipInstallBtn')
+if (_pipInstallOrig) {
+  _pipInstallOrig.addEventListener('click', () => { setTimeout(updatePipCmdPreview, 50) })
+}
+
+// ── Guided LLM engine setup (Deepy Prime) ──
+// Renders ONE generic card per catalog engine (services/llm-engines.js). The
+// card shows live ✓/✗ status for the CLI and/or pip bridge, plus a one-click
+// installer (pip for Claude Code, npm for Codex/OpenCode) and, for engines with
+// a server (OpenCode), a Start/Stop server toggle. New engines = one data line
+// in services/llm-engines.js — no UI branch.
+function dot(on) { return on ? '<span class="spec-dot dot-ok"></span>' : '<span class="spec-dot dot-bad"></span>' }
+
+async function refreshLLMEngines() {
+  const list = $('llmEnginesList')
+  if (!list) return
+  let data
+  try { data = await window.w2gp.llmEnginesList() } catch (e) { data = { engines: [] } }
+  const engines = (data && data.engines) || []
+  if (!engines.length) {
+    list.innerHTML = '<div class="spec-row"><span class="spec-value">No LLM engines available — reload the Dashboard or check the logs.</span></div>'
+    return
+  }
+  list.innerHTML = engines.map(e => {
+    const cliRow = e.cli
+      ? `<div class="spec-row"><span class="spec-label">${e.cli} CLI</span>${dot(e.cliOnPath)}<span class="spec-value">${e.cliOnPath ? 'on PATH' : 'not found'}</span></div>`
+      : ''
+    const pipRow = e.pipPackage
+      ? `<div class="spec-row"><span class="spec-label">${e.pipPackage}</span>${dot(e.pipInstalled)}<span class="spec-value">${e.pipInstalled ? 'installed' : 'missing'}</span></div>`
+      : ''
+    let action = ''
+    if (e.install && e.install.mode === 'pip') {
+      const done = e.pipInstalled
+      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ installed' : 'Install ' + e.install.spec}</button>`
+    } else if (e.install && e.install.mode === 'npm') {
+      const done = e.cliOnPath
+      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ on PATH' : 'Install via npm (@openai/codex)'}</button>`
+    } else if (e.external) {
+      action = `<span class="spec-value llm-external-hint">External — install via terminal, then it auto-detects.</span>`
+    }
+    let serveBtn = ''
+    if (e.serve) {
+      serveBtn = `<button class="pip-install-btn llm-serve-btn" data-engine="${e.id}">Start server</button>`
+    }
+    let authBtn = ''
+    if (e.auth) {
+      // Open the official Claude Code authentication guide (the user asked for a
+      // how-to page, not a silent terminal launch that blocks on Max/Pro).
+      authBtn = `<button class="pip-install-btn llm-auth-btn" data-engine="${e.id}" data-auth-docs="${e.auth.docsUrl || ''}">How to sign in</button>`
+    }
+    const serverRow = e.serverUrl
+      ? `<div class="spec-row"><span class="spec-label">Server</span><span class="spec-value">${e.serverUrl}</span></div>`
+      : ''
+    const notes = e.notes ? `<div class="pip-advanced-hint">${e.notes}</div>` : ''
+    const auth = e.auth
+      ? `<div class="pip-advanced-hint">${e.auth.help}</div>`
+      : ''
+    const keyNote = e.claudeApiKeySet
+      ? `<div class="pip-advanced-hint" style="color:#4ADE80">✓ Anthropic API key active — Claude Code will use it instead of a Max/Pro login (needs API credits in the Console; billed per use).</div>`
+      : ''
+    return `<div class="llm-engine-card">
+      <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>
+      <div class="env-specs">${cliRow}${pipRow}${serverRow}</div>
+      ${serveBtn ? `<div class="llm-serve-row">${serveBtn}</div>` : ''}
+      ${authBtn ? `<div class="llm-serve-row">${authBtn}</div>` : ''}
+      <div class="pip-advanced-hint">${e.desc}</div>${auth}${keyNote}${notes}
+    </div>`
+  }).join('')
+  list.querySelectorAll('.llm-install-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.engine
+      btn.disabled = true; btn.textContent = 'installing...'
+      const r = await window.w2gp.llmEngineInstall(id)
+      btn.textContent = (r && r.success) ? '✓ installed' : 'failed'
+      if (r && r.success) { showToast('✓ engine installed'); refreshLLMEngines() }
+      else showToast('✗ ' + (r && r.error ? r.error : 'install failed'))
+    })
+  })
+  list.querySelectorAll('.llm-serve-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.engine
+      const starting = btn.textContent.trim().startsWith('Start')
+      btn.disabled = true
+      const r = await window.w2gp.llmEngineServe(id, starting ? 'start' : 'stop')
+      btn.disabled = false
+      if (r && r.success) {
+        btn.textContent = starting ? 'Stop server' : 'Start server'
+        showToast(starting ? '✓ ' + id + ' server started' : '✓ server stopped')
+      } else {
+        showToast('✗ ' + (r && r.error ? r.error : 'server action failed'))
+      }
+    })
+  })
+  list.querySelectorAll('.llm-auth-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const url = btn.dataset.authDocs
+      if (url) {
+        await window.w2gp.openExternal(url)
+        showToast('Opened Claude Code authentication guide')
+      } else {
+        showToast('No sign-in guide configured for this engine')
+      }
+    })
+  })
+}
+
+// Deepy Prime activation panel: pick a ready engine, write it into
+// wgp_config.json so the next Wan2GP launch boots with Deepy Prime enabled.
+const DEEPY_PANEL_ENGINES = [
+  { id: 'opencode', label: 'OpenCode', paid: false },
+  { id: 'claude-code', label: 'Claude Code', paid: true },
+  { id: 'codex', label: 'OpenAI Codex', paid: true }
+]
+
+// Local-model (Prompt Enhancer) choices shown in the Deepy panel when Deepy is
+// Disabled or Zero. Mirrors services/deepy-config.js DEEPY_ENHANCER_OPTIONS.
+// modes: which Deepy modes the option is valid for. All options are rendered in
+// the UI (the non-applicable ones are shown disabled with an annotation), so
+// the user sees the full set of possible local models.
+const DEEPY_PANEL_ENHANCERS = [
+  { id: 1, label: 'Florence 2 + Llama 3.2 3B (local)', modes: ['disabled'] },
+  { id: 2, label: 'Florence 2 + Llama Joy 8B (local)', modes: ['disabled'] },
+  { id: 3, label: 'Qwen3.5 VL Abliterated 4B (local, recommended)', modes: ['zero'] },
+  { id: 4, label: 'Qwen3.5 VL Abliterated 9B (local)', modes: ['zero'] },
+  { id: 5, label: 'Qwen3.8 VL Uncensored 27B (local)', modes: ['zero'] }
+]
+
+async function refreshDeepy() {
+  const opts = $('deepyEngineOptions')
+  const statusMsg = $('deepyStatusMsg')
+  const applyBtn = $('deepyApplyBtn')
+  const docsLink = $('deepyDocsLink')
+  const primeOnly = $('deepyPrimeOnly')
+  const enhancerWrap = $('deepyEnhancerWrap')
+  const enhancerOpts = $('deepyEnhancerOptions')
+  const enhancerHint = $('deepyEnhancerHint')
+  const modeRadios = document.querySelectorAll('input[name=deepyMode]')
+  if (!applyBtn) return
+
+  let status = { available: false }
+  let engines = []
+  try {
+    const s = await window.w2gp.deepyStatus()
+    if (s && s.ok) status = s
+  } catch (_) {}
+  try {
+    const d = await window.w2gp.llmEnginesList()
+    engines = (d && d.engines) || []
+  } catch (_) {}
+
+  const ready = id => {
+    const e = engines.find(x => x.id === id)
+    if (!e) return false
+    if (id === 'claude-code') return !!(e.cliOnPath || e.claudeApiKeySet)
+    return !!e.cliOnPath
+  }
+
+  const currentProfile = status.currentEngine
+  const profileToUi = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
+  const currentUi = profileToUi[currentProfile] || null
+  const currentMode = status.mode || 'disabled'
+  const currentEnhancer = (typeof status.enhancerEnabled === 'number') ? status.enhancerEnabled : null
+  // Default engine for Prime is OpenCode (universal providers / external, free).
+  // Preserve an already-configured engine; otherwise fall back to OpenCode.
+  let selectedEngine = currentUi || 'opencode'
+
+  // Pre-select the current Deepy mode (Disabled / Zero / Prime).
+  modeRadios.forEach(r => { r.checked = (r.value === currentMode) })
+  primeOnly.style.display = (currentMode === 'prime') ? 'block' : 'none'
+
+  // Local-model (Prompt Enhancer) selector: shown for Disabled/Zero only.
+  // Rendered from the SELECTED mode (not just persisted), so switching modes
+  // immediately re-renders the local-model choices. Selection is transient —
+  // only persisted when Apply is pressed.
+  const renderEnhancer = (mode, preselectId) => {
+    const visible = (mode === 'disabled' || mode === 'zero')
+    enhancerWrap.style.display = visible ? 'block' : 'none'
+    if (!visible) return
+    const forThisMode = o => o.modes.includes(mode)
+    // Pre-select: caller-supplied id if valid, else persisted id, else first
+    // valid option for this mode.
+    const validForMode = DEEPY_PANEL_ENHANCERS.filter(forThisMode)
+    const chosen = validForMode.find(o => o.id === preselectId)
+      || validForMode.find(o => o.id === currentEnhancer)
+      || validForMode[0]
+    const sub = (mode === 'zero')
+      ? 'Deepy Zero runs locally — pick the Qwen model Wan2GP will use.'
+      : 'Florence 2 + Llama 3.2 3B is the default local model when Deepy is off.'
+    if (enhancerHint) enhancerHint.textContent = sub
+    enhancerOpts.innerHTML = DEEPY_PANEL_ENHANCERS.map(o => {
+      const enabled = forThisMode(o)
+      const checked = (o.id === chosen.id) ? 'checked' : ''
+      const disabled = enabled ? '' : 'disabled'
+      const note = enabled ? '' : `<span class="deepy-enhancer-note"> — only for ${o.modes[0] === 'zero' ? 'Deepy Zero' : 'Disabled'}</span>`
+      const cls = enabled ? 'deepy-enhancer-opt' : 'deepy-enhancer-opt deepy-enhancer-opt-disabled'
+      return `<label class="${cls}">\n` +
+        `  <input type="radio" name="deepyEnhancer" value="${o.id}" ${checked} ${disabled}>\n` +
+        `  <span class="deepy-enhancer-label">${o.label}</span>${note}\n` +
+        `</label>`
+    }).join('')
+  }
+  renderEnhancer(currentMode, currentEnhancer)
+
+  opts.innerHTML = DEEPY_PANEL_ENGINES.map(en => {
+    const isReady = ready(en.id)
+    const dotCls = isReady ? 'dot-ok' : 'dot-bad'
+    const dotChar = isReady ? '●' : '○'
+    const cost = en.paid ? '<span class="deepy-cost-paid">paid</span>' : '<span class="deepy-cost-free">free</span>'
+    return `<label class="deepy-engine-opt">
+      <input type="radio" name="deepyEngine" value="${en.id}" ${en.id === selectedEngine ? 'checked' : ''}>
+      <span class="${dotCls}">${dotChar}</span>
+      <span class="deepy-engine-label">${en.label}</span>
+      <span class="deepy-engine-cost">${cost}</span>
+    </label>`
+  }).join('')
+
+  if (status.available) {
+    const label = { disabled: 'Disabled', zero: 'Deepy Zero (local model)', prime: 'Deepy Prime' }[currentMode] || currentMode
+    statusMsg.innerHTML = 'Currently: <strong>' + label + '</strong>'
+      + (currentMode === 'prime' && currentProfile ? ' — engine: ' + currentProfile : '')
+  } else {
+    statusMsg.innerHTML = '<span style="color:#FBBF24">' + (status.reason || 'Wan2GP config not found — install Wan2GP first.') + '</span>'
+  }
+
+  const syncApply = () => {
+    const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
+    primeOnly.style.display = (mode === 'prime') ? 'block' : 'none'
+    enhancerWrap.style.display = (mode === 'disabled' || mode === 'zero') ? 'block' : 'none'
+    let ok = true
+    let title = ''
+    if (mode === 'prime') {
+      const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+      if (!eng) { ok = false; title = 'Pick an engine for Deepy Prime' }
+      else if (!ready(eng)) { ok = false; title = 'Install / enable this engine first (see LLM Engines above)' }
+    } else if (mode === 'disabled' || mode === 'zero') {
+      const enh = (enhancerOpts.querySelector('input[name=deepyEnhancer]:checked') || {}).value
+      if (!enh) { ok = false; title = 'Pick a local model (Prompt Enhancer)' }
+    }
+    applyBtn.disabled = !ok
+    applyBtn.title = title || ('Set Deepy to ' + mode)
+  }
+  modeRadios.forEach(r => r.addEventListener('change', () => {
+    // Switching the mode immediately re-renders the local-model selector for
+    // the newly-selected mode (transient — not persisted until Apply).
+    const m = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
+    renderEnhancer(m)
+    syncApply()
+  }))
+  opts.querySelectorAll('input[name=deepyEngine]').forEach(r => r.addEventListener('change', syncApply))
+  enhancerOpts.querySelectorAll('input[name=deepyEnhancer]').forEach(r => r.addEventListener('change', syncApply))
+  syncApply()
+
+  applyBtn.onclick = async () => {
+    const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
+    const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+    const enh = (enhancerOpts.querySelector('input[name=deepyEnhancer]:checked') || {}).value
+    applyBtn.disabled = true; applyBtn.textContent = 'applying...'
+    const r = await window.w2gp.deepySet(mode, eng, enh ? parseInt(enh, 10) : null)
+    applyBtn.textContent = 'Apply'
+    if (r && r.ok) {
+      statusMsg.innerHTML = '<span style="color:#4ADE80">✓ ' + (r.message || 'Deepy updated') + '</span>'
+      showToast('✓ ' + (r.message || 'Deepy updated'))
+      refreshDeepy()
+    } else {
+      statusMsg.innerHTML = '<span style="color:#F87171">✗ ' + (r && r.error ? r.error : 'update failed') + '</span>'
+      showToast('✗ ' + (r && r.error ? r.error : 'update failed'))
+      applyBtn.disabled = false
+    }
+  }
+  if (docsLink) docsLink.onclick = async (ev) => {
+    ev.preventDefault()
+    await window.w2gp.openExternal('https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/DEEPY.md')
+  }
+}
+
+$('llmEnginesRefresh')?.addEventListener('click', refreshLLMEngines)
 
 $('desktopShortcutBtn').addEventListener('click', async function() {
   this.disabled = true; this.textContent = 'Creating...'
@@ -2317,6 +2633,23 @@ $('hfTokenClearBtn')?.addEventListener('click', async () => {
   await window.w2gp.configSave(cfg)
   if ($('hfTokenInput')) $('hfTokenInput').value = ''
   showToast('HuggingFace token cleared')
+})
+$('claudeApiKeySaveBtn')?.addEventListener('click', async () => {
+  const token = $('claudeApiKeyInput')?.value
+  if (!token) return
+  const cfg = await window.w2gp.configLoad()
+  cfg.claudeApiKey = token
+  await window.w2gp.configSave(cfg)
+  showToast('Claude API key saved — it will be used for Claude Code on next launch')
+  if (typeof refreshLLMEngines === 'function') refreshLLMEngines()
+})
+$('claudeApiKeyClearBtn')?.addEventListener('click', async () => {
+  const cfg = await window.w2gp.configLoad()
+  cfg.claudeApiKey = null
+  await window.w2gp.configSave(cfg)
+  if ($('claudeApiKeyInput')) $('claudeApiKeyInput').value = ''
+  showToast('Claude API key cleared')
+  if (typeof refreshLLMEngines === 'function') refreshLLMEngines()
 })
 $('launchArgsSaveBtn')?.addEventListener('click', async () => {
   const args = $('launchArgsInput')?.value || ''
@@ -2784,23 +3117,40 @@ async function silentSettingsRepair() {
 
 // ── uv Wheel Cache (Manage → General) ──
 function fmtBytes(n) {
+  if (!n && n !== 0) return '—'
   if (!n) return '0 B'
   const u = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(n) / Math.log(1024))
   return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i]
 }
+// Cheap: only reports presence on Manage-panel open (no directory walk).
 async function refreshUvCacheInfo() {
   const statusEl = $('uvCacheStatus')
   if (!statusEl) return
   try {
     const info = await window.w2gp.uvCacheInfo()
     if (info && info.exists) {
-      statusEl.textContent = `Cache present: ${fmtBytes(info.sizeBytes)} at ${info.cacheDir}`
+      statusEl.textContent = `Cache present at ${info.cacheDir} — size on demand.`
     } else {
       statusEl.textContent = 'No cache folder present (fresh install or already removed).'
     }
   } catch { statusEl.textContent = 'Could not read cache info.' }
 }
+// On-demand: computes the byte count only when the user asks.
+async function showUvCacheSize() {
+  const statusEl = $('uvCacheStatus')
+  if (!statusEl) return
+  statusEl.textContent = 'Calculating size…'
+  try {
+    const info = await window.w2gp.uvCacheSize()
+    if (info && info.exists) {
+      statusEl.textContent = `Cache size: ${fmtBytes(info.sizeBytes)} at ${info.cacheDir}`
+    } else {
+      statusEl.textContent = 'No cache folder present.'
+    }
+  } catch { statusEl.textContent = 'Could not read cache size.' }
+}
+$('uvCacheSizeBtn')?.addEventListener('click', showUvCacheSize)
 $('uvCachePurgeBtn')?.addEventListener('click', async function() {
   this.disabled = true
   const resEl = $('uvCacheResult')

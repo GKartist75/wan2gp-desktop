@@ -14,6 +14,10 @@ const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
+const { assertSafePipSpec } = require('./services/pip-spec.js')
+const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('./services/llm-engines.js')
+const { resolveCmd } = require('./services/resolve-cmd.js')
+const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
@@ -844,7 +848,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function saveConfig(cfg) {
@@ -1662,6 +1666,20 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
 }))
 
 ipcMain.handle('uv-cache-info', async () => {
+  // Cheap: only reports existence + path. No directory walk — computing the
+  // size on Manage-panel open blocked the main thread for large caches.
+  // Use 'uv-cache-size' for the (on-demand) byte count.
+  try {
+    const repo = getRepoDir()
+    const cacheDir = path.join(repo, '.uv-cache')
+    return { exists: fs.existsSync(cacheDir), sizeBytes: null, cacheDir }
+  } catch (e) { return { exists: false, sizeBytes: null, error: String(e) } }
+})
+
+// On-demand byte count of the uv wheel cache. Intentionally NOT called on
+// Manage-panel open (would block the main thread for big caches); invoked
+// only when the user explicitly asks for the size.
+ipcMain.handle('uv-cache-size', async () => {
   try {
     const repo = getRepoDir()
     const cacheDir = path.join(repo, '.uv-cache')
@@ -1946,6 +1964,11 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
 
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
+  // Surface the optional Claude/Anthropic API key to every spawn (Wan2GP launch,
+  // and the Claude Code auth/serve terminals) so Claude Code can connect without
+  // a Max/Pro subscription. A Console key takes precedence over OAuth for CLI
+  // sessions per Claude Code's auth docs.
+  if (launchCfg.claudeApiKey) process.env.ANTHROPIC_API_KEY = launchCfg.claudeApiKey
   // AMD session env (upstream AMD-INSTALLATION.md parity): HSA override from
   // the repo's own setup_config.json profile + the guide's mandated ROCm
   // session flags. Merged into every spawn AND baked into the generated
@@ -4166,14 +4189,17 @@ const ALL_PACKAGES = [
   'torchaudio', 'huggingface_hub', 'lightx2v', 'bitsandbytes', 'hf_xet'
 ]
 
-// Security guard for pip install/upgrade/uninstall handlers. Without a
-// whitelist a name like "--index-url <host>" or "-r <url>" would make pip
-// fetch or install arbitrary code — check-package already whitelists, the
-// mutating handlers must too.
+// Security guard for pip install/upgrade/uninstall handlers. Replaces the old
+// name-based whitelist (which blocked legit Wan2GP commands like
+// `claude-agent-sdk==0.1.40` and required a code change per new LLM SDK).
+// Now we ACCEPT any well-formed, non-injectable pip spec (name ± PEP440 pin,
+// or an https wheel URL) and REJECT only dangerous input (pip options, shell
+// metacharacters, whitespace). The handlers still call pip via argv (no shell),
+// so even a pinned `==` passes through verbatim and a malicious `;` cannot spawn
+// a second process. New LLM SDKs work with zero code edits.
 function assertWhitelistedPackage(pkgName) {
-  if (typeof pkgName !== 'string' || !ALL_PACKAGES.includes(pkgName)) {
-    throw new Error('Package not in whitelist')
-  }
+  const v = assertSafePipSpec(pkgName)
+  if (!v.ok) throw new Error('Unsafe or malformed pip spec: ' + (v.reason || 'rejected'))
 }
 
 ipcMain.handle('check-package-updates', async (_, installedVersions) => {
@@ -4351,6 +4377,292 @@ ipcMain.handle('restore-requirements', async () => {
     send('launch-log', '[*] Requirements restored successfully.\n')
     return { success: true }
   } catch (e) { return { error: e.message } }
+})
+
+// ── LLM engine catalog (guided Deepy Prime setup) ──
+// Returns the engine catalog plus live status: is the CLI on PATH and/or the
+// pip bridge present in the active env? The renderer renders ONE generic card
+// per entry, so adding a new engine = one data line in services/llm-engines.js,
+// no UI branch.
+async function checkCommandOnPath(cmd) {
+  if (!cmd) return false
+  try {
+    const out = execSync(IS_WIN ? `where ${cmd}` : `which ${cmd}`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+    return out.trim().length > 0
+  } catch { return false }
+}
+
+async function pipPackageInstalled(py, modName) {
+  if (!py || !modName) return false
+  try {
+    const helperPath = path.join(getDataDir(), '.check_pkg_llm.py')
+    const helper = [
+      'import sys, importlib',
+      'try:',
+      '  importlib.import_module(sys.argv[1])',
+      "  print('ok')",
+      'except Exception:',
+      "  print('no')",
+    ].join('\n')
+    fs.writeFileSync(helperPath, helper)
+    const r = await new Promise((resolve, reject) => {
+      const child = spawn(py, [helperPath, modName], { cwd: getRepoDir(), timeout: 10000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''
+      child.stdout.on('data', d => { out += d.toString() })
+      child.on('close', () => resolve(out.trim()))
+      child.on('error', reject)
+    })
+    return r === 'ok'
+  } catch { return false }
+}
+
+// ── LLM engine catalog (guided Deepy Prime setup) ──
+// Returns the engine catalog plus live status: is the CLI on PATH and/or the
+// pip bridge present in the active env? The renderer renders ONE generic card
+// per entry, so adding a new engine = one data line in services/llm-engines.js,
+// no UI branch. NOTE: this handler must stay registered — removing it makes
+// refreshLLMEngines() show "No active environment" and hides all install cards.
+ipcMain.handle('llm-engines:list', async () => {
+  try {
+    const env = getActiveEnv()
+    const py = env ? getPythonForEnv(env) : null
+    const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
+      const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
+      const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
+      return {
+        id: e.id, label: e.label, desc: e.desc, docs: e.docs,
+        cli: e.cli, cliOnPath,
+        pipPackage: e.pipPackage, pipInstalled,
+        install: e.install, external: e.external,
+        serverUrl: e.serverUrl || null,
+        serve: e.serve || null,
+        auth: e.auth || null, notes: e.notes || null
+      }
+    }))
+    return { engines, hasActiveEnv: !!env }
+  } catch (e) { return { engines: [], error: e.message } }
+})
+
+// ── Deepy Prime activation ────────────────────────────────────────────────
+// Reads/writes only the user's wgp_config.json (Wan2GP *data*, not source).
+// Backs the file up before any write, and only sets the known Deepy keys.
+function getWgpConfigPath () {
+  return path.join(getRepoDir(), 'wgp_config.json')
+}
+function readWgpConfigSafe () {
+  const p = getWgpConfigPath()
+  if (!fs.existsSync(p)) return null
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null }
+}
+
+ipcMain.handle('deepy:status', async () => {
+  try { return { ok: true, ...readDeepyStatus(readWgpConfigSafe()) } }
+  catch (e) { return { ok: false, error: e.message } }
+})
+
+// engine: 'opencode' | 'claude-code' | 'codex'  (UI ids)
+// Maps UI id -> wgp_config profile key + executable name.
+const DEEPY_ENGINE_MAP = {
+  'opencode': { profile: 'opencode', exe: 'opencode' },
+  'claude-code': { profile: 'claude', exe: 'claude' },
+  'codex': { profile: 'codex', exe: 'codex' }
+}
+
+ipcMain.handle('deepy:activate', async (_evt, engineId) => {
+  try {
+    const map = DEEPY_ENGINE_MAP[engineId]
+    if (!map) return { ok: false, error: 'Unknown engine: ' + engineId }
+    const cfgPath = getWgpConfigPath()
+    if (!fs.existsSync(cfgPath)) return { ok: false, error: 'wgp_config.json not found — install Wan2GP first.' }
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+
+    // 1) back up
+    const bak = cfgPath + '.deepy-bak'
+    fs.copyFileSync(cfgPath, bak)
+
+    // 2) only touch known keys
+    cfg.deepy_enabled = 1
+    cfg.deepy_type = 'prime'
+    cfg.llm_engines = cfg.llm_engines || {}
+    cfg.llm_engines.deepy = map.profile
+    cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
+    cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
+    cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
+    // Resolve the real executable path via the same resolver used for installs.
+    let resolved = null
+    try {
+      resolved = resolveCmd(map.exe, {
+        path: process.env.PATH,
+        appData: process.env.LOCALAPPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      })
+    } catch (_) { resolved = null }
+    cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
+    if (map.profile === 'opencode') {
+      cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
+    }
+
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
+    return {
+      ok: true,
+      engine: map.profile,
+      executable: cfg.llm_engines.profiles[map.profile].executable,
+      backup: bak,
+      message: `Deepy Prime set to ${map.profile}. Launch Wan2GP and click "Ask Deepy".`
+    }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
+// Configure Deepy mode: 'disabled' | 'zero' | 'prime'.
+// engineId required only when mode === 'prime' (UI id: opencode/claude-code/codex).
+// Pure logic lives in services/deepy-config.js (unit-tested).
+ipcMain.handle('deepy:set', async (_evt, { mode, engineId, enhancerId } = {}) => {
+  try { return setDeepyConfig({ fs, path, resolveCmd }, getRepoDir(), mode, engineId, enhancerId) }
+  catch (e) { return { ok: false, error: e.message } }
+})
+
+// Guided one-click installer for a catalog engine. Only installs the engine's
+// OWN pinned spec (from the data catalog), never arbitrary user input, so the
+// guided path is strictly safe even though the Advanced box is open-ended.
+ipcMain.handle('llm-engine-install', async (_, engineId) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.install) return { error: 'No installer for this engine' }
+
+    if (e.install.mode === 'pip') {
+      // Validate the catalog spec through the same safe validator.
+      const v = assertSafePipSpec(e.install.spec)
+      if (!v.ok) return { error: 'Engine install spec rejected: ' + v.reason }
+      const env = getActiveEnv()
+      if (!env) return { error: 'No active environment' }
+      const py = getPythonForEnv(env)
+      if (!py) return { error: 'Cannot find Python' }
+      send('launch-log', `[*] Installing ${e.install.spec} for ${e.label}...\n`)
+      await new Promise((resolve, reject) => {
+        const proc = spawn(py, ['-m', 'pip', 'install', e.install.spec], {
+          cwd: getRepoDir(), timeout: 300000, windowsHide: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+        })
+        proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('pip exited code ' + code)) })
+        proc.on('error', reject)
+      })
+      send('launch-log', `[*] ${e.label} bridge installed successfully.\n`)
+      return { success: true }
+    }
+
+    if (e.install.mode === 'npm') {
+      // External agent CLI (Codex / OpenCode): install via npm -g. Catalog spec
+      // is a plain package name (no injection surface). npm is a .cmd shim on
+      // Windows, so resolve it and run via shell:true.
+      const pkg = e.install.spec
+      if (!/^[A-Za-z0-9._@/-]+$/.test(pkg)) return { error: 'Bad npm package name' }
+      const npmBin = resolveCmd('npm', {
+        path: process.env.PATH || '',
+        appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      })
+      if (!npmBin) return { error: 'npm not found on PATH. Install Node.js (https://nodejs.org) and retry.' }
+      send('launch-log', `[*] Installing ${pkg} via npm (global)...\n`)
+      await new Promise((resolve, reject) => {
+        const args = e.install.global ? ['install', '-g', pkg] : ['install', pkg]
+        const proc = spawn(npmBin, args, {
+          cwd: getRepoDir(), timeout: 600000, windowsHide: true, shell: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        })
+        proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('npm exited code ' + code)) })
+        proc.on('error', reject)
+      })
+      send('launch-log', `[*] ${e.label} installed. Restart the launcher if it is not detected on PATH.\n`)
+      return { success: true }
+    }
+
+    return { error: 'Unknown install mode: ' + e.install.mode }
+  } catch (err) { return { error: err.message } }
+})
+
+// OpenCode HTTP server lifecycle (started/stopped by the launcher on demand).
+// Wan2GP itself auto-starts `opencode serve` when needed; this lets the user
+// start/stop it from the same guided panel without leaving the launcher.
+const _llmServerProcs = {}
+ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.serve) return { error: 'This engine has no server control' }
+    if (action === 'stop') {
+      const p = _llmServerProcs[engineId]
+      if (p) { try { p.kill() } catch {} delete _llmServerProcs[engineId] }
+      return { success: true, running: false }
+    }
+    if (action === 'start') {
+      if (_llmServerProcs[engineId]) return { success: true, running: true, already: true }
+      const cmd = resolveCmd(e.serve.cmd, {
+        path: process.env.PATH || '',
+        appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      }) || e.serve.cmd
+      const proc = spawn(cmd, e.serve.args, {
+        cwd: getRepoDir(), windowsHide: false, shell: true,
+        env: { ...process.env }
+      })
+      proc.on('exit', () => { delete _llmServerProcs[engineId] })
+      _llmServerProcs[engineId] = proc
+      return { success: true, running: true }
+    }
+    return { error: 'Unknown action: ' + action }
+  } catch (err) { return { error: err.message } }
+})
+
+// One-time interactive sign-in for an engine (e.g. `claude auth login --claudeai`).
+// Opens a PERSISTENT, user-visible terminal (so the browser/code step is visible
+// and errors don't disappear), then verifies with `claude whoami` afterwards.
+ipcMain.handle('llm-engine-auth', async (_, engineId) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.auth) return { error: 'This engine has no sign-in step' }
+    const cli = resolveCmd(e.auth.cmd, {
+      path: process.env.PATH || '',
+      appData: process.env.LOCALAPPDATA || process.env.APPDATA,
+      programFiles: process.env.ProgramFiles,
+      systemDrive: process.env.SystemDrive || 'C:\\\\'
+    })
+    if (!cli) return { error: e.auth.cmd + ' not found on PATH. Install Claude Code first (the bridge install only adds the Python SDK).' }
+    const authArgs = e.auth.args.join(' ')
+    send('launch-log', `[*] Opening ${e.label} sign-in terminal (${e.auth.cmd} ${authArgs})... complete it there, then click Refresh.\n`)
+    // Persistent terminal: /K keeps it open so the user can finish the browser
+    // login and read any error. Using a title lets the user find the window.
+    const title = `Wan2GP - ${e.label} sign-in`
+    let child
+    if (IS_WIN) {
+      try {
+        execSync('where wt', { windowsHide: true, timeout: 3000 })
+        child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', title, 'cmd.exe', '/K', cli, ...e.auth.args], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env }
+        })
+      } catch {
+        child = spawn('cmd.exe', ['/c', 'start', `\"${title}\"`, 'cmd.exe', '/K', cli, ...e.auth.args], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env }
+        })
+      }
+    } else {
+      child = spawn(cli, e.auth.args, { cwd: getRepoDir(), windowsHide: false, env: { ...process.env } })
+    }
+    child.on('error', (err) => send('launch-log', `[!] auth terminal error: ${err.message}\n`))
+    // Best-effort verification: after a short delay, ask `claude whoami`. This does
+    // not block the user; it just logs the detected sign-in state in the launch log.
+    setTimeout(() => {
+      exec(`"${cli}" whoami`, { encoding: 'utf8', windowsHide: true, timeout: 15000, env: { ...process.env } }, (err, stdout) => {
+        if (err || !stdout.includes('@')) send('launch-log', `[!] ${e.label} not signed in yet — finish the browser step in the terminal.\n`)
+        else send('launch-log', `[✓] ${e.label} sign-in detected: ${String(stdout).trim().split('\n')[0]}\n`)
+      })
+    }, 8000)
+    return { success: true, message: 'Sign-in terminal opened — complete the browser step there, then click Refresh.' }
+  } catch (err) { return { error: err.message } }
 })
 
 // ── Hardware detection ──
