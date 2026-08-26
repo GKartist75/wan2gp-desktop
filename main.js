@@ -14,6 +14,8 @@ const queueNotifier = require('./services/queue-notifier.js')
 const installPlan = require('./services/install-plan.js')
 const kernelResolver = require('./services/kernel-resolver.js')
 const statusHelpers = require('./services/status-helpers.js')
+const { assertSafePipSpec } = require('./services/pip-spec.js')
+const { LLM_ENGINES, pipModuleFor } = require('./services/llm-engines.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
@@ -4166,14 +4168,17 @@ const ALL_PACKAGES = [
   'torchaudio', 'huggingface_hub', 'lightx2v', 'bitsandbytes', 'hf_xet'
 ]
 
-// Security guard for pip install/upgrade/uninstall handlers. Without a
-// whitelist a name like "--index-url <host>" or "-r <url>" would make pip
-// fetch or install arbitrary code — check-package already whitelists, the
-// mutating handlers must too.
+// Security guard for pip install/upgrade/uninstall handlers. Replaces the old
+// name-based whitelist (which blocked legit Wan2GP commands like
+// `claude-agent-sdk==0.1.40` and required a code change per new LLM SDK).
+// Now we ACCEPT any well-formed, non-injectable pip spec (name ± PEP440 pin,
+// or an https wheel URL) and REJECT only dangerous input (pip options, shell
+// metacharacters, whitespace). The handlers still call pip via argv (no shell),
+// so even a pinned `==` passes through verbatim and a malicious `;` cannot spawn
+// a second process. New LLM SDKs work with zero code edits.
 function assertWhitelistedPackage(pkgName) {
-  if (typeof pkgName !== 'string' || !ALL_PACKAGES.includes(pkgName)) {
-    throw new Error('Package not in whitelist')
-  }
+  const v = assertSafePipSpec(pkgName)
+  if (!v.ok) throw new Error('Unsafe or malformed pip spec: ' + (v.reason || 'rejected'))
 }
 
 ipcMain.handle('check-package-updates', async (_, installedVersions) => {
@@ -4351,6 +4356,93 @@ ipcMain.handle('restore-requirements', async () => {
     send('launch-log', '[*] Requirements restored successfully.\n')
     return { success: true }
   } catch (e) { return { error: e.message } }
+})
+
+// ── LLM engine catalog (guided Deepy Prime setup) ──
+// Returns the engine catalog plus live status: is the CLI on PATH and/or the
+// pip bridge present in the active env? The renderer renders ONE generic card
+// per entry, so adding a new engine = one data line in services/llm-engines.js,
+// no UI branch.
+async function checkCommandOnPath(cmd) {
+  if (!cmd) return false
+  try {
+    const out = execSync(IS_WIN ? `where ${cmd}` : `which ${cmd}`, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+    return out.trim().length > 0
+  } catch { return false }
+}
+
+async function pipPackageInstalled(py, modName) {
+  if (!py || !modName) return false
+  try {
+    const helperPath = path.join(getDataDir(), '.check_pkg_llm.py')
+    const helper = [
+      'import sys, importlib',
+      'try:',
+      '  importlib.import_module(sys.argv[1])',
+      "  print('ok')",
+      'except Exception:',
+      "  print('no')",
+    ].join('\n')
+    fs.writeFileSync(helperPath, helper)
+    const r = await new Promise((resolve, reject) => {
+      const child = spawn(py, [helperPath, modName], { cwd: getRepoDir(), timeout: 10000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''
+      child.stdout.on('data', d => { out += d.toString() })
+      child.on('close', () => resolve(out.trim()))
+      child.on('error', reject)
+    })
+    return r === 'ok'
+  } catch { return false }
+}
+
+ipcMain.handle('llm-engines:list', async () => {
+  try {
+    const env = getActiveEnv()
+    const py = env ? getPythonForEnv(env) : null
+    const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
+      const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
+      const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
+      return {
+        id: e.id, label: e.label, desc: e.desc, docs: e.docs,
+        cli: e.cli, cliOnPath,
+        pipPackage: e.pipPackage, pipInstalled,
+        install: e.install, external: e.external,
+        serverUrl: e.serverUrl || null,
+        authHint: e.authHint || null, notes: e.notes || null
+      }
+    }))
+    return { engines, hasActiveEnv: !!env }
+  } catch (e) { return { engines: [], error: e.message } }
+})
+
+// Guided one-click installer for a catalog engine. Only installs the engine's
+// OWN pinned spec (from the data catalog), never arbitrary user input, so the
+// guided path is strictly safe even though the Advanced box is open-ended.
+ipcMain.handle('llm-engine-install', async (_, engineId) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.install || e.install.mode !== 'pip') return { error: 'No pip installer for this engine' }
+    // Validate the catalog spec through the same safe validator.
+    const v = assertSafePipSpec(e.install.spec)
+    if (!v.ok) return { error: 'Engine install spec rejected: ' + v.reason }
+    const env = getActiveEnv()
+    if (!env) return { error: 'No active environment' }
+    const py = getPythonForEnv(env)
+    if (!py) return { error: 'Cannot find Python' }
+    send('launch-log', `[*] Installing ${e.install.spec} for ${e.label}...\n`)
+    await new Promise((resolve, reject) => {
+      const proc = spawn(py, ['-m', 'pip', 'install', e.install.spec], {
+        cwd: getRepoDir(), timeout: 300000, windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+      })
+      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+      proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('pip exited code ' + code)) })
+      proc.on('error', reject)
+    })
+    send('launch-log', `[*] ${e.label} bridge installed successfully.\n`)
+    return { success: true }
+  } catch (err) { return { error: err.message } }
 })
 
 // ── Hardware detection ──

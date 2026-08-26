@@ -513,9 +513,28 @@
           </div>
         </div>
         <div class="env-list" id="envList" style="margin-top:6px"></div>
-        <div class="pip-install-row">
-          <input type="text" id="pipInput" class="pip-input" placeholder="package name (e.g. triton)" spellcheck="false">
-          <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
+
+        <!-- Guided LLM engine setup for Deepy Prime (Claude Code / Codex / OpenCode).
+             Cards are rendered generically from services/llm-engines.js (data),
+             so a new engine needs no UI branch. -->
+        <div class="card" id="llmEnginesCard" style="margin-top:10px">
+          <div class="card-header">
+            <span class="card-title">LLM Engines (Deepy Prime)</span>
+            <button class="btn btn-ghost small" id="llmEnginesRefresh" title="Re-check engine status" style="margin-left:auto">↻ Refresh</button>
+          </div>
+          <p class="path-hint">Deepy Prime can use Claude Code, Codex, or OpenCode as its LLM engine. Install/enable them here, then pick the engine in Wan2GP's <code>Configuration → Prompt Enhancer / Deepy</code>.</p>
+          <div id="llmEnginesList" class="llm-engines-list"></div>
+        </div>
+
+        <!-- Advanced pip install: open-ended, but spec-validated (no shell, no
+             injection). Any future LLM SDK works here with no code change. -->
+        <div class="pip-install-row" style="margin-top:6px">
+          <div class="pip-advanced-label">Advanced — install any pip package</div>
+          <div style="display:flex;gap:6px;width:100%">
+            <input type="text" id="pipInput" class="pip-input" placeholder="package (e.g. claude-agent-sdk==0.1.40)" spellcheck="false">
+            <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
+          </div>
+          <div class="pip-advanced-hint">Pins allowed (==, &gt;=, ~=). Flags like <code>--index-url</code> and shell characters are blocked for safety.</div>
         </div>
       </div>
 

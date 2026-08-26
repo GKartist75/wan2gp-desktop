@@ -436,6 +436,22 @@ body {
 .pip-install-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--accent); }
 .pip-install-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* spec-dot ok/bad states used by LLM engine status rows */
+.spec-dot.dot-ok { display: inline-block; background: #4ADE80; }
+.spec-dot.dot-bad { display: inline-block; background: #6B7280; }
+
+/* ── Guided LLM engine cards (Deepy Prime) ── */
+.llm-engines-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.llm-engine-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--canvas); }
+.llm-engine-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.llm-engine-title { font-size: 0.7rem; font-weight: 600; color: var(--text-primary); }
+.llm-install-btn { font-size: 0.6rem; padding: 3px 8px; }
+.llm-external-hint { color: var(--text-tertiary); }
+.pip-advanced-label { font-size: 0.6rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600; }
+.pip-advanced-hint { font-size: 0.58rem; color: var(--text-tertiary); margin-top: 4px; line-height: 1.35; }
+.pip-advanced-hint code { background: var(--surface); padding: 0 4px; border-radius: 3px; color: var(--text-secondary); }
+
+
 /* ── Update Banner ── */
 .update-banner {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;

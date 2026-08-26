@@ -1047,6 +1047,8 @@ async function refreshDashboard(){
   checkModelsPathWarning()
   // Warn RTX 40/50 users still on the broken fp8 SageAttention wheel to sync.
   checkSageSyncBanner(status)
+  // Refresh the guided LLM engine cards (Deepy Prime setup).
+  refreshLLMEngines().catch(() => {})
   // Enable/disable no-GPU button based on Chrome availability
   ;(async () => {
     const available = await window.w2gp.chromeAvailable()
@@ -2099,6 +2101,62 @@ $('pipInstallBtn').addEventListener('click', async () => {
   }
 })
 $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pipInstallBtn').click() })
+
+// ── Guided LLM engine setup (Deepy Prime) ──
+// Renders ONE generic card per catalog engine (services/llm-engines.js). The
+// card shows live ✓/✗ status for the CLI and/or pip bridge, plus a one-click
+// installer for pip-based engines. External engines (Codex/OpenCode) get their
+// install hint + (for OpenCode) a "Start server" note instead of a pip button.
+function dot(on) { return on ? '<span class="spec-dot dot-ok"></span>' : '<span class="spec-dot dot-bad"></span>' }
+
+async function refreshLLMEngines() {
+  const list = $('llmEnginesList')
+  if (!list) return
+  let data
+  try { data = await window.w2gp.llmEnginesList() } catch (e) { data = { engines: [] } }
+  const engines = (data && data.engines) || []
+  if (!engines.length) {
+    list.innerHTML = '<div class="spec-row"><span class="spec-value">No active environment — install Wan2GP first.</span></div>'
+    return
+  }
+  list.innerHTML = engines.map(e => {
+    const cliRow = e.cli
+      ? `<div class="spec-row"><span class="spec-label">${e.cli} CLI</span>${dot(e.cliOnPath)}<span class="spec-value">${e.cliOnPath ? 'on PATH' : 'not found'}</span></div>`
+      : ''
+    const pipRow = e.pipPackage
+      ? `<div class="spec-row"><span class="spec-label">${e.pipPackage}</span>${dot(e.pipInstalled)}<span class="spec-value">${e.pipInstalled ? 'installed' : 'missing'}</span></div>`
+      : ''
+    let action = ''
+    if (e.install && e.install.mode === 'pip') {
+      const done = e.pipInstalled
+      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ installed' : 'Install ' + e.install.spec}</button>`
+    } else if (e.external) {
+      action = `<span class="spec-value llm-external-hint">External — install via terminal, then it auto-detects.</span>`
+    }
+    const serverRow = e.serverUrl
+      ? `<div class="spec-row"><span class="spec-label">Server</span><span class="spec-value">${e.serverUrl}</span></div>`
+      : ''
+    const notes = e.notes ? `<div class="pip-advanced-hint">${e.notes}</div>` : ''
+    const auth = e.authHint ? `<div class="pip-advanced-hint">${e.authHint}</div>` : ''
+    return `<div class="llm-engine-card">
+      <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>
+      <div class="env-specs">${cliRow}${pipRow}${serverRow}</div>
+      <div class="pip-advanced-hint">${e.desc}</div>${auth}${notes}
+    </div>`
+  }).join('')
+  list.querySelectorAll('.llm-install-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.engine
+      btn.disabled = true; btn.textContent = 'installing...'
+      const r = await window.w2gp.llmEngineInstall(id)
+      btn.textContent = (r && r.success) ? '✓ installed' : 'failed'
+      if (r && r.success) { showToast('✓ engine installed'); refreshLLMEngines() }
+      else showToast('✗ ' + (r && r.error ? r.error : 'install failed'))
+    })
+  })
+}
+
+$('llmEnginesRefresh')?.addEventListener('click', refreshLLMEngines)
 
 $('desktopShortcutBtn').addEventListener('click', async function() {
   this.disabled = true; this.textContent = 'Creating...'
