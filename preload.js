@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   deepyStatus: () => ipcRenderer.invoke('deepy:status'),
   deepyActivate: (engineId) => ipcRenderer.invoke('deepy:activate', engineId),
+  deepySet: (mode, engineId) => ipcRenderer.invoke('deepy:set', { mode, engineId }),
   openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
   detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
   launchBrowser: (url) => ipcRenderer.invoke('launch-browser', url),

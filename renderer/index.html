@@ -536,20 +536,28 @@
           <div id="llmEnginesList" class="llm-engines-list"></div>
         </div>
 
-        <!-- One-click Deepy Prime activation. Reads/writes only wgp_config.json
-             (Wan2GP user data) — never Wan2GP source. Backs the file up first. -->
+        <!-- Deepy mode selector + one-click activation. Reads/writes only
+             wgp_config.json (Wan2GP user data) — never Wan2GP source.
+             Backs the file up first. -->
         <div class="card" id="deepyPrimeCard" style="margin-top:10px">
           <div class="card-header">
-            <span class="card-title">Activate Deepy Prime</span>
+            <span class="card-title">Deepy (WanGP assistant)</span>
           </div>
-          <p class="path-hint">Deepy is WanGP's conversational media assistant. This wires your chosen engine into Wan2GP's config so the next launch boots with <strong>Deepy Prime</strong> ready — just click <em>Ask Deepy</em> in Wan2GP. <a id="deepyDocsLink" href="#" style="color:var(--accent)">What is Deepy? (docs)</a></p>
-          <div class="deepy-cost-note">
-            <span class="dot-ok">●</span> <strong>OpenCode</strong> — free, local models, no account.
-            <span class="dot-bad">●</span> <strong>Claude Code / Codex</strong> — paid (subscription or API credits).
+          <p class="path-hint">Deepy is WanGP's conversational media assistant. Pick a mode — the launcher writes it into Wan2GP's config so the next launch applies it. <a id="deepyDocsLink" href="#" style="color:var(--accent)">What is Deepy? (docs)</a></p>
+          <div class="deepy-mode-row">
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="disabled"> Disabled</label>
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="zero"> Deepy Zero <span class="deepy-mode-sub">local model</span></label>
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="prime"> Deepy Prime <span class="deepy-mode-sub">remote LLM</span></label>
           </div>
-          <div id="deepyEngineOptions" class="deepy-engine-options"></div>
+          <div id="deepyPrimeOnly" style="display:none">
+            <div class="deepy-cost-note">
+              <span class="dot-ok">●</span> <strong>OpenCode</strong> — free, local models, no account.
+              <span class="dot-bad">●</span> <strong>Claude Code / Codex</strong> — paid (subscription or API credits).
+            </div>
+            <div id="deepyEngineOptions" class="deepy-engine-options"></div>
+          </div>
           <div class="deepy-actions">
-            <button class="btn btn-primary" id="deepyActivateBtn" disabled>Activate Deepy Prime</button>
+            <button class="btn btn-primary" id="deepyApplyBtn" disabled>Apply</button>
             <button class="btn btn-secondary" id="deepyLaunchBtn">Launch Wan2GP</button>
           </div>
           <div id="deepyStatusMsg" class="pip-advanced-hint" style="margin-top:8px"></div>

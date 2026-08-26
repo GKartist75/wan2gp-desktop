@@ -1,10 +1,15 @@
 /**
- * deepy-config.js — pure helpers for activating Deepy Prime in Wan2GP's
+ * deepy-config.js — pure helpers for configuring Deepy in Wan2GP's
  * wgp_config.json (user DATA, never Wan2GP source).
  *
+ * Supported Deepy modes (canonical values from Wan2GP's shared/deepy/config.py):
+ *   - disabled : deepy_enabled = 0  (deepy_type ignored)
+ *   - zero     : deepy_enabled = 1, deepy_type = "zero"   (LOCAL Qwen model, no remote LLM)
+ *   - prime    : deepy_enabled = 1, deepy_type = "prime"  (requires a remote LLM engine)
+ *
  * Kept free of Electron/Node-only deps so it is unit-testable. The caller
- * passes in fs + path + resolveCmd (injected) for tests; in production main.js
- * wires the real ones.
+ * passes in fs / path / resolveCmd (injected); in production main.js wires
+ * the real ones.
  */
 
 // UI engine id -> { profile: wgp_config key, exe: executable name }
@@ -15,12 +20,29 @@ const DEEPY_ENGINE_MAP = {
 }
 const PROFILE_TO_UI = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
 
+// Canonical Deepy mode -> { enabled, type }
+const DEEPY_MODES = {
+  disabled: { enabled: 0, type: 'zero' },
+  zero: { enabled: 1, type: 'zero' },
+  prime: { enabled: 1, type: 'prime' }
+}
+
+// Derive the current Deepy mode from the persisted fields.
+function currentMode(cfg) {
+  if (!cfg) return 'disabled'
+  const enabled = parseInt(cfg.deepy_enabled, 10)
+  if (!enabled) return 'disabled'
+  return (cfg.deepy_type === 'prime') ? 'prime' : 'zero'
+}
+
 function readStatus(cfg) {
   if (!cfg) return { available: false, reason: 'wgp_config.json not found' }
   const le = cfg.llm_engines || {}
+  const mode = currentMode(cfg)
   return {
     available: true,
-    deepyEnabled: !!cfg.deepy_enabled,
+    mode,
+    deepyEnabled: currentMode(cfg) !== 'disabled',
     deepyType: cfg.deepy_type || null,
     currentEngine: le.deepy || null,
     promptEnhancer: le.prompt_enhancer || null,
@@ -29,16 +51,20 @@ function readStatus(cfg) {
 }
 
 /**
- * Activate Deepy Prime for engineId.
+ * Configure Deepy mode.
  * @param {{fs,path,resolveCmd}} deps
  * @param {string} repoDir  Wan2GP repo dir (wgp_config.json lives here)
- * @param {string} engineId  'opencode' | 'claude-code' | 'codex'
- * @returns {{ok:boolean, engine?:string, executable?:string, backup?:string, message?:string, error?:string}}
+ * @param {string} mode     'disabled' | 'zero' | 'prime'
+ * @param {string|null} engineId  UI engine id ('opencode'|'claude-code'|'codex');
+ *                                 required only when mode === 'prime'
+ * @returns {{ok:boolean, mode?:string, engine?:string, executable?:string, backup?:string, message?:string, error?:string}}
  */
-function activate(deps, repoDir, engineId) {
+function setDeepy(deps, repoDir, mode, engineId) {
   const { fs, path, resolveCmd } = deps
-  const map = DEEPY_ENGINE_MAP[engineId]
-  if (!map) return { ok: false, error: 'Unknown engine: ' + engineId }
+  if (!DEEPY_MODES[mode]) return { ok: false, error: 'Unknown Deepy mode: ' + mode }
+  if (mode === 'prime' && !DEEPY_ENGINE_MAP[engineId]) {
+    return { ok: false, error: 'Prime requires an engine (OpenCode / Claude Code / Codex).' }
+  }
   const cfgPath = path.join(repoDir, 'wgp_config.json')
   if (!fs.existsSync(cfgPath)) return { ok: false, error: 'wgp_config.json not found — install Wan2GP first.' }
   let cfg
@@ -48,29 +74,40 @@ function activate(deps, repoDir, engineId) {
   const bak = cfgPath + '.deepy-bak'
   fs.copyFileSync(cfgPath, bak)
 
-  cfg.deepy_enabled = 1
-  cfg.deepy_type = 'prime'
-  cfg.llm_engines = cfg.llm_engines || {}
-  cfg.llm_engines.deepy = map.profile
-  cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
-  cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
-  cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
-  const resolved = resolveCmd
-    ? resolveCmd(map.exe, { path: process.env.PATH, appData: process.env.LOCALAPPDATA, programFiles: process.env.ProgramFiles, systemDrive: process.env.SystemDrive || 'C:\\' })
-    : null
-  cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
-  if (map.profile === 'opencode') {
-    cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
+  const m = DEEPY_MODES[mode]
+  cfg.deepy_enabled = m.enabled
+  cfg.deepy_type = m.type
+
+  // Only Prime wires a remote LLM engine. Zero uses a local Qwen model and
+  // Disabled leaves the engine config untouched.
+  if (mode === 'prime') {
+    const map = DEEPY_ENGINE_MAP[engineId]
+    cfg.llm_engines = cfg.llm_engines || {}
+    cfg.llm_engines.deepy = map.profile
+    cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
+    cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
+    cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
+    const resolved = resolveCmd
+      ? resolveCmd(map.exe, { path: process.env.PATH, appData: process.env.LOCALAPPDATA, programFiles: process.env.ProgramFiles, systemDrive: process.env.SystemDrive || 'C:\\' })
+      : null
+    cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
+    if (map.profile === 'opencode') {
+      cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
+    }
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
+  const label = mode === 'prime'
+    ? `Deepy Prime set to ${DEEPY_ENGINE_MAP[engineId].profile}`
+    : (mode === 'zero' ? 'Deepy Zero enabled (local model)' : 'Deepy disabled')
   return {
     ok: true,
-    engine: map.profile,
-    executable: cfg.llm_engines.profiles[map.profile].executable,
+    mode,
+    engine: mode === 'prime' ? DEEPY_ENGINE_MAP[engineId].profile : null,
+    executable: (mode === 'prime') ? cfg.llm_engines.profiles[DEEPY_ENGINE_MAP[engineId].profile].executable : null,
     backup: bak,
-    message: `Deepy Prime set to ${map.profile}. Launch Wan2GP and click "Ask Deepy".`
+    message: label + '. Launch Wan2GP and click "Ask Deepy".'
   }
 }
 
-module.exports = { DEEPY_ENGINE_MAP, PROFILE_TO_UI, readStatus, activate }
+module.exports = { DEEPY_ENGINE_MAP, PROFILE_TO_UI, DEEPY_MODES, currentMode, readStatus, setDeepy }

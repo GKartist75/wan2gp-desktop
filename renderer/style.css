@@ -474,6 +474,10 @@ body {
 .deepy-engine-cost { margin-left: auto; font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .deepy-cost-free { color: #4ADE80; }
 .deepy-cost-paid { color: #FBBF24; }
+.deepy-mode-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.deepy-mode-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.62rem; cursor: pointer; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-mode-opt:hover { border-color: var(--accent); }
+.deepy-mode-sub { font-size: 0.5rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
 .deepy-actions { display: flex; gap: 8px; margin-top: 10px; }
 .dot-ok { color: #4ADE80; }
 .dot-bad { color: #F87171; }

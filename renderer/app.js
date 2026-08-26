@@ -2256,10 +2256,12 @@ const DEEPY_PANEL_ENGINES = [
 async function refreshDeepy() {
   const opts = $('deepyEngineOptions')
   const statusMsg = $('deepyStatusMsg')
-  const activateBtn = $('deepyActivateBtn')
+  const applyBtn = $('deepyApplyBtn')
   const launchBtn = $('deepyLaunchBtn')
   const docsLink = $('deepyDocsLink')
-  if (!opts) return
+  const primeOnly = $('deepyPrimeOnly')
+  const modeRadios = document.querySelectorAll('input[name=deepyMode]')
+  if (!applyBtn) return
 
   let status = { available: false }
   let engines = []
@@ -2282,11 +2284,16 @@ async function refreshDeepy() {
   const currentProfile = status.currentEngine
   const profileToUi = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
   const currentUi = profileToUi[currentProfile] || null
-  let selected = currentUi
-  if (!selected) {
-    selected = ready('opencode') ? 'opencode'
+  const currentMode = status.mode || 'disabled'
+  let selectedEngine = currentUi
+  if (!selectedEngine) {
+    selectedEngine = ready('opencode') ? 'opencode'
       : (ready('claude-code') ? 'claude-code' : (ready('codex') ? 'codex' : DEEPY_PANEL_ENGINES[0].id))
   }
+
+  // Pre-select the current Deepy mode (Disabled / Zero / Prime).
+  modeRadios.forEach(r => { r.checked = (r.value === currentMode) })
+  primeOnly.style.display = (currentMode === 'prime') ? 'block' : 'none'
 
   opts.innerHTML = DEEPY_PANEL_ENGINES.map(en => {
     const isReady = ready(en.id)
@@ -2294,7 +2301,7 @@ async function refreshDeepy() {
     const dotChar = isReady ? '●' : '○'
     const cost = en.paid ? '<span class="deepy-cost-paid">paid</span>' : '<span class="deepy-cost-free">free</span>'
     return `<label class="deepy-engine-opt">
-      <input type="radio" name="deepyEngine" value="${en.id}" ${en.id === selected ? 'checked' : ''}>
+      <input type="radio" name="deepyEngine" value="${en.id}" ${en.id === selectedEngine ? 'checked' : ''}>
       <span class="${dotCls}">${dotChar}</span>
       <span class="deepy-engine-label">${en.label}</span>
       <span class="deepy-engine-cost">${cost}</span>
@@ -2302,38 +2309,44 @@ async function refreshDeepy() {
   }).join('')
 
   if (status.available) {
-    const cur = currentProfile
-      ? `Currently: <strong>${currentProfile}</strong>${status.deepyEnabled ? ' (Deepy ' + (status.deepyType || '') + ' enabled)' : ' (Deepy disabled)'}`
-      : 'Not yet configured for a remote LLM.'
-    statusMsg.innerHTML = cur
+    const label = { disabled: 'Disabled', zero: 'Deepy Zero (local model)', prime: 'Deepy Prime' }[currentMode] || currentMode
+    statusMsg.innerHTML = 'Currently: <strong>' + label + '</strong>'
+      + (currentMode === 'prime' && currentProfile ? ' — engine: ' + currentProfile : '')
   } else {
     statusMsg.innerHTML = '<span style="color:#FBBF24">' + (status.reason || 'Wan2GP config not found — install Wan2GP first.') + '</span>'
   }
 
-  const syncActivate = () => {
-    const sel = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
-    activateBtn.disabled = !sel || !ready(sel)
-    activateBtn.title = (sel && !ready(sel))
-      ? 'Install / enable this engine first (see LLM Engines above)'
-      : 'Write this engine into wgp_config.json and enable Deepy Prime'
+  const syncApply = () => {
+    const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
+    primeOnly.style.display = (mode === 'prime') ? 'block' : 'none'
+    let ok = true
+    let title = ''
+    if (mode === 'prime') {
+      const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+      if (!eng) { ok = false; title = 'Pick an engine for Deepy Prime' }
+      else if (!ready(eng)) { ok = false; title = 'Install / enable this engine first (see LLM Engines above)' }
+    }
+    applyBtn.disabled = !ok
+    applyBtn.title = title || ('Set Deepy to ' + mode)
   }
-  opts.querySelectorAll('input[name=deepyEngine]').forEach(r => r.addEventListener('change', syncActivate))
-  syncActivate()
+  modeRadios.forEach(r => r.addEventListener('change', syncApply))
+  opts.querySelectorAll('input[name=deepyEngine]').forEach(r => r.addEventListener('change', syncApply))
+  syncApply()
 
-  activateBtn.onclick = async () => {
-    const sel = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
-    if (!sel) return
-    activateBtn.disabled = true; activateBtn.textContent = 'activating...'
-    const r = await window.w2gp.deepyActivate(sel)
-    activateBtn.textContent = 'Activate Deepy Prime'
+  applyBtn.onclick = async () => {
+    const mode = (document.querySelector('input[name=deepyMode]:checked') || {}).value || 'disabled'
+    const eng = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+    applyBtn.disabled = true; applyBtn.textContent = 'applying...'
+    const r = await window.w2gp.deepySet(mode, eng)
+    applyBtn.textContent = 'Apply'
     if (r && r.ok) {
-      statusMsg.innerHTML = '<span style="color:#4ADE80">✓ ' + (r.message || 'Deepy Prime activated') + '</span>'
-      showToast('✓ Deepy Prime set to ' + r.engine)
+      statusMsg.innerHTML = '<span style="color:#4ADE80">✓ ' + (r.message || 'Deepy updated') + '</span>'
+      showToast('✓ ' + (r.message || 'Deepy updated'))
       refreshDeepy()
     } else {
-      statusMsg.innerHTML = '<span style="color:#F87171">✗ ' + (r && r.error ? r.error : 'activation failed') + '</span>'
-      showToast('✗ ' + (r && r.error ? r.error : 'activation failed'))
-      activateBtn.disabled = false
+      statusMsg.innerHTML = '<span style="color:#F87171">✗ ' + (r && r.error ? r.error : 'update failed') + '</span>'
+      showToast('✗ ' + (r && r.error ? r.error : 'update failed'))
+      applyBtn.disabled = false
     }
   }
   if (launchBtn) launchBtn.onclick = async () => {

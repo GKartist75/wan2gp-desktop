@@ -17,6 +17,7 @@ const statusHelpers = require('./services/status-helpers.js')
 const { assertSafePipSpec } = require('./services/pip-spec.js')
 const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('./services/llm-engines.js')
 const { resolveCmd } = require('./services/resolve-cmd.js')
+const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
 
@@ -4525,6 +4526,14 @@ ipcMain.handle('deepy:activate', async (_evt, engineId) => {
       message: `Deepy Prime set to ${map.profile}. Launch Wan2GP and click "Ask Deepy".`
     }
   } catch (e) { return { ok: false, error: e.message } }
+})
+
+// Configure Deepy mode: 'disabled' | 'zero' | 'prime'.
+// engineId required only when mode === 'prime' (UI id: opencode/claude-code/codex).
+// Pure logic lives in services/deepy-config.js (unit-tested).
+ipcMain.handle('deepy:set', async (_evt, { mode, engineId } = {}) => {
+  try { return setDeepyConfig({ fs, path, resolveCmd }, getRepoDir(), mode, engineId) }
+  catch (e) { return { ok: false, error: e.message } }
 })
 
 // Guided one-click installer for a catalog engine. Only installs the engine's
