@@ -62,6 +62,7 @@ test('setDeepy disabled writes enabled=0 and leaves engine untouched', () => {
     assert.strictEqual(after.deepy_enabled, 0)
     assert.strictEqual(after.deepy_type, 'zero')
     assert.strictEqual(after.llm_engines.deepy, 'opencode') // untouched
+    assert.strictEqual(after.enhancer_enabled, 1) // Florence 2 + Llama 3.2 3B (local)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 

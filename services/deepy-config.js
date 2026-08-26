@@ -105,6 +105,10 @@ function setDeepy(deps, repoDir, mode, engineId) {
     const valid = new Set([3, 4, 5])
     const cur = parseInt(cfg.enhancer_enabled, 10)
     if (!valid.has(cur)) cfg.enhancer_enabled = 3
+  } else if (mode === 'disabled') {
+    // Disabled: reset the Prompt Enhancer to the default local model
+    // (Florence 2 + Llama 3.2 3B), i.e. enhancer_enabled = 1.
+    cfg.enhancer_enabled = 1
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
