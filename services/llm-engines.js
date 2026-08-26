@@ -43,7 +43,7 @@ const LLM_ENGINES = [
     docs: 'https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/REMOTE_LLMS.md#codex',
     cli: 'codex',
     pipPackage: null,
-    install: { mode: 'npm', spec: 'codex-cli', global: true },
+    install: { mode: 'npm', spec: '@openai/codex', global: true },
     external: true,
     authHint: 'Sign in via a Deepy request in Wan2GP (secure link shown in chat).',
     notes: 'Wan2GP detects the `codex` executable on PATH automatically.'

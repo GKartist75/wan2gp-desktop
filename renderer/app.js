@@ -2133,7 +2133,7 @@ async function refreshLLMEngines() {
       action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ installed' : 'Install ' + e.install.spec}</button>`
     } else if (e.install && e.install.mode === 'npm') {
       const done = e.cliOnPath
-      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ on PATH' : 'Install via npm (' + e.install.spec + ')'}</button>`
+      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ on PATH' : 'Install via npm (@openai/codex)'}</button>`
     } else if (e.external) {
       action = `<span class="spec-value llm-external-hint">External — install via terminal, then it auto-detects.</span>`
     }

@@ -31,7 +31,7 @@ test('codex and opencode are external with npm installers + opencode has a serve
   const oc = LLM_ENGINES.find(e => e.id === 'opencode')
   assert.strictEqual(codex.external, true)
   assert.strictEqual(codex.install.mode, 'npm')
-  assert.strictEqual(codex.install.spec, 'codex-cli')
+  assert.strictEqual(codex.install.spec, '@openai/codex')
   assert.strictEqual(oc.external, true)
   assert.strictEqual(oc.install.mode, 'npm')
   assert.strictEqual(oc.install.spec, 'opencode-ai')
