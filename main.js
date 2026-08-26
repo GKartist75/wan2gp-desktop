@@ -4514,7 +4514,8 @@ ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
 })
 
 // One-time interactive sign-in for an engine (e.g. `claude auth login --claudeai`).
-// The CLI is a .cmd shim, so resolve it and run with a visible terminal.
+// Opens a PERSISTENT, user-visible terminal (so the browser/code step is visible
+// and errors don't disappear), then verifies with `claude whoami` afterwards.
 ipcMain.handle('llm-engine-auth', async (_, engineId) => {
   try {
     const e = LLM_ENGINES.find(x => x.id === engineId)
@@ -4525,16 +4526,37 @@ ipcMain.handle('llm-engine-auth', async (_, engineId) => {
       programFiles: process.env.ProgramFiles,
       systemDrive: process.env.SystemDrive || 'C:\\\\'
     })
-    if (!cli) return { error: e.auth.cmd + ' not found on PATH. Install it first.' }
-    send('launch-log', `[*] Opening ${e.label} sign-in (${e.auth.cmd} ${e.auth.args.join(' ')} )...\n`)
-    const proc = spawn(cli, e.auth.args, {
-      cwd: getRepoDir(), windowsHide: false, shell: true,
-      env: { ...process.env }
-    })
-    // Auth is interactive (opens a browser). We just confirm the process spawned;
-    // success/failure is for the user to complete in the browser.
-    proc.on('error', (err) => send('launch-log', `[!] auth error: ${err.message}\n`))
-    return { success: true }
+    if (!cli) return { error: e.auth.cmd + ' not found on PATH. Install Claude Code first (the bridge install only adds the Python SDK).' }
+    const authArgs = e.auth.args.join(' ')
+    send('launch-log', `[*] Opening ${e.label} sign-in terminal (${e.auth.cmd} ${authArgs})... complete it there, then click Refresh.\n`)
+    // Persistent terminal: /K keeps it open so the user can finish the browser
+    // login and read any error. Using a title lets the user find the window.
+    const title = `Wan2GP - ${e.label} sign-in`
+    let child
+    if (IS_WIN) {
+      try {
+        execSync('where wt', { windowsHide: true, timeout: 3000 })
+        child = spawn('wt.exe', ['-w', '-1', 'new-tab', '--title', title, 'cmd.exe', '/K', cli, ...e.auth.args], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env }
+        })
+      } catch {
+        child = spawn('cmd.exe', ['/c', 'start', `\"${title}\"`, 'cmd.exe', '/K', cli, ...e.auth.args], {
+          cwd: getRepoDir(), windowsHide: false, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env }
+        })
+      }
+    } else {
+      child = spawn(cli, e.auth.args, { cwd: getRepoDir(), windowsHide: false, env: { ...process.env } })
+    }
+    child.on('error', (err) => send('launch-log', `[!] auth terminal error: ${err.message}\n`))
+    // Best-effort verification: after a short delay, ask `claude whoami`. This does
+    // not block the user; it just logs the detected sign-in state in the launch log.
+    setTimeout(() => {
+      exec(`"${cli}" whoami`, { encoding: 'utf8', windowsHide: true, timeout: 15000, env: { ...process.env } }, (err, stdout) => {
+        if (err || !stdout.includes('@')) send('launch-log', `[!] ${e.label} not signed in yet — finish the browser step in the terminal.\n`)
+        else send('launch-log', `[✓] ${e.label} sign-in detected: ${String(stdout).trim().split('\n')[0]}\n`)
+      })
+    }, 8000)
+    return { success: true, message: 'Sign-in terminal opened — complete the browser step there, then click Refresh.' }
   } catch (err) { return { error: err.message } }
 })
 

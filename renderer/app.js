@@ -2232,7 +2232,7 @@ async function refreshLLMEngines() {
       const r = await window.w2gp.llmEngineAuth(id)
       btn.textContent = 'Sign in'
       btn.disabled = false
-      if (r && r.success) showToast('✓ ' + id + ' sign-in window opened (complete it in the browser)')
+      if (r && r.success) showToast('✓ ' + (r.message || 'sign-in terminal opened — finish it there'))
       else showToast('✗ ' + (r && r.error ? r.error : 'auth failed'))
     })
   })
