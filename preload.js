@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('w2gp', {
   manageSetActive: (name) => ipcRenderer.invoke('manage-set-active', name),
   uninstallEnv: (name) => ipcRenderer.invoke('uninstall-env', name),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  deepyStatus: () => ipcRenderer.invoke('deepy:status'),
+  deepyActivate: (engineId) => ipcRenderer.invoke('deepy:activate', engineId),
   openTaskManager: () => ipcRenderer.invoke('open-task-manager'),
   detectBrowsers: () => ipcRenderer.invoke('detect-browsers'),
   launchBrowser: (url) => ipcRenderer.invoke('launch-browser', url),

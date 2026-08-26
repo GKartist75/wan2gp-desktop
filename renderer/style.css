@@ -464,6 +464,19 @@ body {
 .pip-advanced-label { font-size: 0.6rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600; }
 .pip-advanced-hint { font-size: 0.58rem; color: var(--text-tertiary); margin-top: 4px; line-height: 1.35; }
 .pip-advanced-hint code { background: var(--surface); padding: 0 4px; border-radius: 3px; color: var(--text-secondary); }
+.deepy-cost-note { font-size: 0.58rem; color: var(--text-tertiary); margin: 6px 0; line-height: 1.5; }
+.deepy-cost-note .dot-ok { color: #4ADE80; }
+.deepy-cost-note .dot-bad { color: #F87171; }
+.deepy-engine-options { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.deepy-engine-opt { display: flex; align-items: center; gap: 8px; font-size: 0.62rem; cursor: pointer; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.deepy-engine-opt:hover { border-color: var(--accent); }
+.deepy-engine-label { font-weight: 600; color: var(--text-primary); }
+.deepy-engine-cost { margin-left: auto; font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.deepy-cost-free { color: #4ADE80; }
+.deepy-cost-paid { color: #FBBF24; }
+.deepy-actions { display: flex; gap: 8px; margin-top: 10px; }
+.dot-ok { color: #4ADE80; }
+.dot-bad { color: #F87171; }
 
 
 /* ── Update Banner ── */

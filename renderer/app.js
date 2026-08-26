@@ -1050,6 +1050,8 @@ async function refreshDashboard(){
   checkSageSyncBanner(status)
   // Refresh the guided LLM engine cards (Deepy Prime setup).
   refreshLLMEngines().catch(() => {})
+  // Refresh the Deepy Prime activation panel.
+  refreshDeepy().catch(() => {})
   // Enable/disable no-GPU button based on Chrome availability
   ;(async () => {
     const available = await window.w2gp.chromeAvailable()
@@ -2241,6 +2243,109 @@ async function refreshLLMEngines() {
       }
     })
   })
+}
+
+// Deepy Prime activation panel: pick a ready engine, write it into
+// wgp_config.json so the next Wan2GP launch boots with Deepy Prime enabled.
+const DEEPY_PANEL_ENGINES = [
+  { id: 'opencode', label: 'OpenCode', paid: false },
+  { id: 'claude-code', label: 'Claude Code', paid: true },
+  { id: 'codex', label: 'OpenAI Codex', paid: true }
+]
+
+async function refreshDeepy() {
+  const opts = $('deepyEngineOptions')
+  const statusMsg = $('deepyStatusMsg')
+  const activateBtn = $('deepyActivateBtn')
+  const launchBtn = $('deepyLaunchBtn')
+  const docsLink = $('deepyDocsLink')
+  if (!opts) return
+
+  let status = { available: false }
+  let engines = []
+  try {
+    const s = await window.w2gp.deepyStatus()
+    if (s && s.ok) status = s
+  } catch (_) {}
+  try {
+    const d = await window.w2gp.llmEnginesList()
+    engines = (d && d.engines) || []
+  } catch (_) {}
+
+  const ready = id => {
+    const e = engines.find(x => x.id === id)
+    if (!e) return false
+    if (id === 'claude-code') return !!(e.cliOnPath || e.claudeApiKeySet)
+    return !!e.cliOnPath
+  }
+
+  const currentProfile = status.currentEngine
+  const profileToUi = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
+  const currentUi = profileToUi[currentProfile] || null
+  let selected = currentUi
+  if (!selected) {
+    selected = ready('opencode') ? 'opencode'
+      : (ready('claude-code') ? 'claude-code' : (ready('codex') ? 'codex' : DEEPY_PANEL_ENGINES[0].id))
+  }
+
+  opts.innerHTML = DEEPY_PANEL_ENGINES.map(en => {
+    const isReady = ready(en.id)
+    const dotCls = isReady ? 'dot-ok' : 'dot-bad'
+    const dotChar = isReady ? '●' : '○'
+    const cost = en.paid ? '<span class="deepy-cost-paid">paid</span>' : '<span class="deepy-cost-free">free</span>'
+    return `<label class="deepy-engine-opt">
+      <input type="radio" name="deepyEngine" value="${en.id}" ${en.id === selected ? 'checked' : ''}>
+      <span class="${dotCls}">${dotChar}</span>
+      <span class="deepy-engine-label">${en.label}</span>
+      <span class="deepy-engine-cost">${cost}</span>
+    </label>`
+  }).join('')
+
+  if (status.available) {
+    const cur = currentProfile
+      ? `Currently: <strong>${currentProfile}</strong>${status.deepyEnabled ? ' (Deepy ' + (status.deepyType || '') + ' enabled)' : ' (Deepy disabled)'}`
+      : 'Not yet configured for a remote LLM.'
+    statusMsg.innerHTML = cur
+  } else {
+    statusMsg.innerHTML = '<span style="color:#FBBF24">' + (status.reason || 'Wan2GP config not found — install Wan2GP first.') + '</span>'
+  }
+
+  const syncActivate = () => {
+    const sel = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+    activateBtn.disabled = !sel || !ready(sel)
+    activateBtn.title = (sel && !ready(sel))
+      ? 'Install / enable this engine first (see LLM Engines above)'
+      : 'Write this engine into wgp_config.json and enable Deepy Prime'
+  }
+  opts.querySelectorAll('input[name=deepyEngine]').forEach(r => r.addEventListener('change', syncActivate))
+  syncActivate()
+
+  activateBtn.onclick = async () => {
+    const sel = (opts.querySelector('input[name=deepyEngine]:checked') || {}).value
+    if (!sel) return
+    activateBtn.disabled = true; activateBtn.textContent = 'activating...'
+    const r = await window.w2gp.deepyActivate(sel)
+    activateBtn.textContent = 'Activate Deepy Prime'
+    if (r && r.ok) {
+      statusMsg.innerHTML = '<span style="color:#4ADE80">✓ ' + (r.message || 'Deepy Prime activated') + '</span>'
+      showToast('✓ Deepy Prime set to ' + r.engine)
+      refreshDeepy()
+    } else {
+      statusMsg.innerHTML = '<span style="color:#F87171">✗ ' + (r && r.error ? r.error : 'activation failed') + '</span>'
+      showToast('✗ ' + (r && r.error ? r.error : 'activation failed'))
+      activateBtn.disabled = false
+    }
+  }
+  if (launchBtn) launchBtn.onclick = async () => {
+    launchBtn.disabled = true; launchBtn.textContent = 'Launching...'
+    try { await window.w2gp.launch(); showToast('✓ Wan2GP launching — click "Ask Deepy" once it opens') }
+    catch (e) { showToast('✗ launch failed: ' + (e.message || e)) }
+    launchBtn.disabled = false; launchBtn.textContent = 'Launch Wan2GP'
+  }
+  if (docsLink) docsLink.onclick = async (ev) => {
+    ev.preventDefault()
+    await window.w2gp.openExternal('https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/DEEPY.md')
+  }
 }
 
 $('llmEnginesRefresh')?.addEventListener('click', refreshLLMEngines)

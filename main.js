@@ -4401,27 +4401,89 @@ async function pipPackageInstalled(py, modName) {
   } catch { return false }
 }
 
-ipcMain.handle('llm-engines:list', async () => {
+// ── Deepy Prime activation ────────────────────────────────────────────────
+// Reads/writes only the user's wgp_config.json (Wan2GP *data*, not source).
+// Backs the file up before any write, and only sets the known Deepy keys.
+function getWgpConfigPath () {
+  return path.join(getRepoDir(), 'wgp_config.json')
+}
+function readWgpConfigSafe () {
+  const p = getWgpConfigPath()
+  if (!fs.existsSync(p)) return null
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null }
+}
+function deepyStatus () {
+  const cfg = readWgpConfigSafe()
+  if (!cfg) return { available: false, reason: 'wgp_config.json not found (install Wan2GP first)' }
+  const engines = (cfg.llm_engines && cfg.llm_engines.profiles) || {}
+  const current = (cfg.llm_engines && cfg.llm_engines.deepy) || null
+  return {
+    available: true,
+    deepyEnabled: !!cfg.deepy_enabled,
+    deepyType: cfg.deepy_type || null,
+    currentEngine: current,
+    promptEnhancer: (cfg.llm_engines && cfg.llm_engines.prompt_enhancer) || null,
+    engines: Object.keys(engines)
+  }
+}
+
+ipcMain.handle('deepy:status', async () => {
+  try { return { ok: true, ...deepyStatus() } }
+  catch (e) { return { ok: false, error: e.message } }
+})
+
+// engine: 'opencode' | 'claude-code' | 'codex'  (UI ids)
+// Maps UI id -> wgp_config profile key + executable name.
+const DEEPY_ENGINE_MAP = {
+  'opencode': { profile: 'opencode', exe: 'opencode' },
+  'claude-code': { profile: 'claude', exe: 'claude' },
+  'codex': { profile: 'codex', exe: 'codex' }
+}
+
+ipcMain.handle('deepy:activate', async (_evt, engineId) => {
   try {
-    const env = getActiveEnv()
-    const py = env ? getPythonForEnv(env) : null
-    const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
-      const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
-      const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
-      const cfg = loadConfig()
-      return {
-        id: e.id, label: e.label, desc: e.desc, docs: e.docs,
-        cli: e.cli, cliOnPath,
-        pipPackage: e.pipPackage, pipInstalled,
-        install: e.install, external: e.external,
-        serverUrl: e.serverUrl || null,
-        serve: e.serve || null,
-        auth: e.auth || null, notes: e.notes || null,
-        claudeApiKeySet: !!(e.id === 'claude-code' && cfg.claudeApiKey)
-      }
-    }))
-    return { engines, hasActiveEnv: !!env }
-  } catch (e) { return { engines: [], error: e.message } }
+    const map = DEEPY_ENGINE_MAP[engineId]
+    if (!map) return { ok: false, error: 'Unknown engine: ' + engineId }
+    const cfgPath = getWgpConfigPath()
+    if (!fs.existsSync(cfgPath)) return { ok: false, error: 'wgp_config.json not found — install Wan2GP first.' }
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+
+    // 1) back up
+    const bak = cfgPath + '.deepy-bak'
+    fs.copyFileSync(cfgPath, bak)
+
+    // 2) only touch known keys
+    cfg.deepy_enabled = 1
+    cfg.deepy_type = 'prime'
+    cfg.llm_engines = cfg.llm_engines || {}
+    cfg.llm_engines.deepy = map.profile
+    cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
+    cfg.llm_engines.profiles = cfg.llm_engines.profiles || {}
+    cfg.llm_engines.profiles[map.profile] = cfg.llm_engines.profiles[map.profile] || {}
+    // Resolve the real executable path via the same resolver used for installs.
+    let resolved = null
+    try {
+      resolved = resolveCmd(map.exe, {
+        path: process.env.PATH,
+        appData: process.env.LOCALAPPDATA,
+        programFiles: process.env.ProgramFiles,
+        systemDrive: process.env.SystemDrive || 'C:\\'
+      })
+    } catch (_) { resolved = null }
+    cfg.llm_engines.profiles[map.profile].executable = resolved || map.exe
+    if (map.profile === 'opencode') {
+      cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
+    }
+
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
+    return {
+      ok: true,
+      engine: map.profile,
+      executable: cfg.llm_engines.profiles[map.profile].executable,
+      backup: bak,
+      message: `Deepy Prime set to ${map.profile}. Launch Wan2GP and click "Ask Deepy".`
+    }
+  } catch (e) { return { ok: false, error: e.message } }
 })
 
 // Guided one-click installer for a catalog engine. Only installs the engine's
