@@ -4454,23 +4454,9 @@ function readWgpConfigSafe () {
   if (!fs.existsSync(p)) return null
   try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null }
 }
-function deepyStatus () {
-  const cfg = readWgpConfigSafe()
-  if (!cfg) return { available: false, reason: 'wgp_config.json not found (install Wan2GP first)' }
-  const engines = (cfg.llm_engines && cfg.llm_engines.profiles) || {}
-  const current = (cfg.llm_engines && cfg.llm_engines.deepy) || null
-  return {
-    available: true,
-    deepyEnabled: !!cfg.deepy_enabled,
-    deepyType: cfg.deepy_type || null,
-    currentEngine: current,
-    promptEnhancer: (cfg.llm_engines && cfg.llm_engines.prompt_enhancer) || null,
-    engines: Object.keys(engines)
-  }
-}
 
 ipcMain.handle('deepy:status', async () => {
-  try { return { ok: true, ...deepyStatus() } }
+  try { return { ok: true, ...readDeepyStatus(readWgpConfigSafe()) } }
   catch (e) { return { ok: false, error: e.message } }
 })
 
