@@ -35,35 +35,6 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 - 🔄 **Safe updates** — manual-only, version-aware; nothing downloads or installs without your action.
 - 🛡️ **Crash-proof UI** — renderer-crash watchdog, no blank-screen regressions, GPU-off recovery override.
 
-## Remote LLM engines (Deepy Prime)
-
-The Dashboard's **Remote LLMs / Deepy Prime** section has guided cards for three engines. They are **not** all free:
-
-- 🟢 **OpenCode — easiest & free.** Local models only (Llama.cpp / LM Studio / etc.). No Anthropic or OpenAI account, no credits, no API key. Install via the card's **Install via npm** button, click **Start server**, and point Wan2GP at `http://127.0.0.1:4096`. **Zero cost.**
-- 💲 **Claude Code — paid.** Either a **Max/Pro subscription** (sign in via `claude auth login --claudeai`) **or** an **Anthropic Console API key with credits** (Settings → "Claude / Anthropic API Key", injected as `ANTHROPIC_API_KEY`). The API key replaces the subscription but is **not free** — it requires API credits / billing in the Console (pay-as-you-go, billed per token).
-- 💲 **OpenAI Codex — paid.** Its own npm CLI plus an OpenAI account / API access.
-
-> New to this? **Start with OpenCode** — it's the only zero-cost option and needs no external account.
-
----
-
-## Activating Deepy
-
-The Dashboard's **Deepy** panel (Settings → Deepy, or the Dashboard card) lets you turn Wan2GP's built-in AI agent on and pick how it runs — all without touching `wgp_config.json` by hand. It has three modes:
-
-- **Disabled** — Deepy stays off. The launcher keeps your chosen **local Prompt Enhancer** model (Florence 2 + Llama 3.2 3B, or Florence 2 + Llama Joy 8B) so Wan2GP's image understanding works.
-- **Deepy Zero** — runs Deepy **locally** with a Qwen3.5/3.8 VL model (no external account, no API key). Pick the local model in the **Local model (Prompt Enhancer)** selector: Qwen3.5 VL Abliterated 4B (recommended), 9B, or Qwen3.8 VL Uncensored 27B.
-- **Deepy Prime** — connects Deepy to a **remote LLM engine** (OpenCode / Claude Code / Codex, see above). Only Prime exposes Wan2GP's MCP tools. The **LLM Engines** card appears under Prime so you can pick and configure the engine.
-
-Switching the mode **live-re-renders** the local-model selector; nothing is written until you press **Apply**. On Apply the launcher writes a consistent `wgp_config.json` (both `enhancer_enabled` and `llm_engines.deepy`, plus the full working Deepy preset) and backs up the previous file.
-
-> You can also change these settings any time **inside Wan2GP itself** (Configuration → Prompt Enhancer / Deepy).
-
-![Deepy panel — Disabled mode with local Prompt Enhancer selector](screenshots/deepy-panel-1.png)
-![Deepy panel — Deepy Zero with Qwen local-model selector](screenshots/deepy-panel-2.png)
-![Deepy panel — Deepy Prime showing the LLM Engines card](screenshots/deepy-panel-3.png)
-![Deepy — active environment / running state](screenshots/deepy-active-env.png)
-
 ---
 
 ## Download
@@ -92,6 +63,37 @@ Switching the mode **live-re-renders** the local-model selector; nothing is writ
 ![Launcher plugin screenshot](screenshots/launcher-plugin.png)
 ![Launcher screenshot](screenshots/launcher-screenshot-2.png)
 ![Launcher screenshot](screenshots/launcher-screenshot-3.png)
+
+---
+
+## Remote LLM engines (Deepy Prime)
+
+The Dashboard's **Remote LLMs / Deepy Prime** section has guided cards for three engines. They are **not** all free:
+
+- 🟢 **OpenCode — easiest & free.** Local models only (Llama.cpp / LM Studio / etc.). No Anthropic or OpenAI account, no credits, no API key. Install via the card's **Install via npm** button, click **Start server**, and point Wan2GP at `http://127.0.0.1:4096`. **Zero cost.**
+- 💲 **Claude Code — paid.** Either a **Max/Pro subscription** (sign in via `claude auth login --claudeai`) **or** an **Anthropic Console API key with credits** (Settings → "Claude / Anthropic API Key", injected as `ANTHROPIC_API_KEY`). The API key replaces the subscription but is **not free** — it requires API credits / billing in the Console (pay-as-you-go, billed per token).
+- 💲 **OpenAI Codex — paid.** Its own npm CLI plus an OpenAI account / API access.
+
+> New to this? **Start with OpenCode** — it's the only zero-cost option and needs no external account.
+
+---
+
+## Activating Deepy
+
+The Dashboard's **Deepy** panel (Settings → Deepy, or the Dashboard card) lets you turn Wan2GP's built-in AI agent on and pick how it runs — all without touching `wgp_config.json` by hand. It has three modes:
+
+- **Disabled** — Deepy stays off. The launcher keeps your chosen **local Prompt Enhancer** model (Florence 2 + Llama 3.2 3B, or Florence 2 + Llama Joy 8B) so Wan2GP's image understanding works.
+- **Deepy Zero** — runs Deepy **locally** with a Qwen3.5/3.8 VL model (no external account, no API key). Pick the local model in the **Local model (Prompt Enhancer)** selector: Qwen3.5 VL Abliterated 4B (recommended), 9B, or Qwen3.8 VL Uncensored 27B.
+- **Deepy Prime** — connects Deepy to a **remote LLM engine** (OpenCode / Claude Code / Codex, see above). Only Prime exposes Wan2GP's MCP tools. The **LLM Engines** card appears under Prime so you can pick and configure the engine.
+
+Switching the mode **live-re-renders** the local-model selector; nothing is written until you press **Apply**. On Apply the launcher writes a consistent `wgp_config.json` (both `enhancer_enabled` and `llm_engines.deepy`, plus the full working Deepy preset) and backs up the previous file.
+
+> You can also change these settings any time **inside Wan2GP itself** (Configuration → Prompt Enhancer / Deepy).
+
+![Deepy panel — Disabled mode with local Prompt Enhancer selector](screenshots/deepy-panel-1.png)
+![Deepy panel — Deepy Zero with Qwen local-model selector](screenshots/deepy-panel-2.png)
+![Deepy panel — Deepy Prime showing the LLM Engines card](screenshots/deepy-panel-3.png)
+![Deepy — active environment / running state](screenshots/deepy-active-env.png)
 
 ---
 
