@@ -4408,6 +4408,7 @@ ipcMain.handle('llm-engines:list', async () => {
     const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
       const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
       const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
+      const cfg = loadConfig()
       return {
         id: e.id, label: e.label, desc: e.desc, docs: e.docs,
         cli: e.cli, cliOnPath,
@@ -4415,7 +4416,8 @@ ipcMain.handle('llm-engines:list', async () => {
         install: e.install, external: e.external,
         serverUrl: e.serverUrl || null,
         serve: e.serve || null,
-        auth: e.auth || null, notes: e.notes || null
+        auth: e.auth || null, notes: e.notes || null,
+        claudeApiKeySet: !!(e.id === 'claude-code' && cfg.claudeApiKey)
       }
     }))
     return { engines, hasActiveEnv: !!env }

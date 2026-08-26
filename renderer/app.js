@@ -2193,12 +2193,15 @@ async function refreshLLMEngines() {
     const auth = e.auth
       ? `<div class="pip-advanced-hint">${e.auth.help}</div>`
       : ''
+    const keyNote = e.claudeApiKeySet
+      ? `<div class="pip-advanced-hint" style="color:#4ADE80">✓ Anthropic API key active — Claude Code will connect without a Max/Pro plan.</div>`
+      : ''
     return `<div class="llm-engine-card">
       <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>
       <div class="env-specs">${cliRow}${pipRow}${serverRow}</div>
       ${serveBtn ? `<div class="llm-serve-row">${serveBtn}</div>` : ''}
       ${authBtn ? `<div class="llm-serve-row">${authBtn}</div>` : ''}
-      <div class="pip-advanced-hint">${e.desc}</div>${auth}${notes}
+      <div class="pip-advanced-hint">${e.desc}</div>${auth}${keyNote}${notes}
     </div>`
   }).join('')
   list.querySelectorAll('.llm-install-btn').forEach(btn => {
@@ -2466,6 +2469,7 @@ $('claudeApiKeySaveBtn')?.addEventListener('click', async () => {
   cfg.claudeApiKey = token
   await window.w2gp.configSave(cfg)
   showToast('Claude API key saved — it will be used for Claude Code on next launch')
+  if (typeof refreshLLMEngines === 'function') refreshLLMEngines()
 })
 $('claudeApiKeyClearBtn')?.addEventListener('click', async () => {
   const cfg = await window.w2gp.configLoad()
@@ -2473,6 +2477,7 @@ $('claudeApiKeyClearBtn')?.addEventListener('click', async () => {
   await window.w2gp.configSave(cfg)
   if ($('claudeApiKeyInput')) $('claudeApiKeyInput').value = ''
   showToast('Claude API key cleared')
+  if (typeof refreshLLMEngines === 'function') refreshLLMEngines()
 })
 $('launchArgsSaveBtn')?.addEventListener('click', async () => {
   const args = $('launchArgsInput')?.value || ''
