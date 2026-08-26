@@ -4409,7 +4409,8 @@ ipcMain.handle('llm-engines:list', async () => {
         pipPackage: e.pipPackage, pipInstalled,
         install: e.install, external: e.external,
         serverUrl: e.serverUrl || null,
-        authHint: e.authHint || null, notes: e.notes || null
+        serve: e.serve || null,
+        auth: e.auth || null, notes: e.notes || null
       }
     }))
     return { engines, hasActiveEnv: !!env }
