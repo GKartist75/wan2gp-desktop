@@ -2102,6 +2102,34 @@ $('pipInstallBtn').addEventListener('click', async () => {
 })
 $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pipInstallBtn').click() })
 
+// Live, copyable preview of the exact command the Advanced box will run.
+// Mirrors the launcher's guard: a valid spec shows `pip install <spec>`; an
+// invalid one shows the reason it would be blocked (no misleading command).
+function updatePipCmdPreview() {
+  const input = $('pipInput'); const preview = $('pipCmdPreview'); const text = $('pipCmdText')
+  if (!input || !preview || !text) return
+  const spec = (input.value || '').trim()
+  if (!spec) { preview.style.display = 'none'; return }
+  // Reuse the same validation the launcher applies (kept in sync with main.js).
+  const name = spec.split(/[<>=!~]/)[0].replace(/\s/g, '')
+  const okName = /^[A-Za-z0-9._-]+$/.test(name) && /^[A-Za-z]/.test(name)
+  const hasInjection = /[\s;&|<>$`(){}'"]/.test(spec) || /\s-{1,2}[a-zA-Z]/.test(spec)
+  if (!okName) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Invalid package name' }
+  else if (hasInjection) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Flags/shell characters are blocked for safety' }
+  else { preview.style.display = 'flex'; preview.classList.remove('pip-cmd-bad'); text.textContent = 'pip install ' + spec + '   (runs in the active env)' }
+}
+$('pipInput').addEventListener('input', updatePipCmdPreview)
+$('pipCmdCopy')?.addEventListener('click', async () => {
+  const t = $('pipCmdText')?.textContent || ''
+  if (!t.startsWith('pip install')) return
+  try { await navigator.clipboard.writeText(t.split('   (')[0]); $('pipCmdCopy').textContent = 'copied!'; setTimeout(() => { $('pipCmdCopy').textContent = 'copy' }, 1200) } catch {}
+})
+// Clear the preview after a successful install so it doesn't linger.
+const _pipInstallOrig = $('pipInstallBtn')
+if (_pipInstallOrig) {
+  _pipInstallOrig.addEventListener('click', () => { setTimeout(updatePipCmdPreview, 50) })
+}
+
 // ── Guided LLM engine setup (Deepy Prime) ──
 // Renders ONE generic card per catalog engine (services/llm-engines.js). The
 // card shows live ✓/✗ status for the CLI and/or pip bridge, plus a one-click

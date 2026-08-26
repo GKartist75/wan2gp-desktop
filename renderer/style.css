@@ -435,6 +435,18 @@ body {
 }
 .pip-install-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--accent); }
 .pip-install-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pip-cmd-preview {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 8px;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 4px;
+  font-family: 'Geist Mono', monospace; font-size: 0.6rem; color: var(--text-primary);
+}
+.pip-cmd-preview.pip-cmd-bad { color: #f87171; border-color: #7f1d1d; }
+.pip-cmd-preview code { flex: 1; white-space: pre-wrap; word-break: break-all; }
+.pip-copy-btn {
+  white-space: nowrap; font-size: 0.55rem; padding: 2px 7px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--surface); color: var(--text-secondary); cursor: pointer;
+}
+.pip-copy-btn:hover { color: var(--text-primary); border-color: var(--accent); }
 
 /* spec-dot ok/bad states used by LLM engine status rows */
 .spec-dot.dot-ok { display: inline-block; background: #4ADE80; }

@@ -534,7 +534,11 @@
             <input type="text" id="pipInput" class="pip-input" placeholder="package (e.g. claude-agent-sdk==0.1.40)" spellcheck="false">
             <button class="pip-install-btn" id="pipInstallBtn">pip install</button>
           </div>
-          <div class="pip-advanced-hint">Pins allowed (==, &gt;=, ~=). Flags like <code>--index-url</code> and shell characters are blocked for safety.</div>
+          <div class="pip-cmd-preview" id="pipCmdPreview" style="display:none">
+            <code id="pipCmdText"></code>
+            <button class="pip-copy-btn" id="pipCmdCopy" title="Copy command">copy</button>
+          </div>
+          <div class="pip-advanced-hint">Pins allowed (==, &gt;=, ~=). Flags like <code>--index-url</code> and shell characters are blocked for safety. The exact command that runs is shown above — copy it to run in your own terminal.</div>
         </div>
       </div>
 
