@@ -17,6 +17,7 @@ const statusHelpers = require('./services/status-helpers.js')
 const { assertSafePipSpec } = require('./services/pip-spec.js')
 const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('./services/llm-engines.js')
 const { resolveCmd } = require('./services/resolve-cmd.js')
+const { npmInstallSpawn } = require('./services/spawn-npm.js')
 const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
@@ -4567,10 +4568,16 @@ ipcMain.handle('llm-engine-install', async (_, engineId) => {
       if (!npmBin) return { error: 'npm not found on PATH. Install Node.js (https://nodejs.org) and retry.' }
       send('launch-log', `[*] Installing ${pkg} via npm (global)...\n`)
       await new Promise((resolve, reject) => {
-        const args = e.install.global ? ['install', '-g', pkg] : ['install', pkg]
-        const proc = spawn(npmBin, args, {
-          cwd: getRepoDir(), timeout: 600000, windowsHide: true, shell: true,
-          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        // Spawn the resolved npm shim directly (argv array, NO shell). Running
+        // via shell:true passed the path unquoted into `cmd /c`, so an npm under
+        // "C:\Program Files\nodejs\npm.cmd" (the default Node location — note the
+        // space) made cmd split on the space and try to run "C:\Program", failing
+        // with "'C:\Program' is not recognized". resolveCmd already returns a real
+        // .cmd/.exe, which spawns fine without a shell on every platform.
+        const { cmd, args, spawnOpts } = npmInstallSpawn(npmBin, pkg, { global: !!e.install.global })
+        const proc = spawn(cmd, args, {
+          cwd: getRepoDir(), timeout: 600000, windowsHide: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }, ...spawnOpts
         })
         proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
         proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
@@ -4606,8 +4613,10 @@ ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
         programFiles: process.env.ProgramFiles,
         systemDrive: process.env.SystemDrive || 'C:\\'
       }) || e.serve.cmd
+      // Spawn directly (no shell) so a serve binary under a path with spaces
+      // (e.g. "C:\Program Files\nodejs\opencode.cmd") isn't split by cmd.exe.
       const proc = spawn(cmd, e.serve.args, {
-        cwd: getRepoDir(), windowsHide: false, shell: true,
+        cwd: getRepoDir(), windowsHide: false,
         env: { ...process.env }
       })
       proc.on('exit', () => { delete _llmServerProcs[engineId] })
