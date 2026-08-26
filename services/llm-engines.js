@@ -37,7 +37,8 @@ const LLM_ENGINES = [
     auth: {
       cmd: 'claude',
       args: ['auth', 'login', '--claudeai'],
-      help: 'WanGP does not receive or store your password or tokens. Authentication is owned by Claude Code.'
+      help: 'WanGP does not receive or store your password or tokens. Authentication is owned by Claude Code. Click "How to sign in" to open the official Claude Code authentication guide (Max/Pro plan, or use the Anthropic API key option in Settings).',
+      docsUrl: 'https://code.claude.com/docs/en/authentication'
     },
     notes: 'Pinned to 0.1.40 on purpose — a newer SDK can clobber Wan2GP’s MCP/Pydantic deps.'
   },

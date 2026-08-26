@@ -2183,8 +2183,9 @@ async function refreshLLMEngines() {
     }
     let authBtn = ''
     if (e.auth) {
-      // Only offer sign-in once the CLI is present (no point before install).
-      authBtn = `<button class="pip-install-btn llm-auth-btn" data-engine="${e.id}" ${e.cliOnPath ? '' : 'disabled title="Install/resolve the CLI first"'}>Sign in</button>`
+      // Open the official Claude Code authentication guide (the user asked for a
+      // how-to page, not a silent terminal launch that blocks on Max/Pro).
+      authBtn = `<button class="pip-install-btn llm-auth-btn" data-engine="${e.id}" data-auth-docs="${e.auth.docsUrl || ''}">How to sign in</button>`
     }
     const serverRow = e.serverUrl
       ? `<div class="spec-row"><span class="spec-label">Server</span><span class="spec-value">${e.serverUrl}</span></div>`
@@ -2231,13 +2232,13 @@ async function refreshLLMEngines() {
   })
   list.querySelectorAll('.llm-auth-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const id = btn.dataset.engine
-      btn.disabled = true; btn.textContent = 'opening...'
-      const r = await window.w2gp.llmEngineAuth(id)
-      btn.textContent = 'Sign in'
-      btn.disabled = false
-      if (r && r.success) showToast('✓ ' + (r.message || 'sign-in terminal opened — finish it there'))
-      else showToast('✗ ' + (r && r.error ? r.error : 'auth failed'))
+      const url = btn.dataset.authDocs
+      if (url) {
+        await window.w2gp.openExternal(url)
+        showToast('Opened Claude Code authentication guide')
+      } else {
+        showToast('No sign-in guide configured for this engine')
+      }
     })
   })
 }
