@@ -2085,9 +2085,13 @@ if (window.w2gp && window.w2gp.platform !== 'win32') {
 $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 
 // ── Quick pip install ──
+// Accept either a bare spec (claude-agent-sdk==0.1.40) or a full command
+// (pip install claude-agent-sdk==0.1.40) pasted by the user — strip any leading
+// pip invocation so both the preview and the real install behave identically.
+const { normalizePipSpec } = require('../../services/normalize-pip-spec.js')
 $('pipInstallBtn').addEventListener('click', async () => {
   const input = $('pipInput')
-  const pkg = (input?.value || '').trim()
+  const pkg = normalizePipSpec(input?.value)
   if (!pkg) return
   input.disabled = true; $('pipInstallBtn').disabled = true; $('pipInstallBtn').textContent = 'installing...'
   const r = await window.w2gp.installPackage(pkg)
@@ -2108,12 +2112,12 @@ $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pip
 function updatePipCmdPreview() {
   const input = $('pipInput'); const preview = $('pipCmdPreview'); const text = $('pipCmdText')
   if (!input || !preview || !text) return
-  const spec = (input.value || '').trim()
+  const spec = normalizePipSpec(input.value)
   if (!spec) { preview.style.display = 'none'; return }
   // Reuse the same validation the launcher applies (kept in sync with main.js).
   const name = spec.split(/[<>=!~]/)[0].replace(/\s/g, '')
   const okName = /^[A-Za-z0-9._-]+$/.test(name) && /^[A-Za-z]/.test(name)
-  const hasInjection = /[\s;&|<>$`(){}'"]/.test(spec) || /\s-{1,2}[a-zA-Z]/.test(spec)
+  const hasInjection = /[;&|<>$`(){}'"]/.test(spec) || /\s-{1,2}[a-zA-Z]/.test(spec)
   if (!okName) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Invalid package name' }
   else if (hasInjection) { preview.style.display = 'flex'; preview.classList.add('pip-cmd-bad'); text.textContent = '✗ Flags/shell characters are blocked for safety' }
   else { preview.style.display = 'flex'; preview.classList.remove('pip-cmd-bad'); text.textContent = 'pip install ' + spec + '   (runs in the active env)' }
