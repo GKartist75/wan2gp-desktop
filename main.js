@@ -1665,6 +1665,20 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
 }))
 
 ipcMain.handle('uv-cache-info', async () => {
+  // Cheap: only reports existence + path. No directory walk — computing the
+  // size on Manage-panel open blocked the main thread for large caches.
+  // Use 'uv-cache-size' for the (on-demand) byte count.
+  try {
+    const repo = getRepoDir()
+    const cacheDir = path.join(repo, '.uv-cache')
+    return { exists: fs.existsSync(cacheDir), sizeBytes: null, cacheDir }
+  } catch (e) { return { exists: false, sizeBytes: null, error: String(e) } }
+})
+
+// On-demand byte count of the uv wheel cache. Intentionally NOT called on
+// Manage-panel open (would block the main thread for big caches); invoked
+// only when the user explicitly asks for the size.
+ipcMain.handle('uv-cache-size', async () => {
   try {
     const repo = getRepoDir()
     const cacheDir = path.join(repo, '.uv-cache')

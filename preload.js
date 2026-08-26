@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // uv wheel cache management (Manage → General)
   uvCacheInfo: () => ipcRenderer.invoke('uv-cache-info'),
+  uvCacheSize: () => ipcRenderer.invoke('uv-cache-size'),
   uvCacheClean: (action) => ipcRenderer.invoke('uv-cache-clean', action),
 
   // Config

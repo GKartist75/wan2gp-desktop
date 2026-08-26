@@ -3051,23 +3051,40 @@ async function silentSettingsRepair() {
 
 // ── uv Wheel Cache (Manage → General) ──
 function fmtBytes(n) {
+  if (!n && n !== 0) return '—'
   if (!n) return '0 B'
   const u = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(n) / Math.log(1024))
   return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i]
 }
+// Cheap: only reports presence on Manage-panel open (no directory walk).
 async function refreshUvCacheInfo() {
   const statusEl = $('uvCacheStatus')
   if (!statusEl) return
   try {
     const info = await window.w2gp.uvCacheInfo()
     if (info && info.exists) {
-      statusEl.textContent = `Cache present: ${fmtBytes(info.sizeBytes)} at ${info.cacheDir}`
+      statusEl.textContent = `Cache present at ${info.cacheDir} — size on demand.`
     } else {
       statusEl.textContent = 'No cache folder present (fresh install or already removed).'
     }
   } catch { statusEl.textContent = 'Could not read cache info.' }
 }
+// On-demand: computes the byte count only when the user asks.
+async function showUvCacheSize() {
+  const statusEl = $('uvCacheStatus')
+  if (!statusEl) return
+  statusEl.textContent = 'Calculating size…'
+  try {
+    const info = await window.w2gp.uvCacheSize()
+    if (info && info.exists) {
+      statusEl.textContent = `Cache size: ${fmtBytes(info.sizeBytes)} at ${info.cacheDir}`
+    } else {
+      statusEl.textContent = 'No cache folder present.'
+    }
+  } catch { statusEl.textContent = 'Could not read cache size.' }
+}
+$('uvCacheSizeBtn')?.addEventListener('click', showUvCacheSize)
 $('uvCachePurgeBtn')?.addEventListener('click', async function() {
   this.disabled = true
   const resEl = $('uvCacheResult')

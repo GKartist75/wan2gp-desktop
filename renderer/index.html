@@ -156,6 +156,7 @@
           <p class="token-hint">Wan2GP installs into a Python venv on the same drive as your install. <code>uv</code> keeps a wheel cache here (<code>.uv-cache</code>) so future updates are fast — it can grow to several GB. Free the space if you don't need to keep it.</p>
           <p class="token-hint" id="uvCacheStatus" style="margin-top:8px">Checking cache…</p>
           <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-ghost small" id="uvCacheSizeBtn">Calculate size</button>
             <button class="btn btn-ghost small" id="uvCachePurgeBtn">Purge unused</button>
             <button class="btn btn-ghost small" id="uvCacheRemoveBtn" style="color:var(--signal-red);border-color:var(--signal-red)">Remove cache</button>
           </div>
