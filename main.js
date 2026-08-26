@@ -4415,6 +4415,33 @@ async function pipPackageInstalled(py, modName) {
   } catch { return false }
 }
 
+// ── LLM engine catalog (guided Deepy Prime setup) ──
+// Returns the engine catalog plus live status: is the CLI on PATH and/or the
+// pip bridge present in the active env? The renderer renders ONE generic card
+// per entry, so adding a new engine = one data line in services/llm-engines.js,
+// no UI branch. NOTE: this handler must stay registered — removing it makes
+// refreshLLMEngines() show "No active environment" and hides all install cards.
+ipcMain.handle('llm-engines:list', async () => {
+  try {
+    const env = getActiveEnv()
+    const py = env ? getPythonForEnv(env) : null
+    const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
+      const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
+      const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
+      return {
+        id: e.id, label: e.label, desc: e.desc, docs: e.docs,
+        cli: e.cli, cliOnPath,
+        pipPackage: e.pipPackage, pipInstalled,
+        install: e.install, external: e.external,
+        serverUrl: e.serverUrl || null,
+        serve: e.serve || null,
+        auth: e.auth || null, notes: e.notes || null
+      }
+    }))
+    return { engines, hasActiveEnv: !!env }
+  } catch (e) { return { engines: [], error: e.message } }
+})
+
 // ── Deepy Prime activation ────────────────────────────────────────────────
 // Reads/writes only the user's wgp_config.json (Wan2GP *data*, not source).
 // Backs the file up before any write, and only sets the known Deepy keys.

@@ -2159,7 +2159,7 @@ async function refreshLLMEngines() {
   try { data = await window.w2gp.llmEnginesList() } catch (e) { data = { engines: [] } }
   const engines = (data && data.engines) || []
   if (!engines.length) {
-    list.innerHTML = '<div class="spec-row"><span class="spec-value">No active environment — install Wan2GP first.</span></div>'
+    list.innerHTML = '<div class="spec-row"><span class="spec-value">No LLM engines available — reload the Dashboard or check the logs.</span></div>'
     return
   }
   list.innerHTML = engines.map(e => {
