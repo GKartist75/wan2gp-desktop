@@ -2284,11 +2284,9 @@ async function refreshDeepy() {
   const profileToUi = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
   const currentUi = profileToUi[currentProfile] || null
   const currentMode = status.mode || 'disabled'
-  let selectedEngine = currentUi
-  if (!selectedEngine) {
-    selectedEngine = ready('opencode') ? 'opencode'
-      : (ready('claude-code') ? 'claude-code' : (ready('codex') ? 'codex' : DEEPY_PANEL_ENGINES[0].id))
-  }
+  // Default engine for Prime is OpenCode (universal providers / external, free).
+  // Preserve an already-configured engine; otherwise fall back to OpenCode.
+  let selectedEngine = currentUi || 'opencode'
 
   // Pre-select the current Deepy mode (Disabled / Zero / Prime).
   modeRadios.forEach(r => { r.checked = (r.value === currentMode) })
