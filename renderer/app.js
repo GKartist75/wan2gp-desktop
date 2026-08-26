@@ -2088,7 +2088,14 @@ $('taskMgrBtn').addEventListener('click',()=>{ window.w2gp.openTaskManager() })
 // Accept either a bare spec (claude-agent-sdk==0.1.40) or a full command
 // (pip install claude-agent-sdk==0.1.40) pasted by the user — strip any leading
 // pip invocation so both the preview and the real install behave identically.
-const { normalizePipSpec } = require('../../services/normalize-pip-spec.js')
+// (Renderer is a plain browser script — no require — so this is inlined; the
+// Node-side mirror lives in services/normalize-pip-spec.js for unit tests.)
+function normalizePipSpec(raw) {
+  let s = (raw || '').trim()
+  const m = s.match(/^(?:py(?:thon)?\s+-m\s+)?pip\s+install\s+/i)
+  if (m) s = s.slice(m[0].length).trim()
+  return s
+}
 $('pipInstallBtn').addEventListener('click', async () => {
   const input = $('pipInput')
   const pkg = normalizePipSpec(input?.value)
