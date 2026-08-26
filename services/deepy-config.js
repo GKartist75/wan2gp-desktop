@@ -53,6 +53,20 @@ const DEEPY_ZERO_PRESET = {
   deepy_separate_requests_with_empty_line: true
 }
 
+// Full Deepy Prime default preset — mirrors Wan2GP's
+// shared/deepy/config.py get_deepy_default_runtime_config() (the Prime-specific
+// keys beyond enabled/type/engine). Values copied from read-only source.
+const DEEPY_PRIME_PRESET = {
+  deepy_prime_custom_system_prompt: 'When several models can satisfy the request, prefer the highest-quality base or full model unless the user explicitly prioritizes speed or names another model.',
+  deepy_prime_mcp_servers: {},
+  deepy_mcp_auto_discover_paths: false,
+  deepy_allow_read_file_system: false,
+  deepy_file_system_paths: [],
+  deepy_read_everywhere: false,
+  deepy_auto_cancel_queue_tasks: true,
+  deepy_separate_requests_with_empty_line: true
+}
+
 // Derive the current Deepy mode from the persisted fields.
 function currentMode(cfg) {
   if (!cfg) return 'disabled'
@@ -120,6 +134,9 @@ function setDeepy(deps, repoDir, mode, engineId) {
     if (map.profile === 'opencode') {
       cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
     }
+    // Apply the full Deepy Prime default preset (guidance, MCP servers, file
+    // system access, etc.) so it matches Wan2GP's working Deepy Prime config.
+    Object.assign(cfg, DEEPY_PRIME_PRESET)
   } else if (mode === 'zero') {
     // Local model path: apply the full Deepy Zero default preset (VRAM mode,
     // context tokens, KV-cache quantization, compaction type, tool variants)

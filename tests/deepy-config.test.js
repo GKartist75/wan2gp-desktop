@@ -126,6 +126,15 @@ test('setDeepy prime wires the chosen engine + executable + base_url', () => {
     assert.strictEqual(after.llm_engines.deepy, 'opencode')
     assert.strictEqual(after.llm_engines.prompt_enhancer, 'same_as_deepy')
     assert.strictEqual(after.llm_engines.profiles.opencode.base_url, 'http://127.0.0.1:4096')
+    // Full Deepy Prime default preset
+    assert.strictEqual(after.deepy_prime_custom_system_prompt, 'When several models can satisfy the request, prefer the highest-quality base or full model unless the user explicitly prioritizes speed or names another model.')
+    assert.deepStrictEqual(after.deepy_prime_mcp_servers, {})
+    assert.strictEqual(after.deepy_mcp_auto_discover_paths, false)
+    assert.strictEqual(after.deepy_allow_read_file_system, false)
+    assert.deepStrictEqual(after.deepy_file_system_paths, [])
+    assert.strictEqual(after.deepy_read_everywhere, false)
+    assert.strictEqual(after.deepy_auto_cancel_queue_tasks, true)
+    assert.strictEqual(after.deepy_separate_requests_with_empty_line, true)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
