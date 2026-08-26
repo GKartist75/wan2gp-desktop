@@ -41,7 +41,7 @@ test('codex and opencode are external with npm installers + opencode has a serve
 })
 
 test('npmPackageFor returns the npm package name only for npm engines', () => {
-  assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'codex')), 'codex-cli')
+  assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'codex')), '@openai/codex')
   assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'opencode')), 'opencode-ai')
   assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'claude-code')), null)
 })
