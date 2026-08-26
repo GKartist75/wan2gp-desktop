@@ -4421,27 +4421,79 @@ ipcMain.handle('llm-engines:list', async () => {
 ipcMain.handle('llm-engine-install', async (_, engineId) => {
   try {
     const e = LLM_ENGINES.find(x => x.id === engineId)
-    if (!e || !e.install || e.install.mode !== 'pip') return { error: 'No pip installer for this engine' }
-    // Validate the catalog spec through the same safe validator.
-    const v = assertSafePipSpec(e.install.spec)
-    if (!v.ok) return { error: 'Engine install spec rejected: ' + v.reason }
-    const env = getActiveEnv()
-    if (!env) return { error: 'No active environment' }
-    const py = getPythonForEnv(env)
-    if (!py) return { error: 'Cannot find Python' }
-    send('launch-log', `[*] Installing ${e.install.spec} for ${e.label}...\n`)
-    await new Promise((resolve, reject) => {
-      const proc = spawn(py, ['-m', 'pip', 'install', e.install.spec], {
-        cwd: getRepoDir(), timeout: 300000, windowsHide: true,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+    if (!e || !e.install) return { error: 'No installer for this engine' }
+
+    if (e.install.mode === 'pip') {
+      // Validate the catalog spec through the same safe validator.
+      const v = assertSafePipSpec(e.install.spec)
+      if (!v.ok) return { error: 'Engine install spec rejected: ' + v.reason }
+      const env = getActiveEnv()
+      if (!env) return { error: 'No active environment' }
+      const py = getPythonForEnv(env)
+      if (!py) return { error: 'Cannot find Python' }
+      send('launch-log', `[*] Installing ${e.install.spec} for ${e.label}...\n`)
+      await new Promise((resolve, reject) => {
+        const proc = spawn(py, ['-m', 'pip', 'install', e.install.spec], {
+          cwd: getRepoDir(), timeout: 300000, windowsHide: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1', TQDM_MININTERVAL: '0', TQDM_MINITERS: '1' }
+        })
+        proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('pip exited code ' + code)) })
+        proc.on('error', reject)
       })
-      proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
-      proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
-      proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('pip exited code ' + code)) })
-      proc.on('error', reject)
-    })
-    send('launch-log', `[*] ${e.label} bridge installed successfully.\n`)
-    return { success: true }
+      send('launch-log', `[*] ${e.label} bridge installed successfully.\n`)
+      return { success: true }
+    }
+
+    if (e.install.mode === 'npm') {
+      // External agent CLI (Codex / OpenCode): install via npm -g. argv only,
+      // no shell. Catalog spec is a plain package name (no injection surface).
+      const pkg = e.install.spec
+      if (!/^[A-Za-z0-9._@/-]+$/.test(pkg)) return { error: 'Bad npm package name' }
+      send('launch-log', `[*] Installing ${pkg} via npm (global)...\n`)
+      await new Promise((resolve, reject) => {
+        const args = e.install.global ? ['install', '-g', pkg] : ['install', pkg]
+        const proc = spawn('npm', args, {
+          cwd: getRepoDir(), timeout: 600000, windowsHide: true,
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        })
+        proc.stdout.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.stderr.on('data', (d) => { const s = d.toString(); if (s) send('launch-log', s) })
+        proc.on('close', (code) => { if (code === 0) resolve(); else reject(new Error('npm exited code ' + code)) })
+        proc.on('error', reject)
+      })
+      send('launch-log', `[*] ${e.label} installed. Restart the launcher if it is not detected on PATH.\n`)
+      return { success: true }
+    }
+
+    return { error: 'Unknown install mode: ' + e.install.mode }
+  } catch (err) { return { error: err.message } }
+})
+
+// OpenCode HTTP server lifecycle (started/stopped by the launcher on demand).
+// Wan2GP itself auto-starts `opencode serve` when needed; this lets the user
+// start/stop it from the same guided panel without leaving the launcher.
+const _llmServerProcs = {}
+ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
+  try {
+    const e = LLM_ENGINES.find(x => x.id === engineId)
+    if (!e || !e.serve) return { error: 'This engine has no server control' }
+    if (action === 'stop') {
+      const p = _llmServerProcs[engineId]
+      if (p) { try { p.kill() } catch {} delete _llmServerProcs[engineId] }
+      return { success: true, running: false }
+    }
+    if (action === 'start') {
+      if (_llmServerProcs[engineId]) return { success: true, running: true, already: true }
+      const proc = spawn(e.serve.cmd, e.serve.args, {
+        cwd: getRepoDir(), windowsHide: false,
+        env: { ...process.env }
+      })
+      proc.on('exit', () => { delete _llmServerProcs[engineId] })
+      _llmServerProcs[engineId] = proc
+      return { success: true, running: true }
+    }
+    return { error: 'Unknown action: ' + action }
   } catch (err) { return { error: err.message } }
 })
 

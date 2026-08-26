@@ -39,11 +39,11 @@ const LLM_ENGINES = [
   {
     id: 'codex',
     label: 'OpenAI Codex',
-    desc: 'OpenAI Codex CLI. Standalone / npm / VS Code-bundled binary — no pip needed.',
+    desc: 'OpenAI Codex CLI. Installed via npm (standalone binary) — not pip.',
     docs: 'https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/REMOTE_LLMS.md#codex',
     cli: 'codex',
     pipPackage: null,
-    install: null,
+    install: { mode: 'npm', spec: 'codex-cli', global: true },
     external: true,
     authHint: 'Sign in via a Deepy request in Wan2GP (secure link shown in chat).',
     notes: 'Wan2GP detects the `codex` executable on PATH automatically.'
@@ -55,8 +55,9 @@ const LLM_ENGINES = [
     docs: 'https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/REMOTE_LLMS.md#opencode',
     cli: 'opencode',
     pipPackage: null,
-    install: null,
+    install: { mode: 'npm', spec: 'opencode-ai', global: true },
     external: true,
+    serve: { cmd: 'opencode', args: ['serve', '--hostname', '127.0.0.1', '--port', '4096'] },
     serverUrl: 'http://127.0.0.1:4096',
     authHint: 'In the OpenCode UI run `/connect`, pick a provider, follow auth. Wan2GP auto-starts `opencode serve`.',
     notes: 'Install OUTSIDE Wan2GP (npm i -g opencode-ai), then it connects to Llama.cpp / LM Studio, etc.'
@@ -73,4 +74,14 @@ function pipModuleFor(engine) {
   return engine.pipPackage.replace(/-/g, '_')
 }
 
-module.exports = { LLM_ENGINES, pipModuleFor }
+/**
+ * npm package name for an engine's `npm install` step (global flag honored by
+ * the installer). Returns null if the engine has no npm installer.
+ */
+function npmPackageFor(engine) {
+  if (!engine || !engine.install || engine.install.mode !== 'npm') return null
+  return engine.install.spec
+}
+
+module.exports = { LLM_ENGINES, pipModuleFor, npmPackageFor }
+

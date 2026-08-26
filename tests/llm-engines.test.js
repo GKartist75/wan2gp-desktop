@@ -9,7 +9,7 @@
  */
 const { test } = require('node:test')
 const assert = require('node:assert')
-const { LLM_ENGINES, pipModuleFor } = require('../services/llm-engines.js')
+const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('../services/llm-engines.js')
 
 test('catalog has the three Wan2GP-documented engines', () => {
   const ids = LLM_ENGINES.map(e => e.id)
@@ -26,13 +26,24 @@ test('claude-code carries the pinned install spec from REMOTE_LLMS.md', () => {
   assert.strictEqual(c.cli, 'claude')
 })
 
-test('codex and opencode are external (no pip), with a server for opencode', () => {
+test('codex and opencode are external with npm installers + opencode has a server', () => {
   const codex = LLM_ENGINES.find(e => e.id === 'codex')
   const oc = LLM_ENGINES.find(e => e.id === 'opencode')
   assert.strictEqual(codex.external, true)
-  assert.strictEqual(codex.install, null)
+  assert.strictEqual(codex.install.mode, 'npm')
+  assert.strictEqual(codex.install.spec, 'codex-cli')
   assert.strictEqual(oc.external, true)
+  assert.strictEqual(oc.install.mode, 'npm')
+  assert.strictEqual(oc.install.spec, 'opencode-ai')
+  assert.ok(oc.serve && oc.serve.cmd === 'opencode')
+  assert.deepStrictEqual(oc.serve.args, ['serve', '--hostname', '127.0.0.1', '--port', '4096'])
   assert.strictEqual(oc.serverUrl, 'http://127.0.0.1:4096')
+})
+
+test('npmPackageFor returns the npm package name only for npm engines', () => {
+  assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'codex')), 'codex-cli')
+  assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'opencode')), 'opencode-ai')
+  assert.strictEqual(npmPackageFor(LLM_ENGINES.find(e => e.id === 'claude-code')), null)
 })
 
 test('every engine has the fields the renderer card needs', () => {

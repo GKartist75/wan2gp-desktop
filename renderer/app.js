@@ -2105,8 +2105,9 @@ $('pipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pip
 // ── Guided LLM engine setup (Deepy Prime) ──
 // Renders ONE generic card per catalog engine (services/llm-engines.js). The
 // card shows live ✓/✗ status for the CLI and/or pip bridge, plus a one-click
-// installer for pip-based engines. External engines (Codex/OpenCode) get their
-// install hint + (for OpenCode) a "Start server" note instead of a pip button.
+// installer (pip for Claude Code, npm for Codex/OpenCode) and, for engines with
+// a server (OpenCode), a Start/Stop server toggle. New engines = one data line
+// in services/llm-engines.js — no UI branch.
 function dot(on) { return on ? '<span class="spec-dot dot-ok"></span>' : '<span class="spec-dot dot-bad"></span>' }
 
 async function refreshLLMEngines() {
@@ -2130,8 +2131,15 @@ async function refreshLLMEngines() {
     if (e.install && e.install.mode === 'pip') {
       const done = e.pipInstalled
       action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ installed' : 'Install ' + e.install.spec}</button>`
+    } else if (e.install && e.install.mode === 'npm') {
+      const done = e.cliOnPath
+      action = `<button class="pip-install-btn llm-install-btn" data-engine="${e.id}" ${done ? 'disabled' : ''}>${done ? '✓ on PATH' : 'Install via npm (' + e.install.spec + ')'}</button>`
     } else if (e.external) {
       action = `<span class="spec-value llm-external-hint">External — install via terminal, then it auto-detects.</span>`
+    }
+    let serveBtn = ''
+    if (e.serve) {
+      serveBtn = `<button class="pip-install-btn llm-serve-btn" data-engine="${e.id}">Start server</button>`
     }
     const serverRow = e.serverUrl
       ? `<div class="spec-row"><span class="spec-label">Server</span><span class="spec-value">${e.serverUrl}</span></div>`
@@ -2141,6 +2149,7 @@ async function refreshLLMEngines() {
     return `<div class="llm-engine-card">
       <div class="llm-engine-head"><span class="llm-engine-title">${e.label}</span>${action}</div>
       <div class="env-specs">${cliRow}${pipRow}${serverRow}</div>
+      ${serveBtn ? `<div class="llm-serve-row">${serveBtn}</div>` : ''}
       <div class="pip-advanced-hint">${e.desc}</div>${auth}${notes}
     </div>`
   }).join('')
@@ -2152,6 +2161,21 @@ async function refreshLLMEngines() {
       btn.textContent = (r && r.success) ? '✓ installed' : 'failed'
       if (r && r.success) { showToast('✓ engine installed'); refreshLLMEngines() }
       else showToast('✗ ' + (r && r.error ? r.error : 'install failed'))
+    })
+  })
+  list.querySelectorAll('.llm-serve-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.engine
+      const starting = btn.textContent.trim().startsWith('Start')
+      btn.disabled = true
+      const r = await window.w2gp.llmEngineServe(id, starting ? 'start' : 'stop')
+      btn.disabled = false
+      if (r && r.success) {
+        btn.textContent = starting ? 'Stop server' : 'Start server'
+        showToast(starting ? '✓ ' + id + ' server started' : '✓ server stopped')
+      } else {
+        showToast('✗ ' + (r && r.error ? r.error : 'server action failed'))
+      }
     })
   })
 }

@@ -446,6 +446,8 @@ body {
 .llm-engine-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .llm-engine-title { font-size: 0.7rem; font-weight: 600; color: var(--text-primary); }
 .llm-install-btn { font-size: 0.6rem; padding: 3px 8px; }
+.llm-serve-row { margin-top: 6px; }
+.llm-serve-btn { font-size: 0.6rem; padding: 3px 8px; }
 .llm-external-hint { color: var(--text-tertiary); }
 .pip-advanced-label { font-size: 0.6rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600; }
 .pip-advanced-hint { font-size: 0.58rem; color: var(--text-tertiary); margin-top: 4px; line-height: 1.35; }

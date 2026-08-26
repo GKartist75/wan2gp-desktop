@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   // Guided LLM engine setup (Deepy Prime)
   llmEnginesList: () => ipcRenderer.invoke('llm-engines:list'),
   llmEngineInstall: (engineId) => ipcRenderer.invoke('llm-engine-install', engineId),
+  llmEngineServe: (engineId, action) => ipcRenderer.invoke('llm-engine-serve', engineId, action),
 
   // Desktop experience: tray, auto-start, notifications, theme
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
