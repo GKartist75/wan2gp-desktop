@@ -52,6 +52,29 @@ Guided LLM engine setup for Deepy Prime — Claude Code, OpenAI Codex, and OpenC
   `tests/resolve-cmd.test.js`, `tests/normalize-pip-spec.test.js`. Suite now
   **157 passing** (was 143).
 
+- **Deepy mode selector + Prompt Enhancer (local model) panel.** The Deepy card now
+  has a three-way mode switch — **Disabled / Deepy Zero / Deepy Prime** — plus a
+  **Local model (Prompt Enhancer)** selector that's shown for Disabled and Zero
+  and hidden for Prime. Switching the mode **live-re-renders** the local-model
+  list (all options visible, invalid-for-mode ones disabled) and nothing is
+  written until you press **Apply**.
+  - **Disabled** keeps Florence 2 + Llama 3.2 3B (or Florence 2 + Llama Joy 8B).
+  - **Deepy Zero** lets you pick Qwen3.5 VL Abliterated 4B (recommended) / 9B /
+    Qwen3.8 VL Uncensored 27B — the local models Wan2GP actually requires.
+  - **Deepy Prime** reveals the LLM Engines card (OpenCode default) for the
+    remote engine, since only Prime exposes Wan2GP's MCP tools.
+- **Deepy config persistence fixed (root cause).** Wan2GP's Deepy Zero/Disabled
+  "LLM engine" dropdown reads `llm_engines.deepy` (an engine *string*:
+  `qwen35_4b`/`qwen35_9b`/`qwen38_27b`/`local_florence_llama32`/`local_florence_llamajoy`)
+  and **derives** `enhancer_enabled` from it. The launcher previously wrote only
+  `enhancer_enabled`, leaving `llm_engines.deepy` stale (often `opencode`), so the
+  selected local model was ignored on launch. Apply now writes **both** as a
+  consistent pair plus `prompt_enhancer: "same_as_deepy"`.
+- **OpenCode executable made robust.** The OpenCode profile now stores the
+  **literal** `"opencode"` executable string (Wan2GP auto-detects the binary
+  itself) instead of a resolved absolute path, which was brittle across
+  reinstalls. 173 tests pass (was 157).
+
 ## Upgrade
 Install over 3.0.9 (or any 3.0.x). Non-disruptive. The LLM engine cards appear on the
 Dashboard's "Remote LLMs / Deepy Prime" section; the Advanced pip box is unchanged in

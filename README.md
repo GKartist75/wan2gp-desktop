@@ -47,6 +47,25 @@ The Dashboard's **Remote LLMs / Deepy Prime** section has guided cards for three
 
 ---
 
+## Activating Deepy
+
+The Dashboard's **Deepy** panel (Settings → Deepy, or the Dashboard card) lets you turn Wan2GP's built-in AI agent on and pick how it runs — all without touching `wgp_config.json` by hand. It has three modes:
+
+- **Disabled** — Deepy stays off. The launcher keeps your chosen **local Prompt Enhancer** model (Florence 2 + Llama 3.2 3B, or Florence 2 + Llama Joy 8B) so Wan2GP's image understanding works.
+- **Deepy Zero** — runs Deepy **locally** with a Qwen3.5/3.8 VL model (no external account, no API key). Pick the local model in the **Local model (Prompt Enhancer)** selector: Qwen3.5 VL Abliterated 4B (recommended), 9B, or Qwen3.8 VL Uncensored 27B.
+- **Deepy Prime** — connects Deepy to a **remote LLM engine** (OpenCode / Claude Code / Codex, see above). Only Prime exposes Wan2GP's MCP tools. The **LLM Engines** card appears under Prime so you can pick and configure the engine.
+
+Switching the mode **live-re-renders** the local-model selector; nothing is written until you press **Apply**. On Apply the launcher writes a consistent `wgp_config.json` (both `enhancer_enabled` and `llm_engines.deepy`, plus the full working Deepy preset) and backs up the previous file.
+
+> You can also change these settings any time **inside Wan2GP itself** (Configuration → Prompt Enhancer / Deepy).
+
+![Deepy panel — Disabled mode with local Prompt Enhancer selector](screenshots/deepy-panel-1.png)
+![Deepy panel — Deepy Zero with Qwen local-model selector](screenshots/deepy-panel-2.png)
+![Deepy panel — Deepy Prime showing the LLM Engines card](screenshots/deepy-panel-3.png)
+![Deepy — active environment / running state](screenshots/deepy-active-env.png)
+
+---
+
 ## Download
 
 ### 🪟 Windows — primary platform
