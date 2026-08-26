@@ -7,6 +7,10 @@
  *   - zero     : deepy_enabled = 1, deepy_type = "zero"   (LOCAL Qwen model, no remote LLM)
  *   - prime    : deepy_enabled = 1, deepy_type = "prime"  (requires a remote LLM engine)
  *
+ * Local Deepy model: Wan2GP's Prompt Enhancer (top-level "enhancer_enabled")
+ * maps 3=Qwen3.5-4B, 4=Qwen3.5-9B, 5=Qwen3.8-27B. Deepy Zero ("local model")
+ * only works if enhancer_enabled is one of {3,4,5}, so we default it to 3
+ * (Qwen3.5-4B, the recommended local model) when enabling Zero.
  * Kept free of Electron/Node-only deps so it is unit-testable. The caller
  * passes in fs / path / resolveCmd (injected); in production main.js wires
  * the real ones.
@@ -94,6 +98,13 @@ function setDeepy(deps, repoDir, mode, engineId) {
     if (map.profile === 'opencode') {
       cfg.llm_engines.profiles.opencode.base_url = 'http://127.0.0.1:4096'
     }
+  } else if (mode === 'zero') {
+    // Local model path: ensure the Prompt Enhancer is a valid Qwen3.5/3.8 VL.
+    // 3 = Qwen3.5-4B (recommended default local model). Leave it alone only if
+    // it is already a valid local Qwen variant; otherwise default to 3.
+    const valid = new Set([3, 4, 5])
+    const cur = parseInt(cfg.enhancer_enabled, 10)
+    if (!valid.has(cur)) cfg.enhancer_enabled = 3
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))

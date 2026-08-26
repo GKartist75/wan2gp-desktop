@@ -524,18 +524,6 @@
         </div>
         <div class="env-list" id="envList" style="margin-top:6px"></div>
 
-        <!-- Guided LLM engine setup for Deepy Prime (Claude Code / Codex / OpenCode).
-             Cards are rendered generically from services/llm-engines.js (data),
-             so a new engine needs no UI branch. -->
-        <div class="card" id="llmEnginesCard" style="margin-top:10px">
-          <div class="card-header">
-            <span class="card-title">LLM Engines (Deepy Prime)</span>
-            <button class="btn btn-ghost small" id="llmEnginesRefresh" title="Re-check engine status" style="margin-left:auto">↻ Refresh</button>
-          </div>
-          <p class="path-hint">Deepy Prime can use Claude Code, Codex, or OpenCode as its LLM engine. Install/enable them here, then pick the engine in Wan2GP's <code>Configuration → Prompt Enhancer / Deepy</code>.</p>
-          <div id="llmEnginesList" class="llm-engines-list"></div>
-        </div>
-
         <!-- Deepy mode selector + one-click activation. Reads/writes only
              wgp_config.json (Wan2GP user data) — never Wan2GP source.
              Backs the file up first. -->
@@ -555,6 +543,17 @@
               <span class="dot-bad">●</span> <strong>Claude Code / Codex</strong> — paid (subscription or API credits).
             </div>
             <div id="deepyEngineOptions" class="deepy-engine-options"></div>
+            <!-- Guided LLM engine setup for Deepy Prime (Claude Code / Codex / OpenCode).
+                 Shown only when Deepy Prime is selected (this block lives inside
+                 #deepyPrimeOnly). Cards render generically from services/llm-engines.js. -->
+            <div class="card" id="llmEnginesCard" style="margin-top:12px">
+              <div class="card-header">
+                <span class="card-title">LLM Engines</span>
+                <button class="btn btn-ghost small" id="llmEnginesRefresh" title="Re-check engine status" style="margin-left:auto">↻ Refresh</button>
+              </div>
+              <p class="path-hint">Deepy Prime can use Claude Code, Codex, or OpenCode as its LLM engine. Install/enable them here, then pick the engine in Wan2GP's <code>Configuration → Prompt Enhancer / Deepy</code>.</p>
+              <div id="llmEnginesList" class="llm-engines-list"></div>
+            </div>
           </div>
           <div class="deepy-actions">
             <button class="btn btn-primary" id="deepyApplyBtn" disabled>Apply</button>

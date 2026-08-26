@@ -65,7 +65,7 @@ test('setDeepy disabled writes enabled=0 and leaves engine untouched', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('setDeepy zero writes enabled=1, type=zero (local model, no engine needed)', () => {
+test('setDeepy zero writes enabled=1, type=zero and defaults enhancer_enabled to 3 (Qwen3.5-4B)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
   try {
     const cfgPath = makeRepo(dir)
@@ -76,6 +76,20 @@ test('setDeepy zero writes enabled=1, type=zero (local model, no engine needed)'
     const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     assert.strictEqual(after.deepy_enabled, 1)
     assert.strictEqual(after.deepy_type, 'zero')
+    assert.strictEqual(after.enhancer_enabled, 3) // Qwen3.5-4B, required for local Deepy
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('setDeepy zero leaves a valid Qwen enhancer_enabled untouched (no clobber)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deepy-'))
+  try {
+    const cfgPath = makeRepo(dir)
+    const before = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    before.enhancer_enabled = 5 // Qwen3.8-27B already chosen
+    fs.writeFileSync(cfgPath, JSON.stringify(before))
+    setDeepy({ fs, path, resolveCmd: null }, dir, 'zero', null)
+    const after = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    assert.strictEqual(after.enhancer_enabled, 5)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
