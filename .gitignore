@@ -13,3 +13,7 @@ scripts/__pycache__/
 scripts/cdp-test.mjs
 scripts/dummy-wan2gp.js
 .pi/
+# scratch / inspection dirs created during builds or asar extraction
+.rel*/ 
+.rel311check/
+dist-build/
