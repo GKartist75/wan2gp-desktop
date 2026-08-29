@@ -2743,6 +2743,16 @@ function setDesktopUpdateIndicator(on) {
 }
 
 window.w2gp.onUpdateStatus((status) => {
+  // Mirror to Manage → Updates tab if present
+  const mS=$('manageUpdateDesktopStatus'); const mBtn=$('manageUpdateDesktopBtn');
+  if (mS && mBtn) {
+    if (status.status==='checking') mS.textContent='Checking...';
+    else if (status.status==='available') mS.textContent='v'+status.version+' available — click Download on Dashboard banner';
+    else if (status.status==='downloading') mS.textContent='Downloading '+ (status.percent||0)+'%';
+    else if (status.status==='downloaded') mS.textContent='v'+status.version+' downloaded — Install & Restart on Dashboard banner';
+    else if (status.status==='up-to-date') mS.textContent='Up to date ✓';
+    else if (status.status==='error') mS.textContent='Error: '+(status.message||'');
+  }
   switch (status.status) {
     case 'checking':
       setDesktopUpdateIndicator(false)
