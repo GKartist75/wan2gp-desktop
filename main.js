@@ -20,7 +20,7 @@ const { resolveCmd } = require('./services/resolve-cmd.js')
 const { spawnCmd } = require('./services/spawn-cmd.js')
 const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
 const migrate = require('./lib/migrate.js')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
+const { getDirSize, mergeDirContents, mergeDirContentsAsync, flattenRepo, rewriteModelPaths, reconcileModelFolders, reconcileModelFoldersAsync } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -542,7 +542,7 @@ function moveDirAtomic(src, dst) {
 async function runMigrationMove(legacy, choices) {
   const target = choices.dataDir
   const sendProg = (pct) => { try { if (mainWin && mainWin.webContents) mainWin.webContents.send('migration-progress', pct) } catch {} }
-  let ok = mergeDirContents(legacy, target, sendProg)
+  let ok = await mergeDirContentsAsync(legacy, target, sendProg)
   if (ok) {
     // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
     try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
@@ -554,7 +554,7 @@ async function runMigrationMove(legacy, choices) {
     // (choices.ckpts/loras/output, e.g. C:\Wan2GP-Models\…). Move those folders
     // out of the data dir to where wgp_config.json actually points so the app
     // finds the existing data instead of re-downloading it.
-    try { reconcileModelFolders(target, choices) } catch (e) { logError('migrate-reconcile', e) }
+    try { await reconcileModelFoldersAsync(target, choices) } catch (e) { logError('migrate-reconcile', e) }
   }
   if (!ok) {
     try {
@@ -568,7 +568,7 @@ async function runMigrationMove(legacy, choices) {
         detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
                 'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
       })
-      if (retry.response === 0) ok = mergeDirContents(legacy, target)
+      if (retry.response === 0) ok = await mergeDirContentsAsync(legacy, target)
     } catch { /* ignore — leave in place */ }
   }
   if (!ok) return false
@@ -3480,7 +3480,7 @@ ipcMain.handle('move-folder', async (_, src, dst) => {
   try {
     if (!src || src === dst) return { ok: true }
     if (!fs.existsSync(src)) return { ok: true }
-    mergeDirContents(src, dst)
+    await mergeDirContentsAsync(src, dst)
     try { if (fs.existsSync(src) && fs.readdirSync(src).length === 0) fs.rmSync(src, { recursive: true, force: true }) } catch {}
     return { ok: true }
   } catch (e) { return { ok: false, error: String(e) } }
