@@ -54,5 +54,5 @@ All three profile dropdowns (video/image/audio) are **editable** before applying
 - **Running LED & Stop** — status light and one-click server stop.
 - **System tray** — minimize to tray, auto-start with Windows, notifications on server ready/stop.
 - **Keyboard shortcuts** — Ctrl+` terminal, F12 DevTools picker, Esc/Ctrl+W close webview.
-- **Maintenance** — update, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI.
-- **Renderer-crash watchdog** — a crash auto-reloads the UI (bounded, no loops), restoring your mode and self-healing the embedded view. Generation is never touched — the server runs in its own process.
+- **Maintenance** — update Wan2GP or the Desktop Launcher from **Dashboard** or **Manage → Updates**, upgrade, reinstall, switch envs, or uninstall-with-backup from the UI. **Dashboard → Paths** migrates installs between drives without freeze or leftover folders.
+- **Renderer-crash watchdog** — a crash auto-reloads the UI (bounded, no loops), restoring your mode and self-healing the embedded view. Generation is never touched — the server runs in its own process. Includes Desktop-mode H3 shim for `root(...).getElementById` spam.
