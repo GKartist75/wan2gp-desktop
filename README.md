@@ -32,8 +32,9 @@ Wan2GP's **manual setup is the hard part**. To run it you must clone the repo, i
 - ⚡ **Auto-Tune** — one-click hardware scan recommends the best memory profile (VRAM/RAM tiers) and writes it to `wgp_config.json`.
 - 🖥️ **Flexible launch** — Desktop (in-app), Browser, or External Terminal modes; pop-out, zoom, browser picker.
 - 📊 **Live monitoring** — dockable console, CPU/GPU/RAM/VRAM sparklines, running LED + stop, system tray.
-- 🔄 **Safe updates** — manual-only, version-aware; nothing downloads or installs without your action.
-- 🛡️ **Crash-proof UI** — renderer-crash watchdog, no blank-screen regressions, GPU-off recovery override.
+- 🔄 **Safe updates** — manual-only, version-aware; nothing downloads or installs without your action. Also in **Manage → Updates** (Wan2GP core + Desktop Launcher).
+- 📂 **Dashboard → Paths migrate** — move installs between drives without freeze or leftover folders.
+- 🛡️ **Crash-proof UI** — renderer-crash watchdog, no blank-screen regressions, GPU-off recovery override. Desktop-mode H3 shim fixes `root(...).getElementById` spam.
 
 ---
 
