@@ -429,9 +429,19 @@ function getDataDir() {
 let _defaultDataDirCache = undefined
 function defaultDataDir() {
   if (_defaultDataDirCache !== undefined) return _defaultDataDirCache
-  // Prefer a dedicated top-level folder on the SAME DRIVE as the launcher, not a
-  // hardcoded C:\Wan2GP — users who install on another drive (e.g. E:\) shouldn't
-  // be forced onto C: (issue #74 / #76 follow-up).
+  // If any existing install with wgp.py is found (any drive), prefer it —
+  // dev/unpacked builds on E: should still see C:\Wan2GP, and a user who
+  // installed to D:\ shouldn't be forced onto C: or an empty E:\Wan2GP.
+  if (IS_WIN) {
+    const drives = ['C','D','E','F','G']
+    for (const d of drives) {
+      const p = d + ':\\Wan2GP'
+      if (fs.existsSync(path.join(p, 'wgp.py')) || fs.existsSync(path.join(p, 'Wan2GP', 'wgp.py'))) { _defaultDataDirCache = p; return p }
+    }
+    const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+    if (fs.existsSync(path.join(legacy, 'wgp.py')) || fs.existsSync(path.join(legacy, 'Wan2GP', 'wgp.py'))) { _defaultDataDirCache = legacy; return legacy }
+  }
+  // No existing install found — prefer a dedicated top-level folder on the SAME DRIVE as the launcher
   const pref = IS_WIN ? path.join(path.parse(process.execPath).root, 'Wan2GP')
                       : path.join(os.homedir(), 'Wan2GP')
   if (dirIsWritable(pref)) { _defaultDataDirCache = pref; return pref }
