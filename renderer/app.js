@@ -2743,6 +2743,16 @@ function setDesktopUpdateIndicator(on) {
 }
 
 window.w2gp.onUpdateStatus((status) => {
+  // Mirror to Manage → Updates tab if present
+  const mS=$('manageUpdateDesktopStatus'); const mBtn=$('manageUpdateDesktopBtn');
+  if (mS && mBtn) {
+    if (status.status==='checking') mS.textContent='Checking...';
+    else if (status.status==='available') mS.textContent='v'+status.version+' available — click Download on Dashboard banner';
+    else if (status.status==='downloading') mS.textContent='Downloading '+ (status.percent||0)+'%';
+    else if (status.status==='downloaded') mS.textContent='v'+status.version+' downloaded — Install & Restart on Dashboard banner';
+    else if (status.status==='up-to-date') mS.textContent='Up to date ✓';
+    else if (status.status==='error') mS.textContent='Error: '+(status.message||'');
+  }
   switch (status.status) {
     case 'checking':
       setDesktopUpdateIndicator(false)
@@ -3238,6 +3248,17 @@ $('reportIssueBtn')?.addEventListener('click', async function() {
     this.textContent = '🐞 Report an issue…'
   }
 })
+
+// ── Manage → Updates tab — proxies to same IPCs as Dashboard ──
+$('manageUpdateWan2gpBtn')?.addEventListener('click', async function() {
+  const s=$('manageUpdateWan2gpStatus'); this.disabled=true; this.textContent='Updating...'; if(s) s.textContent='Updating Wan2GP (this can take a few minutes)...';
+  try { const r=await window.w2gp.update(); if(s) s.textContent=r ? '✓ Update finished — check Dashboard log' : '✗ Update failed'; } catch(e){ if(s) s.textContent='✗ '+(e.message||e); } finally{ this.disabled=false; this.textContent='↻ Update Wan2GP'; }
+});
+$('manageUpdateDesktopBtn')?.addEventListener('click', function() {
+  const s=$('manageUpdateDesktopStatus'); if(s) s.textContent='Checking...';
+  window.w2gp.checkUpdate();
+  setTimeout(()=>{ if(s && !s.textContent.includes('✓')) s.textContent='Check sent — see banner on Dashboard'; }, 1500);
+});
 
 // ── Uninstall Wan2GP (Manage → General → danger section) ──
 $('uninstallBtn')?.addEventListener('click', async function() {
