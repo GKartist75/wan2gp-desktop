@@ -37,6 +37,22 @@ function pushAutoTunedCoefficient(extraArgs) {
     }
   } catch (e) { console.warn('[launch] failed to read auto-tuned coefficient:', e.message) }
 }
+// ponytail: single builder for the common wgp.py CLI args (port/name/share/gpu/advanced/multiple-images/coeff)
+// so launch / launch-webview / desktop-shortcut never drift.
+function buildCommonLaunchArgs(cfg) {
+  let preferredPort = cfg.serverPort || 7860
+  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
+  for (let i = 0; i < extraArgs.length; i++) if (extraArgs[i] === '--server-port' && i+1 < extraArgs.length) preferredPort = parseInt(extraArgs[i+1]) || preferredPort
+  if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(preferredPort))
+  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', (cfg.serverName || 'localhost'))
+  if (cfg.share && !extraArgs.some(a => a === '--share')) extraArgs.push('--share')
+  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
+  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) extraArgs.push('--gpu', gpuDevice)
+  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
+  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
+  pushAutoTunedCoefficient(extraArgs)
+  return { extraArgs, preferredPort }
+}
 
 // ── GPU info cache (TTL 30s, avoids redundant nvidia-smi calls across handlers) ──
 // Does NOT cache empty/error results — only caches when non-NVIDIA data is available.
@@ -1578,8 +1594,9 @@ async function forceRemoveRepo(repo, log, keepFolders) {
     // everything else first so a scan on env_uv can finish while we work.
     const venvIdx = items.findIndex(i => i.toLowerCase() === 'env_uv')
     if (venvIdx >= 0) items = items.filter(i => i !== items[venvIdx]).concat(items[venvIdx])
+    const keepSet = keepFolders ? new Set(keepFolders.map(s => String(s).toLowerCase())) : null
     for (const item of items) {
-      if (keepFolders && keepFolders.includes(item.toLowerCase())) continue
+      if (keepSet && keepSet.has(item.toLowerCase())) continue
       const err = await rmRetry(path.join(repo, item))
       if (err) { log(`[!] Could not remove ${item}: ${err.message}`); failed.push(item); ok = false }
     }
@@ -1924,42 +1941,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   if (!py) throw new Error('Cannot find python for env')
 
   const cfg = loadConfig()
-  let preferredPort = cfg.serverPort || 7860
-  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
-  for (let i = 0; i < extraArgs.length; i++) {
-    if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
-      preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
-    }
-  }
-  // Ensure --server-port in args
-  const hasPort = extraArgs.some(a => a === '--server-port')
-  if (!hasPort) { extraArgs.push('--server-port', String(preferredPort)) }
-  // Ensure --server-name is set. Default 'localhost' (user-selectable in Manage →
-  // Launch → Bind Address) so the bind address matches Gradio's own self-check
-  // target on every machine — including IPv6-first boxes where 'localhost' resolves
-  // to ::1 first. A literal 127.0.0.1 bind fails Gradio's localhost check there
-  // ("When localhost is not accessible…"). User-supplied --server-name (in Extra
-  // Launch Args) always wins over this default.
-  const hasServerName = extraArgs.some(a => a === '--server-name')
-  if (!hasServerName) { extraArgs.push('--server-name', (cfg.serverName || 'localhost')) }
-  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
-  if (cfg.share && !extraArgs.some(a => a === '--share')) {
-    extraArgs.push('--share')
-  }
-  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
-  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
-  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
-  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
-    extraArgs.push('--gpu', gpuDevice)
-  }
-  // First Block Cache / advanced UI (upstream parity): --advanced exposes the
-  // "Steps skipping" tab where First Block Cache lives; --multiple-images enables
-  // multi-image I2V input. Both are wgp.py CLI flags (shared/cli_args.py) that
-  // the upstream start scripts pass by default — without them the post's headline
-  // speed feature is invisible. Respect explicit user args (no duplication).
-  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
-  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
-  pushAutoTunedCoefficient(extraArgs)
+  const { extraArgs, preferredPort } = buildCommonLaunchArgs(cfg)
 
   const port = preferredPort
   _currentPort = port
@@ -2290,27 +2272,7 @@ ipcMain.handle('launch-webview', async () => {
   if (!py) throw new Error('Cannot find python for env')
 
   const cfg = loadConfig()
-  let port = cfg.serverPort || 7860
-  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
-  if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
-  // Bind address: user-selectable (cfg.serverName, default 'localhost'). 'localhost'
-  // matches Gradio's localhost self-check target on both IPv4-first and IPv6-first
-  // machines; 127.0.0.1 is a strict-IPv4 fallback. See launch handler above.
-  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', (cfg.serverName || 'localhost'))
-  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
-  if (cfg.share && !extraArgs.some(a => a === '--share')) {
-    extraArgs.push('--share')
-  }
-  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
-  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
-  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
-  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
-    extraArgs.push('--gpu', gpuDevice)
-  }
-  // First Block Cache / advanced UI (upstream parity) — see launch handler.
-  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
-  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
-  pushAutoTunedCoefficient(extraArgs)
+  const { extraArgs, preferredPort: port } = buildCommonLaunchArgs(cfg)
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
