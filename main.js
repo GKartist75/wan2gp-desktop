@@ -368,7 +368,7 @@ const _LAUNCHER_DIR = (process.env.LOCALAPPDATA
 // server against the same port. The guard rejects the second call instead.
 let _mutatingOp = null // name of the running mutation, or null
 function mutating(name, fn) {
-  if (_mutatingOp) return { error: `Another operation is already running (${_mutatingOp}). Wait for it to finish.` }
+  if (_mutatingOp) throw new Error(`Another operation is already running (${_mutatingOp}). Wait for it to finish.`)
   _mutatingOp = name
   return Promise.resolve()
     .then(fn)
@@ -724,7 +724,10 @@ const BOOTSTRAP_LINES = [
 // to break all launches with a cryptic "python can't open file" error until app restart.
 // Throws a clear error if the write fails so the UI can show what actually happened.
 function bootstrapScriptPath() {
-  const p = path.join(os.tmpdir(), 'wan2gp-bootstrap.py')
+  // App-owned dir (not world-writable %TEMP%) with per-launch random suffix — avoids TOCTOU/replacement on shared PCs.
+  let base = os.tmpdir()
+  try { const d = getDataDir(); if (d && dirIsWritable(d)) base = d } catch {}
+  const p = path.join(base, `wan2gp-bootstrap-${process.pid}-${Date.now().toString(36)}.py`)
   try {
     fs.writeFileSync(p, BOOTSTRAP_LINES.join('\n'), 'utf8')
   } catch (e) {
