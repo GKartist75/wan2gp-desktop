@@ -20,7 +20,7 @@ const { resolveCmd } = require('./services/resolve-cmd.js')
 const { spawnCmd } = require('./services/spawn-cmd.js')
 const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
 const migrate = require('./lib/migrate.js')
-const { getDirSize, mergeDirContents, flattenRepo, rewriteModelPaths, reconcileModelFolders } = migrate
+const { getDirSize, mergeDirContents, mergeDirContentsAsync, flattenRepo, rewriteModelPaths, reconcileModelFolders, reconcileModelFoldersAsync } = migrate
 
 // Auto-tune parity: forward the tuned vram_safety_coefficient from wgp_config.json
 // as a CLI arg — wgp.py reads it from args only (cli_args.py:35), so a coefficient
@@ -36,6 +36,22 @@ function pushAutoTunedCoefficient(extraArgs) {
       extraArgs.push('--vram-safety-coefficient', String(coeff))
     }
   } catch (e) { console.warn('[launch] failed to read auto-tuned coefficient:', e.message) }
+}
+// ponytail: single builder for the common wgp.py CLI args (port/name/share/gpu/advanced/multiple-images/coeff)
+// so launch / launch-webview / desktop-shortcut never drift.
+function buildCommonLaunchArgs(cfg) {
+  let preferredPort = cfg.serverPort || 7860
+  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
+  for (let i = 0; i < extraArgs.length; i++) if (extraArgs[i] === '--server-port' && i+1 < extraArgs.length) preferredPort = parseInt(extraArgs[i+1]) || preferredPort
+  if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(preferredPort))
+  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', (cfg.serverName || 'localhost'))
+  if (cfg.share && !extraArgs.some(a => a === '--share')) extraArgs.push('--share')
+  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
+  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) extraArgs.push('--gpu', gpuDevice)
+  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
+  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
+  pushAutoTunedCoefficient(extraArgs)
+  return { extraArgs, preferredPort }
 }
 
 // ── GPU info cache (TTL 30s, avoids redundant nvidia-smi calls across handlers) ──
@@ -368,7 +384,7 @@ const _LAUNCHER_DIR = (process.env.LOCALAPPDATA
 // server against the same port. The guard rejects the second call instead.
 let _mutatingOp = null // name of the running mutation, or null
 function mutating(name, fn) {
-  if (_mutatingOp) return { error: `Another operation is already running (${_mutatingOp}). Wait for it to finish.` }
+  if (_mutatingOp) throw new Error(`Another operation is already running (${_mutatingOp}). Wait for it to finish.`)
   _mutatingOp = name
   return Promise.resolve()
     .then(fn)
@@ -413,9 +429,19 @@ function getDataDir() {
 let _defaultDataDirCache = undefined
 function defaultDataDir() {
   if (_defaultDataDirCache !== undefined) return _defaultDataDirCache
-  // Prefer a dedicated top-level folder on the SAME DRIVE as the launcher, not a
-  // hardcoded C:\Wan2GP — users who install on another drive (e.g. E:\) shouldn't
-  // be forced onto C: (issue #74 / #76 follow-up).
+  // If any existing install with wgp.py is found (any drive), prefer it —
+  // dev/unpacked builds on E: should still see C:\Wan2GP, and a user who
+  // installed to D:\ shouldn't be forced onto C: or an empty E:\Wan2GP.
+  if (IS_WIN) {
+    const drives = ['C','D','E','F','G']
+    for (const d of drives) {
+      const p = d + ':\\Wan2GP'
+      if (fs.existsSync(path.join(p, 'wgp.py')) || fs.existsSync(path.join(p, 'Wan2GP', 'wgp.py'))) { _defaultDataDirCache = p; return p }
+    }
+    const legacy = path.join(ORIGINAL_USER_DATA, 'Wan2GP')
+    if (fs.existsSync(path.join(legacy, 'wgp.py')) || fs.existsSync(path.join(legacy, 'Wan2GP', 'wgp.py'))) { _defaultDataDirCache = legacy; return legacy }
+  }
+  // No existing install found — prefer a dedicated top-level folder on the SAME DRIVE as the launcher
   const pref = IS_WIN ? path.join(path.parse(process.execPath).root, 'Wan2GP')
                       : path.join(os.homedir(), 'Wan2GP')
   if (dirIsWritable(pref)) { _defaultDataDirCache = pref; return pref }
@@ -542,7 +568,7 @@ function moveDirAtomic(src, dst) {
 async function runMigrationMove(legacy, choices) {
   const target = choices.dataDir
   const sendProg = (pct) => { try { if (mainWin && mainWin.webContents) mainWin.webContents.send('migration-progress', pct) } catch {} }
-  let ok = mergeDirContents(legacy, target, sendProg)
+  let ok = await mergeDirContentsAsync(legacy, target, sendProg)
   if (ok) {
     // Flatten a doubled-up repo (see lib/migrate.js for the rationale).
     try { flattenRepo(target) } catch (e) { logError('migrate-flatten', e) }
@@ -554,7 +580,7 @@ async function runMigrationMove(legacy, choices) {
     // (choices.ckpts/loras/output, e.g. C:\Wan2GP-Models\…). Move those folders
     // out of the data dir to where wgp_config.json actually points so the app
     // finds the existing data instead of re-downloading it.
-    try { reconcileModelFolders(target, choices) } catch (e) { logError('migrate-reconcile', e) }
+    try { await reconcileModelFoldersAsync(target, choices) } catch (e) { logError('migrate-reconcile', e) }
   }
   if (!ok) {
     try {
@@ -568,13 +594,13 @@ async function runMigrationMove(legacy, choices) {
         detail: 'This usually means a file is still in use (e.g. an old Wan2GP server or a terminal/Explorer window open in that folder, or antivirus scanning it).\n\n' +
                 'Close any Wan2GP process and windows pointing at:\n  ' + legacy + '\nand choose "Retry move". Or keep it as-is and delete it yourself later.'
       })
-      if (retry.response === 0) ok = mergeDirContents(legacy, target)
+      if (retry.response === 0) ok = await mergeDirContentsAsync(legacy, target)
     } catch { /* ignore — leave in place */ }
   }
   if (!ok) return false
   // Repoint the data-dir override so every subsequent launch resolves to the
   // new location (repo becomes <target>/Wan2GP, config at <target>/Wan2GP/wgp_config.json).
-  try { fs.writeFileSync(DATA_DIR_OVERRIDE, target) } catch (e) { logError('migrate-override', e) }
+  try { atomicWriteFile(DATA_DIR_OVERRIDE, target); invalidateDefaultDataDirCache() } catch (e) { logError('migrate-override', e) }
   // Rewrite the model-folder paths in wgp_config.json to the user's chosen
   // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
   try { rewriteModelPaths(target, choices) } catch (e) { logError('migrate-config', e) }
@@ -724,7 +750,10 @@ const BOOTSTRAP_LINES = [
 // to break all launches with a cryptic "python can't open file" error until app restart.
 // Throws a clear error if the write fails so the UI can show what actually happened.
 function bootstrapScriptPath() {
-  const p = path.join(os.tmpdir(), 'wan2gp-bootstrap.py')
+  // App-owned dir (not world-writable %TEMP%) with per-launch random suffix — avoids TOCTOU/replacement on shared PCs.
+  let base = os.tmpdir()
+  try { const d = getDataDir(); if (d && dirIsWritable(d)) base = d } catch {}
+  const p = path.join(base, `wan2gp-bootstrap-${process.pid}-${Date.now().toString(36)}.py`)
   try {
     fs.writeFileSync(p, BOOTSTRAP_LINES.join('\n'), 'utf8')
   } catch (e) {
@@ -852,9 +881,16 @@ function loadConfig() {
   return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
+function atomicWriteFile(filePath, content) {
+  const dir = path.dirname(filePath)
+  fs.mkdirSync(dir, { recursive: true })
+  const tmp = filePath + '.tmp.' + process.pid
+  fs.writeFileSync(tmp, content, 'utf8')
+  fs.renameSync(tmp, filePath)
+}
+function invalidateDefaultDataDirCache() { _defaultDataDirCache = undefined }
 function saveConfig(cfg) {
-  fs.mkdirSync(getDataDir(), { recursive: true })
-  fs.writeFileSync(getConfigFile(), JSON.stringify(cfg, null, 2))
+  atomicWriteFile(getConfigFile(), JSON.stringify(cfg, null, 2))
 }
 
 // ── TCP port check ──
@@ -923,7 +959,8 @@ function repoGitHealth() {
   }
 }
 
-function fetchUrl(url, opts = {}) {
+function fetchUrl(url, opts = {}, _redirects = 0) {
+  if (_redirects > 5) return Promise.reject(new Error('Too many redirects for ' + url))
   const { method, body, headers, timeout, maxBytes } = opts
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
@@ -943,7 +980,7 @@ function fetchUrl(url, opts = {}) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
         const next = new URL(res.headers.location, url).toString()
-        return fetchUrl(next, opts).then(resolve, reject)
+        return fetchUrl(next, opts, _redirects + 1).then(resolve, reject)
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume()
@@ -990,7 +1027,8 @@ function fetchUrl(url, opts = {}) {
  * @param {string} dest absolute path to write to
  * @returns {Promise<string>} resolves with dest on success
  */
-function downloadFile(url, dest) {
+function downloadFile(url, dest, _redirects = 0) {
+  if (_redirects > 5) return Promise.reject(new Error('Too many redirects for ' + url))
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const mod = parsed.protocol === 'https:' ? https : http
@@ -1005,7 +1043,7 @@ function downloadFile(url, dest) {
     const req = mod.request(options, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
-        return downloadFile(new URL(res.headers.location, url).toString(), dest).then(resolve, reject)
+        return downloadFile(new URL(res.headers.location, url).toString(), dest, _redirects + 1).then(resolve, reject)
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume()
@@ -1566,8 +1604,9 @@ async function forceRemoveRepo(repo, log, keepFolders) {
     // everything else first so a scan on env_uv can finish while we work.
     const venvIdx = items.findIndex(i => i.toLowerCase() === 'env_uv')
     if (venvIdx >= 0) items = items.filter(i => i !== items[venvIdx]).concat(items[venvIdx])
+    const keepSet = keepFolders ? new Set(keepFolders.map(s => String(s).toLowerCase())) : null
     for (const item of items) {
-      if (keepFolders && keepFolders.includes(item.toLowerCase())) continue
+      if (keepSet && keepSet.has(item.toLowerCase())) continue
       const err = await rmRetry(path.join(repo, item))
       if (err) { log(`[!] Could not remove ${item}: ${err.message}`); failed.push(item); ok = false }
     }
@@ -1912,42 +1951,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   if (!py) throw new Error('Cannot find python for env')
 
   const cfg = loadConfig()
-  let preferredPort = cfg.serverPort || 7860
-  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
-  for (let i = 0; i < extraArgs.length; i++) {
-    if (extraArgs[i] === '--server-port' && i + 1 < extraArgs.length) {
-      preferredPort = parseInt(extraArgs[i + 1]) || preferredPort
-    }
-  }
-  // Ensure --server-port in args
-  const hasPort = extraArgs.some(a => a === '--server-port')
-  if (!hasPort) { extraArgs.push('--server-port', String(preferredPort)) }
-  // Ensure --server-name is set. Default 'localhost' (user-selectable in Manage →
-  // Launch → Bind Address) so the bind address matches Gradio's own self-check
-  // target on every machine — including IPv6-first boxes where 'localhost' resolves
-  // to ::1 first. A literal 127.0.0.1 bind fails Gradio's localhost check there
-  // ("When localhost is not accessible…"). User-supplied --server-name (in Extra
-  // Launch Args) always wins over this default.
-  const hasServerName = extraArgs.some(a => a === '--server-name')
-  if (!hasServerName) { extraArgs.push('--server-name', (cfg.serverName || 'localhost')) }
-  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
-  if (cfg.share && !extraArgs.some(a => a === '--share')) {
-    extraArgs.push('--share')
-  }
-  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
-  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
-  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
-  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
-    extraArgs.push('--gpu', gpuDevice)
-  }
-  // First Block Cache / advanced UI (upstream parity): --advanced exposes the
-  // "Steps skipping" tab where First Block Cache lives; --multiple-images enables
-  // multi-image I2V input. Both are wgp.py CLI flags (shared/cli_args.py) that
-  // the upstream start scripts pass by default — without them the post's headline
-  // speed feature is invisible. Respect explicit user args (no duplication).
-  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
-  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
-  pushAutoTunedCoefficient(extraArgs)
+  const { extraArgs, preferredPort } = buildCommonLaunchArgs(cfg)
 
   const port = preferredPort
   _currentPort = port
@@ -2278,27 +2282,7 @@ ipcMain.handle('launch-webview', async () => {
   if (!py) throw new Error('Cannot find python for env')
 
   const cfg = loadConfig()
-  let port = cfg.serverPort || 7860
-  const extraArgs = (cfg.launchArgs || '').trim().split(/\s+/).filter(Boolean)
-  if (!extraArgs.some(a => a === '--server-port')) extraArgs.push('--server-port', String(port))
-  // Bind address: user-selectable (cfg.serverName, default 'localhost'). 'localhost'
-  // matches Gradio's localhost self-check target on both IPv4-first and IPv6-first
-  // machines; 127.0.0.1 is a strict-IPv4 fallback. See launch handler above.
-  if (!extraArgs.some(a => a === '--server-name')) extraArgs.push('--server-name', (cfg.serverName || 'localhost'))
-  // Add --share when enabled in settings (bypasses Gradio 5.x localhost accessibility check)
-  if (cfg.share && !extraArgs.some(a => a === '--share')) {
-    extraArgs.push('--share')
-  }
-  // GPU device picker (multi-GPU machines): inject --gpu cuda:N unless the user
-  // already passed one in Extra Launch Args. 'auto' / unset = let Wan2GP pick.
-  const gpuDevice = (cfg.gpuDevice || 'auto').trim()
-  if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) {
-    extraArgs.push('--gpu', gpuDevice)
-  }
-  // First Block Cache / advanced UI (upstream parity) — see launch handler.
-  if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
-  if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
-  pushAutoTunedCoefficient(extraArgs)
+  const { extraArgs, preferredPort: port } = buildCommonLaunchArgs(cfg)
   _currentPort = port
 
   // If already running (e.g. from browser launch), just connect
@@ -2403,7 +2387,7 @@ ipcMain.handle('create-browser-view', (_, url, opts = {}) => {
       // page, freezing the queue panel even though the server keeps processing.
       // Without this, a big queue can finish server-side while the UI still shows it
       // unfinished until a manual reload (see gradio_queue_focus_patch upstream).
-      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
+      _bv = new BrowserView({ webPreferences: { preload: path.join(__dirname, 'renderer', 'bv-shim.js'), nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
       // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
       _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
         if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
@@ -3471,7 +3455,7 @@ ipcMain.handle('move-folder', async (_, src, dst) => {
   try {
     if (!src || src === dst) return { ok: true }
     if (!fs.existsSync(src)) return { ok: true }
-    mergeDirContents(src, dst)
+    await mergeDirContentsAsync(src, dst)
     try { if (fs.existsSync(src) && fs.readdirSync(src).length === 0) fs.rmSync(src, { recursive: true, force: true }) } catch {}
     return { ok: true }
   } catch (e) { return { ok: false, error: String(e) } }
@@ -3483,7 +3467,7 @@ ipcMain.handle('set-data-dir', (_, dir) => {
   if (dir && path.parse(path.resolve(dir)).root === path.resolve(dir)) {
     return { ok: false, error: 'drive-root', dir }
   }
-  fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
+  atomicWriteFile(DATA_DIR_OVERRIDE, dir); invalidateDefaultDataDirCache()
   try {
     const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
@@ -3497,6 +3481,7 @@ ipcMain.handle('open-folder', (_, dir) => {
 ipcMain.handle('reset-data-dir', () => {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
+    invalidateDefaultDataDirCache()
     // Reset to the resolved default (C:\Wan2GP when writable, else AppData) —
     // NOT a hardcoded AppData path, which would override the preferred default.
     const d = defaultDataDir()
@@ -4697,7 +4682,7 @@ ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
 })
 
 // ── Hardware profile: maps detected GPU → expected install packages ──
-ipcMain.handle('get-hardware-profile', () => {
+ipcMain.handle('get-hardware-profile', async () => {
   const profiles = {
     GTX_10:  { python: '3.10.9', torch: '2.7.1 CU12.8', triton: null, sage: null, sparge: null, flash: null, kernels: [] },
     RTX_20:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '1.0.6', sparge: null, flash: '2.8.3', kernels: ['nunchaku','gguf'] },
@@ -4709,7 +4694,8 @@ ipcMain.handle('get-hardware-profile', () => {
   }
   const result = { profile: 'STANDARD', packages: [], kernels: [], detail: null }
   try {
-    const out = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0].trim().toUpperCase()
+    const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
+    const out = (gpu.name || '').toUpperCase()
     if (out.includes('RTX')) {
       if (/50\d0/.test(out)) result.profile = 'RTX_50'
       else if (/40\d0/.test(out)) result.profile = 'RTX_40'
@@ -5261,7 +5247,6 @@ ipcMain.handle('check-update', async (_, opts) => {
   } else {
     const cfg = loadConfig()
     if (cfg.githubToken) {
-      process.env.GH_TOKEN = cfg.githubToken
       autoUpdater.setFeedURL({
         provider: 'github',
         owner: 'GKartist75',
@@ -5706,7 +5691,7 @@ app.whenReady().then(() => {
     if (!fs.existsSync(DATA_DIR_OVERRIDE) && !legacyRoaming) {
       const d = defaultDataDir()
       fs.mkdirSync(d, { recursive: true })
-      fs.writeFileSync(DATA_DIR_OVERRIDE, d)
+      atomicWriteFile(DATA_DIR_OVERRIDE, d)
     }
     // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir.
     // Stale-override guard (reported by JedsDeadBaby): if the pinned data dir (or its
@@ -5764,7 +5749,6 @@ app.whenReady().then(() => {
         // happen through the explicit "Check for updates" button in the UI.
         if (cfg.autoUpdateEnabled === false) return
         if (cfg.githubToken) {
-          process.env.GH_TOKEN = cfg.githubToken
           autoUpdater.setFeedURL({
             provider: 'github',
             owner: 'GKartist75',

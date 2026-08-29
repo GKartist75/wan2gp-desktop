@@ -36,6 +36,7 @@
       <button class="settings-tab active" data-tab="general">General</button>
       <button class="settings-tab" data-tab="launch">Launch</button>
       <button class="settings-tab" data-tab="about">About</button>
+      <button class="settings-tab" data-tab="updates">Updates</button>
       <button class="settings-tab" data-tab="autotune">⚡ Auto-Tune</button>
     </div>
     <div class="settings-scroll">
@@ -240,6 +241,24 @@
       </div>
 
       <!-- ═══════ Auto-Tune Tab ═══════ -->
+      <div class="settings-tab-content" data-tab="updates">
+        <div class="settings-section">
+          <h3>Updates</h3>
+          <p class="token-hint">Update Wan2GP core and the Desktop Launcher. Same actions as the Dashboard, also available here.</p>
+        </div>
+        <div class="settings-section">
+          <h3>Wan2GP (DeepBeepMeep)</h3>
+          <p class="token-hint">Update the Wan2GP core (models, kernels, app code) via <code>setup.py update</code> + git pull.</p>
+          <button class="btn btn-primary small" id="manageUpdateWan2gpBtn">↻ Update Wan2GP</button>
+          <p class="token-hint" id="manageUpdateWan2gpStatus" style="margin-top:6px"></p>
+        </div>
+        <div class="settings-section">
+          <h3>Desktop Launcher</h3>
+          <p class="token-hint">Check for a new Desktop Launcher release on GitHub.</p>
+          <button class="btn btn-primary small" id="manageUpdateDesktopBtn">↻ Check Desktop Updates</button>
+          <p class="token-hint" id="manageUpdateDesktopStatus" style="margin-top:6px"></p>
+        </div>
+      </div>
       <div class="settings-tab-content" data-tab="autotune">
         <div class="settings-section">
           <h3>⚡ Performance Auto-Tune</h3>
@@ -345,6 +364,7 @@
           <div id="memProfileStatus" class="token-hint" style="padding:8px 12px 12px;min-height:1em"></div>
         </div>
       </div>
+      
     </div>
     </div>
   </div>
