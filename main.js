@@ -574,7 +574,7 @@ async function runMigrationMove(legacy, choices) {
   if (!ok) return false
   // Repoint the data-dir override so every subsequent launch resolves to the
   // new location (repo becomes <target>/Wan2GP, config at <target>/Wan2GP/wgp_config.json).
-  try { fs.writeFileSync(DATA_DIR_OVERRIDE, target) } catch (e) { logError('migrate-override', e) }
+  try { atomicWriteFile(DATA_DIR_OVERRIDE, target); invalidateDefaultDataDirCache() } catch (e) { logError('migrate-override', e) }
   // Rewrite the model-folder paths in wgp_config.json to the user's chosen
   // locations so checkpoints/LoRAs/output resolve at the new (non-roaming) paths.
   try { rewriteModelPaths(target, choices) } catch (e) { logError('migrate-config', e) }
@@ -852,9 +852,16 @@ function loadConfig() {
   return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
+function atomicWriteFile(filePath, content) {
+  const dir = path.dirname(filePath)
+  fs.mkdirSync(dir, { recursive: true })
+  const tmp = filePath + '.tmp.' + process.pid
+  fs.writeFileSync(tmp, content, 'utf8')
+  fs.renameSync(tmp, filePath)
+}
+function invalidateDefaultDataDirCache() { _defaultDataDirCache = undefined }
 function saveConfig(cfg) {
-  fs.mkdirSync(getDataDir(), { recursive: true })
-  fs.writeFileSync(getConfigFile(), JSON.stringify(cfg, null, 2))
+  atomicWriteFile(getConfigFile(), JSON.stringify(cfg, null, 2))
 }
 
 // ── TCP port check ──
@@ -923,7 +930,8 @@ function repoGitHealth() {
   }
 }
 
-function fetchUrl(url, opts = {}) {
+function fetchUrl(url, opts = {}, _redirects = 0) {
+  if (_redirects > 5) return Promise.reject(new Error('Too many redirects for ' + url))
   const { method, body, headers, timeout, maxBytes } = opts
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
@@ -943,7 +951,7 @@ function fetchUrl(url, opts = {}) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
         const next = new URL(res.headers.location, url).toString()
-        return fetchUrl(next, opts).then(resolve, reject)
+        return fetchUrl(next, opts, _redirects + 1).then(resolve, reject)
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume()
@@ -990,7 +998,8 @@ function fetchUrl(url, opts = {}) {
  * @param {string} dest absolute path to write to
  * @returns {Promise<string>} resolves with dest on success
  */
-function downloadFile(url, dest) {
+function downloadFile(url, dest, _redirects = 0) {
+  if (_redirects > 5) return Promise.reject(new Error('Too many redirects for ' + url))
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const mod = parsed.protocol === 'https:' ? https : http
@@ -1005,7 +1014,7 @@ function downloadFile(url, dest) {
     const req = mod.request(options, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
-        return downloadFile(new URL(res.headers.location, url).toString(), dest).then(resolve, reject)
+        return downloadFile(new URL(res.headers.location, url).toString(), dest, _redirects + 1).then(resolve, reject)
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume()
@@ -2403,7 +2412,7 @@ ipcMain.handle('create-browser-view', (_, url, opts = {}) => {
       // page, freezing the queue panel even though the server keeps processing.
       // Without this, a big queue can finish server-side while the UI still shows it
       // unfinished until a manual reload (see gradio_queue_focus_patch upstream).
-      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
+      _bv = new BrowserView({ webPreferences: { preload: path.join(__dirname, 'renderer', 'bv-shim.js'), nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
       // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
       _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
         if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
@@ -3483,7 +3492,7 @@ ipcMain.handle('set-data-dir', (_, dir) => {
   if (dir && path.parse(path.resolve(dir)).root === path.resolve(dir)) {
     return { ok: false, error: 'drive-root', dir }
   }
-  fs.writeFileSync(DATA_DIR_OVERRIDE, dir)
+  atomicWriteFile(DATA_DIR_OVERRIDE, dir); invalidateDefaultDataDirCache()
   try {
     const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
@@ -3497,6 +3506,7 @@ ipcMain.handle('open-folder', (_, dir) => {
 ipcMain.handle('reset-data-dir', () => {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
+    invalidateDefaultDataDirCache()
     // Reset to the resolved default (C:\Wan2GP when writable, else AppData) —
     // NOT a hardcoded AppData path, which would override the preferred default.
     const d = defaultDataDir()
@@ -4697,7 +4707,7 @@ ipcMain.handle('auto-tune:recommend', async (_, hw, opts) => {
 })
 
 // ── Hardware profile: maps detected GPU → expected install packages ──
-ipcMain.handle('get-hardware-profile', () => {
+ipcMain.handle('get-hardware-profile', async () => {
   const profiles = {
     GTX_10:  { python: '3.10.9', torch: '2.7.1 CU12.8', triton: null, sage: null, sparge: null, flash: null, kernels: [] },
     RTX_20:  { python: '3.11.14', torch: '2.10.0 CU13',  triton: 'latest', sage: '1.0.6', sparge: null, flash: '2.8.3', kernels: ['nunchaku','gguf'] },
@@ -4709,7 +4719,8 @@ ipcMain.handle('get-hardware-profile', () => {
   }
   const result = { profile: 'STANDARD', packages: [], kernels: [], detail: null }
   try {
-    const out = execSync('nvidia-smi --query-gpu=name --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n')[0].trim().toUpperCase()
+    const gpu = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
+    const out = (gpu.name || '').toUpperCase()
     if (out.includes('RTX')) {
       if (/50\d0/.test(out)) result.profile = 'RTX_50'
       else if (/40\d0/.test(out)) result.profile = 'RTX_40'
@@ -5261,7 +5272,6 @@ ipcMain.handle('check-update', async (_, opts) => {
   } else {
     const cfg = loadConfig()
     if (cfg.githubToken) {
-      process.env.GH_TOKEN = cfg.githubToken
       autoUpdater.setFeedURL({
         provider: 'github',
         owner: 'GKartist75',
@@ -5706,7 +5716,7 @@ app.whenReady().then(() => {
     if (!fs.existsSync(DATA_DIR_OVERRIDE) && !legacyRoaming) {
       const d = defaultDataDir()
       fs.mkdirSync(d, { recursive: true })
-      fs.writeFileSync(DATA_DIR_OVERRIDE, d)
+      atomicWriteFile(DATA_DIR_OVERRIDE, d)
     }
     // Redirect Electron's internal runtime data (Cache, blob_storage, etc.) to chosen dir.
     // Stale-override guard (reported by JedsDeadBaby): if the pinned data dir (or its
@@ -5764,7 +5774,6 @@ app.whenReady().then(() => {
         // happen through the explicit "Check for updates" button in the UI.
         if (cfg.autoUpdateEnabled === false) return
         if (cfg.githubToken) {
-          process.env.GH_TOKEN = cfg.githubToken
           autoUpdater.setFeedURL({
             provider: 'github',
             owner: 'GKartist75',
