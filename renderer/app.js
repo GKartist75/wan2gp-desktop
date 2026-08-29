@@ -3239,6 +3239,17 @@ $('reportIssueBtn')?.addEventListener('click', async function() {
   }
 })
 
+// ── Manage → Updates tab — proxies to same IPCs as Dashboard ──
+$('manageUpdateWan2gpBtn')?.addEventListener('click', async function() {
+  const s=$('manageUpdateWan2gpStatus'); this.disabled=true; this.textContent='Updating...'; if(s) s.textContent='Updating Wan2GP (this can take a few minutes)...';
+  try { const r=await window.w2gp.update(); if(s) s.textContent=r ? '✓ Update finished — check Dashboard log' : '✗ Update failed'; } catch(e){ if(s) s.textContent='✗ '+(e.message||e); } finally{ this.disabled=false; this.textContent='↻ Update Wan2GP'; }
+});
+$('manageUpdateDesktopBtn')?.addEventListener('click', function() {
+  const s=$('manageUpdateDesktopStatus'); if(s) s.textContent='Checking...';
+  window.w2gp.checkUpdate();
+  setTimeout(()=>{ if(s && !s.textContent.includes('✓')) s.textContent='Check sent — see banner on Dashboard'; }, 1500);
+});
+
 // ── Uninstall Wan2GP (Manage → General → danger section) ──
 $('uninstallBtn')?.addEventListener('click', async function() {
   this.disabled = true
