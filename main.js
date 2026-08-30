@@ -1963,6 +1963,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   }
 
   send('launch-log', '[*] Starting Wan2GP...\n')
+  send('launch-log', `[*] Environment: ${env.name} (${env.type})\n`)
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
@@ -2292,6 +2293,9 @@ ipcMain.handle('launch-webview', async () => {
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
+  send('launch-log', `[*] Environment: ${env.name} (${env.type})\n`)
+  send('launch-log', `[*] Python: ${py}\n`)
+  send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
   const amdEnv = amdLaunchEnv()
   if (Object.keys(amdEnv).length) {
     send('launch-log', `[*] AMD machine detected — applying ROCm session env: ${Object.keys(amdEnv).join(', ')}\n`)
