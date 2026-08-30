@@ -2387,7 +2387,7 @@ ipcMain.handle('create-browser-view', (_, url, opts = {}) => {
       // page, freezing the queue panel even though the server keeps processing.
       // Without this, a big queue can finish server-side while the UI still shows it
       // unfinished until a manual reload (see gradio_queue_focus_patch upstream).
-      _bv = new BrowserView({ webPreferences: { preload: path.join(__dirname, 'renderer', 'bv-shim.js'), nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
+      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
       // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
       _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
         if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
