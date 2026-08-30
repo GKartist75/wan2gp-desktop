@@ -4,6 +4,7 @@ Newest first. Each version links to its full standalone changelog.
 
 ## v3.x
 
+- **[v3.1.5](changelogs/CHANGELOG-v3.1.5.md)** — Full 93 MB Desktop update + sha512 verify (no blockmap delta) — fixes `3.1.3→3.1.4` `This app can't run` on auto-update.
 - **[v3.1.4](changelogs/CHANGELOG-v3.1.4.md)** — Desktop minimal (BrowserView backgroundThrottling only, no synthetic keepalive), console mirrors Terminal, Desktop auto-check + 5h polling with green dot on both Dashboard and Manage, default autoUpdate on, H3 shim removed for minimal test.
 - **[v3.1.3](changelogs/CHANGELOG-v3.1.3.md)** — Manage → Updates tab, Dashboard → Paths non-blocking migrate (no freeze/leftover, cross-drive wgp.py scan), H3 Desktop shim, hardening: atomic config writes, cache invalidation, GH_TOKEN leak fix, redirect limits, async GPU profile, bootstrap TOCTOU, mutating throw, keepFolders Set, async getDirSize, launch args dedupe.
 - **[v3.1.2](changelogs/CHANGELOG-v3.1.2.md)** — Ships the OpenCode `spawn EINVAL` fix that v3.1.1 documented but missed. The v3.1.1 tag was cut 11 min before the fix commit `329c095`, so the released 3.1.1 EXE still contained the broken `shell:false` spawn path. v3.1.2 is built from `main` (`8bc15b4`) with `services/spawn-cmd.js` + corrected `main.js` call sites. OpenCode/Codex install + Start server now work on any Node location.

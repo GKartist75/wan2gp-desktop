@@ -5273,7 +5273,11 @@ ipcMain.handle('check-update', async (_, opts) => {
 
 ipcMain.handle('download-update', async () => {
   _updateActive = true
-  try { await autoUpdater.downloadUpdate() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
+  // Force full 93 MB download + sha512 verify (no blockmap delta) — delta patch
+  // via blockmap can corrupt when base is dev/modified or C:\Program Files is locked
+  // (user report: 3.1.3 → 3.1.4 "This app can't run on your PC" before Node).
+  // Full NSIS + sha512 is what manual GitHub download does and always works.
+  try { autoUpdater.disableDifferentialDownload = true; await autoUpdater.downloadUpdate() } catch (e) { send('update-status', { status: 'error', message: e.message }) }
 })
 
 ipcMain.handle('install-update', async () => {
