@@ -878,7 +878,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: false, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function atomicWriteFile(filePath, content) {
@@ -1963,6 +1963,7 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   }
 
   send('launch-log', '[*] Starting Wan2GP...\n')
+  send('launch-log', `[*] Environment: ${env.name} (${env.type})\n`)
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
@@ -2292,6 +2293,9 @@ ipcMain.handle('launch-webview', async () => {
   }
 
   send('launch-log', `[*] Starting Wan2GP in-app on port ${port}...\n`)
+  send('launch-log', `[*] Environment: ${env.name} (${env.type})\n`)
+  send('launch-log', `[*] Python: ${py}\n`)
+  send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
   const amdEnv = amdLaunchEnv()
   if (Object.keys(amdEnv).length) {
     send('launch-log', `[*] AMD machine detected — applying ROCm session env: ${Object.keys(amdEnv).join(', ')}\n`)
@@ -2387,7 +2391,7 @@ ipcMain.handle('create-browser-view', (_, url, opts = {}) => {
       // page, freezing the queue panel even though the server keeps processing.
       // Without this, a big queue can finish server-side while the UI still shows it
       // unfinished until a manual reload (see gradio_queue_focus_patch upstream).
-      _bv = new BrowserView({ webPreferences: { preload: path.join(__dirname, 'renderer', 'bv-shim.js'), nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
+      _bv = new BrowserView({ webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
       // Serve a stub PWA manifest so Gradio 5.36.x doesn't 404 + blank the page (gradio#11553)
       _bv.webContents.session.webRequest.onBeforeRequest((details, cb) => {
         if (/\/manifest\.json(\?.*)?$/i.test(details.url)) {
