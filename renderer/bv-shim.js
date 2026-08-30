@@ -18,3 +18,14 @@ try {
     };
   }
 } catch {}
+// Keep queue reliable: Desktop's BrowserView already has backgroundThrottling:false,
+// so the synthetic keepalive (MessageChannel + 25ms off-tab) just delays the
+// final `gradio complete` → file on disk but UI stuck at 100% and queue doesn't
+// pick next item. Disable it only in Desktop (BrowserView), leave Browser's patch alive.
+try {
+  let tries=0; const t=setInterval(()=>{
+    const p=window.__gradioFocusQueuePatch;
+    if(p){ p.enableBackgroundScheduler=false; p.enableOfftabKeepAlive=false; clearInterval(t); }
+    if(++tries>50) clearInterval(t);
+  },200);
+} catch {}
