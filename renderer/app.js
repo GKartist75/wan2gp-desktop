@@ -429,10 +429,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshDashboard()
     // Live system metrics polling (topbar sparklines + dashboard free-text)
     startMetricsPolling()
-    // Periodic Wan2GP update re-check while the app is open (30 min).
+    // Periodic Wan2GP update re-check while the app is open (30 min) + Desktop (5h).
     // Launch-time check alone misses updates released mid-session; the
-    // renderer-side timer re-polls and re-flags the green dot + changelog.
+    // renderer-side timers re-poll and re-flag the green dot + changelog.
     startWangpPolling()
+    startDesktopPolling()
+    try { window.w2gp.checkUpdate() } catch {} // immediate Desktop check so green dot shows without clicking
     // D1: silent settings auto-scan (issue #7 class) — out-of-range dropdown
     // values make Wan2GP reject the whole settings form on save; repair them
     // in the background so the user never hits the "can't save" wall. Writes
@@ -614,6 +616,7 @@ function startMetricsPolling() {
 // main.js keeps this off the rate-limit radar. Skips while the dashboard is
 // hidden (user is in the webview / embedded browser).
 const WANGP_POLL_MS = 30 * 60 * 1000
+const DESKTOP_POLL_MS = 5 * 60 * 60 * 1000
 function startWangpPolling() {
   if (window.__wangpPollTimer) clearInterval(window.__wangpPollTimer)
   const poll = () => {
@@ -633,6 +636,25 @@ function startWangpPolling() {
       }
     }
     document.addEventListener('visibilitychange', window.__wangpVisBound)
+  }
+}
+function startDesktopPolling() {
+  if (window.__desktopPollTimer) clearInterval(window.__desktopPollTimer)
+  const poll = () => {
+    const dash = $('dashBody')
+    if (dash && dash.style.display === 'none') return
+    try { window.w2gp.checkUpdate() } catch {}
+  }
+  window.__desktopPollTimer = setInterval(poll, DESKTOP_POLL_MS)
+  if (!window.__desktopVisBound) {
+    window.__desktopVisBound = () => {
+      if (document.hidden) {
+        if (window.__desktopPollTimer) { clearInterval(window.__desktopPollTimer); window.__desktopPollTimer = null }
+      } else if (!window.__desktopPollTimer) {
+        startDesktopPolling()
+      }
+    }
+    document.addEventListener('visibilitychange', window.__desktopVisBound)
   }
 }
 
@@ -2727,18 +2749,20 @@ let updateState = null
 // turned off launch-time checking still see there is an update available — not
 // only in the transient top banner.
 function setDesktopUpdateIndicator(on) {
-  const btn = $('updateCheckBtn')
-  if (!btn) return
-  if (on) {
-    btn.classList.add('has-update')
-    if (!btn.querySelector('.update-dot')) {
-      const dot = document.createElement('span')
-      dot.className = 'update-dot'
-      btn.appendChild(dot)
+  for (const id of ['updateCheckBtn','manageUpdateDesktopBtn']) {
+    const btn = $(id)
+    if (!btn) continue
+    if (on) {
+      btn.classList.add('has-update')
+      if (!btn.querySelector('.update-dot')) {
+        const dot = document.createElement('span')
+        dot.className = 'update-dot'
+        btn.appendChild(dot)
+      }
+    } else {
+      btn.classList.remove('has-update')
+      btn.querySelector('.update-dot')?.remove()
     }
-  } else {
-    btn.classList.remove('has-update')
-    btn.querySelector('.update-dot')?.remove()
   }
 }
 
