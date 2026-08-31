@@ -430,7 +430,8 @@
         <span id="updateText">A new version is available</span>
       </div>
       <div class="update-actions" id="updateActions">
-        <button id="updateDownloadBtn" class="btn btn-primary small">Download</button>
+        <button id="updateDownloadBtn" class="btn btn-primary small" title="Full 93 MB download — always works, fixes corrupted installs">Full Download</button>
+        <button id="updateDeltaBtn" class="btn btn-ghost small" title="Fast differential patch — smaller download, may fail if install is modified">Quick Update</button>
         <button id="updateInstallBtn" class="btn btn-primary small hidden">Install & Restart</button>
       </div>
       <div id="updateProgress" class="update-progress hidden">
@@ -491,7 +492,7 @@
             <div class="spec-row spec-row-path"><span class="spec-label">Checkpoints</span><span class="spec-value path-val" id="dashCkptPath">—</span><button class="path-btn" id="openCkptBtn" title="Open folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg></button><button class="path-btn" id="dashBrowseCkpt" title="Change checkpoints folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button></div>
             <div class="spec-row spec-row-path"><span class="spec-label">LoRAs</span><span class="spec-value path-val" id="dashLoraPath">—</span><button class="path-btn" id="openLoraBtn" title="Open folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg></button><button class="path-btn" id="dashBrowseLora" title="Change LoRAs folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button></div>
             <div class="spec-row spec-row-path"><span class="spec-label">Output</span><span class="spec-value path-val" id="dashOutputPath">—</span><button class="path-btn" id="openOutputBtn" title="Open folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg></button><button class="path-btn" id="dashBrowseOutput" title="Change output folder"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button></div>
-            <p class="path-hint path-hint-warn">↻ After changing a folder above, <strong>stop and restart Wan2GP</strong> (and the launcher) — the new path is written to <code>wgp_config.json</code> immediately, but Wan2GP only reads it at startup, so the change won't take effect until the next launch.</p>
+            <p class="path-hint">↻ After changing a folder above, <strong>stop and restart Wan2GP</strong> (and the launcher) — the new path is written to <code>wgp_config.json</code> immediately, but Wan2GP only reads it at startup, so the change won't take effect until the next launch.</p>
           </div>
         </div>
         <div class="card">
@@ -500,8 +501,9 @@
             <span class="env-type-tag" id="envType"></span>
             <button class="env-unlink-btn" id="envUnlinkBtn" title="Uninstall active environment">unlink</button>
             <button class="env-restore-btn" id="envRestoreBtn" title="Reinstall all packages from requirements.txt">restore</button>
-            <button class="btn btn-ghost small" id="checkPkgUpdatesBtn" title="Check PyPI for package updates" style="margin-left:auto">↻ Check Updates</button>
+            <button class="btn btn-ghost small" id="checkPkgUpdatesBtn" title="Check PyPI for package updates" style="margin-left:auto;padding:1px 6px;font-size:0.55rem;line-height:1.4">↻ Check Updates</button>
           </div>
+          <p class="token-hint" style="margin:6px 12px 0">↻ Check Updates queries PyPI for newer versions. Updating a single package (e.g. torch) can break the env (CUDA mismatch, black frames) — use <em>restore</em> to reinstall the tested <code>requirements.txt</code>.</p>
           <div class="env-detail">
             <div class="env-name-row">
               <span class="env-name" id="envName">—</span>
@@ -529,7 +531,7 @@
               <div class="spec-row"><span class="spec-label">Tokenizers</span><span class="spec-dot" id="dotTokenizers"></span><span class="spec-value" id="specTokenizers">—</span></div>
             </div>
           </div>
-          <!-- GPU Kernel Wheels: profile-driven (RTX 20-50 show nunchaku/gguf,
+        <!-- GPU Kernel Wheels: profile-driven (RTX 20-50 show nunchaku/gguf,
                RTX 50 adds lightx2v; GTX10/AMD/Apple show no section). -->
           <div class="env-subsection" id="kernelWheelsSubsection" style="margin-top:10px">
             <div class="subsection-header">
