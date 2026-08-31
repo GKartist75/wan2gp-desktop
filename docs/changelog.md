@@ -4,6 +4,7 @@ Newest first. Each version links to its full standalone changelog.
 
 ## v3.x
 
+- **[v3.1.6](changelogs/CHANGELOG-v3.1.6.md)** — Env hint moved/grey + smaller Check Updates + Desktop Full/Quick (delta vs 93 MB full) + deduped launch check + Shift+local.
 - **[v3.1.5](changelogs/CHANGELOG-v3.1.5.md)** — Full 93 MB Desktop update + sha512 verify (no blockmap delta) — fixes `3.1.3→3.1.4` `This app can't run` on auto-update.
 - **[v3.1.4](changelogs/CHANGELOG-v3.1.4.md)** — Desktop minimal (BrowserView backgroundThrottling only, no synthetic keepalive), console mirrors Terminal, Desktop auto-check + 5h polling with green dot on both Dashboard and Manage, default autoUpdate on, H3 shim removed for minimal test.
 - **[v3.1.3](changelogs/CHANGELOG-v3.1.3.md)** — Manage → Updates tab, Dashboard → Paths non-blocking migrate (no freeze/leftover, cross-drive wgp.py scan), H3 Desktop shim, hardening: atomic config writes, cache invalidation, GH_TOKEN leak fix, redirect limits, async GPU profile, bootstrap TOCTOU, mutating throw, keepFolders Set, async getDirSize, launch args dedupe.

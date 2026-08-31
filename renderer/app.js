@@ -434,7 +434,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // renderer-side timers re-poll and re-flag the green dot + changelog.
     startWangpPolling()
     startDesktopPolling()
-    try { window.w2gp.checkUpdate() } catch {} // immediate Desktop check so green dot shows without clicking
+    // immediate Desktop check removed — main.js does the 5s launch check (single API hit)
     // D1: silent settings auto-scan (issue #7 class) — out-of-range dropdown
     // values make Wan2GP reject the whole settings form on save; repair them
     // in the background so the user never hits the "can't save" wall. Writes
@@ -2575,11 +2575,14 @@ function showToast(msg) {
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400) }, 2500)
 }
 
-$('updateCheckBtn').addEventListener('click', () => {
-  window.w2gp.checkUpdate()
+$('updateCheckBtn').addEventListener('click', (e) => {
+  window.w2gp.checkUpdate(e.shiftKey ? { local: true } : undefined)
 })
 $('updateDownloadBtn').addEventListener('click', () => {
-  window.w2gp.downloadUpdate()
+  window.w2gp.downloadUpdate({ differential: false })
+})
+$('updateDeltaBtn')?.addEventListener('click', () => {
+  window.w2gp.downloadUpdate({ differential: true })
 })
 $('updateInstallBtn').addEventListener('click', () => {
   window.w2gp.installUpdate()
@@ -2771,7 +2774,7 @@ window.w2gp.onUpdateStatus((status) => {
   const mS=$('manageUpdateDesktopStatus'); const mBtn=$('manageUpdateDesktopBtn');
   if (mS && mBtn) {
     if (status.status==='checking') mS.textContent='Checking...';
-    else if (status.status==='available') mS.textContent='v'+status.version+' available — click Download on Dashboard banner';
+    else if (status.status==='available') mS.textContent='v'+status.version+' available — click Full Download or Quick Update on Dashboard banner';
     else if (status.status==='downloading') mS.textContent='Downloading '+ (status.percent||0)+'%';
     else if (status.status==='downloaded') mS.textContent='v'+status.version+' downloaded — Install & Restart on Dashboard banner';
     else if (status.status==='up-to-date') mS.textContent='Up to date ✓';
@@ -2783,6 +2786,7 @@ window.w2gp.onUpdateStatus((status) => {
       $('updateText').textContent = 'Checking for updates...'
       $('updateBanner').classList.remove('hidden')
       $('updateDownloadBtn').classList.add('hidden')
+      $('updateDeltaBtn')?.classList.add('hidden')
       $('updateInstallBtn').classList.add('hidden')
       $('updateActions').classList.remove('hidden')
       $('updateProgress').classList.add('hidden')
@@ -2796,6 +2800,7 @@ window.w2gp.onUpdateStatus((status) => {
         // Download button instead.
         $('updateText').textContent = `v${status.version} available`
         $('updateDownloadBtn').classList.remove('hidden')
+        $('updateDeltaBtn')?.classList.remove('hidden')
         $('updateInstallBtn').classList.add('hidden')
         $('updateActions').classList.remove('hidden')
         $('updateProgress').classList.add('hidden')
@@ -2804,6 +2809,7 @@ window.w2gp.onUpdateStatus((status) => {
       } else {
         $('updateText').textContent = `v${status.version} — downloading...`
         $('updateDownloadBtn').classList.add('hidden')
+        $('updateDeltaBtn')?.classList.add('hidden')
         $('updateInstallBtn').classList.add('hidden')
         $('updateActions').classList.add('hidden')
         $('updateProgress').classList.remove('hidden')
@@ -2817,6 +2823,7 @@ window.w2gp.onUpdateStatus((status) => {
       setDesktopUpdateIndicator(false)
       $('updateText').textContent = 'Up to date ✓'
       $('updateDownloadBtn').classList.add('hidden')
+      $('updateDeltaBtn')?.classList.add('hidden')
       $('updateActions').classList.remove('hidden')
       $('updateProgress').classList.add('hidden')
       $('updateBanner').classList.remove('hidden')
@@ -2826,6 +2833,7 @@ window.w2gp.onUpdateStatus((status) => {
     case 'downloading':
       $('updateText').textContent = 'Downloading...'
       $('updateDownloadBtn').classList.add('hidden')
+      $('updateDeltaBtn')?.classList.add('hidden')
       $('updateInstallBtn').classList.add('hidden')
       $('updateActions').classList.add('hidden')
       $('updateProgress').classList.remove('hidden')
@@ -2838,6 +2846,7 @@ window.w2gp.onUpdateStatus((status) => {
       setDesktopUpdateIndicator(false)
       $('updateText').textContent = `v${status.version} downloaded — ready to install`
       $('updateDownloadBtn').classList.add('hidden')
+      $('updateDeltaBtn')?.classList.add('hidden')
       $('updateInstallBtn').classList.remove('hidden')
       $('updateActions').classList.remove('hidden')
       $('updateProgress').classList.add('hidden')
@@ -2850,6 +2859,7 @@ window.w2gp.onUpdateStatus((status) => {
         ? 'GitHub rate limited — add token in Manage settings'
         : `Update error: ${status.message}`
       $('updateDownloadBtn').classList.add('hidden')
+      $('updateDeltaBtn')?.classList.add('hidden')
       $('updateInstallBtn').classList.add('hidden')
       $('updateActions').classList.add('hidden')
       $('updateProgress').classList.add('hidden')
@@ -3278,9 +3288,9 @@ $('manageUpdateWan2gpBtn')?.addEventListener('click', async function() {
   const s=$('manageUpdateWan2gpStatus'); this.disabled=true; this.textContent='Updating...'; if(s) s.textContent='Updating Wan2GP (this can take a few minutes)...';
   try { const r=await window.w2gp.update(); if(s) s.textContent=r ? '✓ Update finished — check Dashboard log' : '✗ Update failed'; } catch(e){ if(s) s.textContent='✗ '+(e.message||e); } finally{ this.disabled=false; this.textContent='↻ Update Wan2GP'; }
 });
-$('manageUpdateDesktopBtn')?.addEventListener('click', function() {
+$('manageUpdateDesktopBtn')?.addEventListener('click', function(e) {
   const s=$('manageUpdateDesktopStatus'); if(s) s.textContent='Checking...';
-  window.w2gp.checkUpdate();
+  window.w2gp.checkUpdate(e.shiftKey ? { local: true } : undefined);
   setTimeout(()=>{ if(s && !s.textContent.includes('✓')) s.textContent='Check sent — see banner on Dashboard'; }, 1500);
 });
 
