@@ -14,3 +14,4 @@ scripts/__pycache__/
 scripts/cdp-test.mjs
 scripts/dummy-wan2gp.js
 .pi/
+docs/SIGNPATH_SIGNING.md
