@@ -69,7 +69,7 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Update (desktop app itself)
   checkUpdate: (opts) => ipcRenderer.invoke('check-update', opts),
-  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  downloadUpdate: (opts) => ipcRenderer.invoke('download-update', opts),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   onUpdateStatus: (cb) => {
     const h = (_e, d) => cb(d)
