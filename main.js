@@ -4788,12 +4788,29 @@ ipcMain.handle('get-system-metrics', async () => {
           vramUsed: g.total >= 1024 ? Math.round(g.used / 1024) + ' GB' : g.used + ' MB',
           vramTotal: g.total >= 1024 ? Math.round(g.total / 1024) + ' GB' : g.total + ' MB',
         }))
-        if (perGpu[1]) {
-          result.gpu2 = perGpu[1].gpu
-          result.vram2 = perGpu[1].vram
-          result.vramFree2 = result.gpus[1].vramFree
-          result.vramUsed2 = result.gpus[1].vramUsed
-          result.vramTotal2 = result.gpus[1].vramTotal
+        // iGPU fallback: nvidia-smi only lists NVIDIA; on hybrid laptops also show Intel/AMD iGPU via WMI
+        if (result.gpus.length === 1) {
+          try {
+            const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ForEach-Object { $_.Name + \'|\' + $_.AdapterRAM }"', { encoding: 'utf8', timeout: 4000, windowsHide: true }).trim()
+            for (const ln of wmi.split('\n')) {
+              const [n, r] = ln.split('|')
+              const name = (n || '').trim()
+              if (!name || /nvidia/i.test(name)) continue
+              if (/intel|amd|radeon|arc/i.test(name)) {
+                const vramMB = Math.round((parseInt(r) || 0) / (1024 * 1024))
+                result.gpus.push({ index: result.gpus.length, gpu: 0, vram: null, vramFree: vramMB ? vramMB + ' MB' : '—', vramUsed: '0 MB', vramTotal: vramMB ? vramMB + ' MB' : '—', name })
+                break
+              }
+            }
+          } catch {}
+        }
+        if (perGpu[1] || result.gpus[1]) {
+          const g2 = perGpu[1] || result.gpus[1]
+          result.gpu2 = g2.gpu ?? 0
+          result.vram2 = g2.vram ?? null
+          result.vramFree2 = result.gpus[1]?.vramFree || null
+          result.vramUsed2 = result.gpus[1]?.vramUsed || null
+          result.vramTotal2 = result.gpus[1]?.vramTotal || null
         }
         _lastNvidiaResult = result
       }
