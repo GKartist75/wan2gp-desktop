@@ -200,6 +200,19 @@
             <p class="token-hint">On machines with multiple GPUs (integrated + dedicated, or dual NVIDIA), choose which one runs generation. Passed as <code>--gpu cuda:N</code> on launch. Changes apply on next launch.</p>
           </div>
           <div class="settings-section" style="margin-top:12px">
+            <h3>Launcher GPU (Electron UI)</h3>
+            <div class="token-field">
+              <select id="launcherGpuSelect" class="input" style="max-width:360px">
+                <option value="auto">Auto (OS decides)</option>
+                <option value="integrated">Integrated — power saving (frees VRAM)</option>
+                <option value="dedicated">Dedicated — high performance</option>
+                <option value="disabled">Disabled — SwiftShader (max VRAM saved)</option>
+              </select>
+              <button class="btn btn-primary small" id="launcherGpuSaveBtn">Save</button>
+            </div>
+            <p class="token-hint">Which GPU runs the launcher window itself (not generation). Integrated frees 1–5 GB VRAM for generation; Disabled uses SwiftShader. Requires restart.</p>
+          </div>
+          <div class="settings-section" style="margin-top:12px">
             <h3>Bind Address</h3>
             <div class="token-field">
               <select id="serverNameSelect" class="input" style="max-width:360px">

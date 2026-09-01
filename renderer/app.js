@@ -154,6 +154,9 @@ function initSettingsToggles() {
     const gpu = $('electronGpuToggle')
     const c = await window.w2gp.configLoad()
     c.electronGpu = gpu.checked
+    c.launcherGpu = gpu.checked ? (c.launcherGpu === 'disabled' ? 'auto' : (c.launcherGpu || 'auto')) : 'disabled'
+    const lg = $('launcherGpuSelect')
+    if (lg) lg.value = c.launcherGpu
     await window.w2gp.configSave(c)
     showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
   })
@@ -282,6 +285,9 @@ function openSettings() {
     if ($('ggufBf16Fp16')) $('ggufBf16Fp16').checked = g.bf16Fp16 === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
     loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
+    // Launcher GPU picker (Electron UI) — auto | integrated | dedicated | disabled
+    const lg = $('launcherGpuSelect')
+    if (lg) lg.value = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
     // Bind Address picker: reflect saved choice (default localhost)
     const sn = $('serverNameSelect')
     if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
@@ -2730,6 +2736,16 @@ $('gpuDeviceSaveBtn')?.addEventListener('click', async () => {
   cfg.gpuDevice = val
   await window.w2gp.configSave(cfg)
   showToast(val === 'auto' ? 'GPU device set to Auto' : 'GPU device set to ' + val + ' (applies on next launch)')
+})
+$('launcherGpuSaveBtn')?.addEventListener('click', async () => {
+  const val = $('launcherGpuSelect')?.value || 'auto'
+  const cfg = await window.w2gp.configLoad()
+  cfg.launcherGpu = val
+  cfg.electronGpu = (val !== 'disabled')
+  const gpu = $('electronGpuToggle')
+  if (gpu) gpu.checked = cfg.electronGpu !== false
+  await window.w2gp.configSave(cfg)
+  showToast(val === 'auto' ? 'Launcher GPU set to Auto (restart to apply)' : 'Launcher GPU set to ' + val + ' (restart to apply)')
 })
 // Bind Address picker — mirror of gpuDevice picker
 $('serverNameSaveBtn')?.addEventListener('click', async () => {
