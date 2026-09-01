@@ -168,7 +168,15 @@ const SAGE_CU130_SAFE_BASE  = 'https://github.com/woct0rdho/SageAttention/releas
 // 100% original — no Sage swap. Returns cmd verbatim so pip installs exactly
 // what setup_config.json says, even if upstream still points to the broken
 // post4 wheel on RTX 40/50 (upstream to fix).
-function applySageOverride(key, cmd, gpu, opts = {}) { return cmd }
+function applySageOverride(key, cmd, gpu, opts = {}) {
+  if (opts.sageSafe === false) return cmd
+  if (key !== 'sage' || typeof cmd !== 'string') return cmd
+  const prof = kernelProfileKey(gpu)
+  if (prof !== 'RTX_30' && prof !== 'RTX_40' && prof !== 'RTX_50') return cmd
+  if (!(opts.torchGte210)) return cmd
+  if (!cmd.includes(SAGE_CU130_WHEEL)) return cmd
+  return `${SAGE_CU130_SAFE_BASE}${SAGE_CU130_SAFE_WHEEL}`
+}
 
 /**
  * Normalize a SageAttention wheel URL to its canonical dist-version fragment so

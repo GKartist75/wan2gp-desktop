@@ -72,11 +72,15 @@ const SAGE_CU130 = 'https://github.com/woct0rdho/SageAttention/releases/download
 const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post6/sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl'
 
 test('applySageOverride swaps broken cu130→safe cu130.post6 for RTX 30/40/50 under torch>=2.10', () => {
-  // 100% original — no swap, verbatim passthrough even for broken post4 wheel
+  // Default safe (sageSafe !== false) → swap post4 → post6
   for (const gpu of [{ name: 'RTX 3090' }, { name: 'RTX 4090' }, { name: 'RTX 5080' }]) {
     const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', ...gpu }, { torchGte210: true })
-    assert.strictEqual(out, SAGE_CU130, `100% original — no swap for ${gpu.name}`)
+    assert.ok(out.includes('cu130torch2.10.0andhigher.post6'), `swapped ${gpu.name} to the stable cu130.post6 build`)
+    assert.ok(!out.includes('cu130torch2.9.0andhigher.post4'), `broken cu130 build gone for ${gpu.name}`)
   }
+  // Upstream choice (sageSafe === false) → no swap, verbatim post4
+  const out2 = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', name: 'RTX 4090' }, { torchGte210: true, sageSafe: false })
+  assert.strictEqual(out2, SAGE_CU130, 'upstream choice — no swap')
 })
 
 test('applySageOverride leaves RTX 40/50 alone when torch < 2.10', () => {

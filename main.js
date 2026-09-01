@@ -887,7 +887,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, launcherGpu: 'auto', share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, launcherGpu: 'auto', sageSafe: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function atomicWriteFile(filePath, content) {
@@ -2713,6 +2713,8 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
  * @param {(text:string)=>void} log line sink
  */
 async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
+  const cfgChk = loadConfig()
+  if (cfgChk.sageSafe === false) { log('[*] SageAttention: upstream post4 chosen (safe disabled) — left as-is.'); return }
   const env = getActiveEnv()
   const py = env ? getPythonForEnv(env) : null
   if (!py) return
