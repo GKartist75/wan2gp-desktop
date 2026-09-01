@@ -1666,12 +1666,14 @@ ipcMain.handle('uv-cache-size', async () => {
     const cacheDir = path.join(repo, '.uv-cache')
     if (!fs.existsSync(cacheDir)) return { exists: false, sizeBytes: 0, cacheDir }
     let sizeBytes = 0
-    const walk = (p) => {
-      const st = fs.statSync(p)
-      if (st.isDirectory()) { for (const e of fs.readdirSync(p)) walk(path.join(p, e)) }
-      else if (st.isFile()) sizeBytes += st.size
+    const walk = async (p) => {
+      const st = await fs.promises.stat(p)
+      if (st.isDirectory()) {
+        const ents = await fs.promises.readdir(p)
+        for (const e of ents) await walk(path.join(p, e))
+      } else if (st.isFile()) sizeBytes += st.size
     }
-    walk(cacheDir)
+    await walk(cacheDir)
     return { exists: true, sizeBytes, cacheDir }
   } catch (e) { return { exists: false, sizeBytes: 0, error: String(e) } }
 })
