@@ -200,6 +200,19 @@
             <p class="token-hint">On machines with multiple GPUs (integrated + dedicated, or dual NVIDIA), choose which one runs generation. Passed as <code>--gpu cuda:N</code> on launch. Changes apply on next launch.</p>
           </div>
           <div class="settings-section" style="margin-top:12px">
+            <h3>Launcher GPU (Electron UI)</h3>
+            <div class="token-field">
+              <select id="launcherGpuSelect" class="input" style="max-width:360px">
+                <option value="auto">Auto (OS decides)</option>
+                <option value="integrated">Integrated — power saving (frees VRAM)</option>
+                <option value="dedicated">Dedicated — high performance</option>
+                <option value="disabled">Disabled — SwiftShader (max VRAM saved)</option>
+              </select>
+              <button class="btn btn-primary small" id="launcherGpuSaveBtn">Save</button>
+            </div>
+            <p class="token-hint">Which GPU runs the launcher window itself (not generation). Integrated frees 1–5 GB VRAM for generation; Disabled uses SwiftShader. Requires restart.</p>
+          </div>
+          <div class="settings-section" style="margin-top:12px">
             <h3>Bind Address</h3>
             <div class="token-field">
               <select id="serverNameSelect" class="input" style="max-width:360px">
@@ -386,8 +399,10 @@
         <div class="topbar-metrics" id="topbarMetrics">
           <div class="metric" title="CPU"><span class="metric-label">CPU</span><canvas class="metric-spark" id="sparkCpu" width="44" height="18"></canvas><span class="metric-val" id="valCpu">—</span></div>
           <div class="metric" title="GPU"><span class="metric-label">GPU</span><canvas class="metric-spark" id="sparkGpu" width="44" height="18"></canvas><span class="metric-val" id="valGpu">—</span></div>
+          <div class="metric" id="metricGpu2" style="display:none" title="GPU 2"><span class="metric-label">GPU2</span><canvas class="metric-spark" id="sparkGpu2" width="44" height="18"></canvas><span class="metric-val" id="valGpu2">—</span></div>
           <div class="metric" title="RAM used / total"><span class="metric-label">RAM</span><canvas class="metric-spark" id="sparkRam" width="44" height="18"></canvas><span class="metric-val" id="valRam">—</span></div>
           <div class="metric" title="VRAM used / total"><span class="metric-label">VRAM</span><canvas class="metric-spark" id="sparkVram" width="44" height="18"></canvas><span class="metric-val" id="valVram">—</span></div>
+          <div class="metric" id="metricVram2" style="display:none" title="VRAM 2"><span class="metric-label">VRAM2</span><canvas class="metric-spark" id="sparkVram2" width="44" height="18"></canvas><span class="metric-val" id="valVram2">—</span></div>
         </div>
         <div id="wvControls" class="wv-controls" style="display:none">
           <button class="btn-icon wv-btn" id="wvBackBtn" aria-label="Go back" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg></button>

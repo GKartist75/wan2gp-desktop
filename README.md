@@ -63,7 +63,7 @@ Through the launcher you get the **full WanGP** — same models, same UI, same p
 - 📂 **Paths migrate** — move installs between drives from Dashboard → Paths, no freeze, no leftovers, cross-drive safe.
 - 🛡️ **Crash-proof UI** — renderer-crash watchdog, GPU-off recovery, no blank-screen regressions.
 
-> **⚡ CUDA 13 stack on modern RTX cards.** Since v2.4.5, RTX 20/30/40/50 get **PyTorch 2.10 + CUDA 13** — SageAttention 2.2 (RTX 30/40) / 1.0.6 (RTX 20), FlashAttention 2.8.3, SpargeAttention (30/40/50), LightX2V (RTX 50), Nunchaku INT4/FP4 + **GGUF 1.0.8** + **bitsandbytes 0.49.2** (NF4). GTX 10/16 stay on **CUDA 12.8** (no R580 needed); every other NVIDIA card needs **R580+** and is checked before install.
+> **⚡ CUDA 13 stack on modern RTX cards.** Since v2.4.5, RTX 20/30/40/50 get **PyTorch 2.10 + CUDA 13** — SageAttention 2.2 (RTX 30/40) / 1.0.6 (RTX 20), FlashAttention 2.8.3, SpargeAttention (30/40/50), LightX2V (RTX 50), Nunchaku INT4/FP4 + **GGUF 1.0.13** + **bitsandbytes 0.49.2** (NF4). GTX 10/16 stay on **CUDA 12.8** (no R580 needed); every other NVIDIA card needs **R580+** and is checked before install.
 
 ---
 
@@ -167,11 +167,11 @@ WanGP is faster with vendor kernels than stock PyTorch. The launcher reads WanGP
 | **Python** (uv) | `3.11.14` (RTX 20–50) / `3.10.9` (GTX 10) | venv interpreter |
 | **PyTorch + CUDA** | `2.10.0` + CUDA 13.0 | tensor + GPU runtime |
 | **Triton** | `latest` (3.7.1) | JIT for custom CUDA/attention kernels on Windows |
-| **SageAttention** | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | fused attention — big speed-up. RTX 40/50 auto-swapped to stable `cu128` build (upstream `cu130+torch2.9` corrupts CUDA context → false OOM/black H3 frames, #64) |
+| **SageAttention** | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | fused attention — big speed-up |
 | **SpargeAttn** | `0.1.0` | sparsity-aware speed-up alongside Sage |
 | **FlashAttention** | `2.8.3` | memory-efficient exact attention for long/high-res |
 | **Nunchaku** | `1.2.1` | SVD-quantized (NF4/SVDQ) runtime — 4/8-bit models |
-| **GGUF llama.cpp CUDA** | `1.0.11` | CUDA GGUF kernels (Stream-K, quantized KV-cache) |
+| **GGUF llama.cpp CUDA** | `1.0.13` | CUDA GGUF kernels (Stream-K, quantized KV-cache) |
 | **LightX2V** | `0.0.2` | FP4 kernels — **RTX 50xx / sm120+ only** |
 | **bitsandbytes** | `0.49.2` | 8-bit/NF4 dequant for NF4 checkpoints |
 
@@ -186,7 +186,7 @@ WanGP is faster with vendor kernels than stock PyTorch. The launcher reads WanGP
 | SageAttention | RTX 20 → 1.0.6, RTX 30–50 → 2.2.0 (GTX 10 skipped) |
 | SpargeAttn | matching `cu130`/`py3.11` wheel |
 | FlashAttention | `2.8.3` prebuilt wheel |
-| GGUF llama.cpp CUDA | `1.0.11` (Stream-K, quantized KV-cache) — synced on every update |
+| GGUF llama.cpp CUDA | `1.0.13` (Stream-K, quantized KV-cache) — synced on every update |
 | Nunchaku / bitsandbytes / LightX2V | Nunchaku 1.2.1 + bnb 0.49.2 (all); LightX2V 0.0.2 on RTX 50xx / sm120+ only |
 
 **PyTorch matrix:** RTX 20/30/40/50 → Py 3.11.14 + PyTorch 2.10 + CUDA 13.0/13.1 · GTX 10xx → Py 3.10.9 + PyTorch 2.7.1 + CUDA 12.8. Avoids 2.8.0 (RAM leak) + 2.9.0 (VAE VRAM bug).

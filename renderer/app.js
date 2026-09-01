@@ -154,6 +154,9 @@ function initSettingsToggles() {
     const gpu = $('electronGpuToggle')
     const c = await window.w2gp.configLoad()
     c.electronGpu = gpu.checked
+    c.launcherGpu = gpu.checked ? (c.launcherGpu === 'disabled' ? 'auto' : (c.launcherGpu || 'auto')) : 'disabled'
+    const lg = $('launcherGpuSelect')
+    if (lg) lg.value = c.launcherGpu
     await window.w2gp.configSave(c)
     showToast(gpu.checked ? 'GPU enabled — restart to apply' : 'GPU disabled — restart to free VRAM')
   })
@@ -282,6 +285,9 @@ function openSettings() {
     if ($('ggufBf16Fp16')) $('ggufBf16Fp16').checked = g.bf16Fp16 === true
     // GPU device picker: fill the dropdown from the main process, keep current choice
     loadGpuDeviceOptions(cfg.gpuDevice || 'auto')
+    // Launcher GPU picker (Electron UI) — auto | integrated | dedicated | disabled
+    const lg = $('launcherGpuSelect')
+    if (lg) lg.value = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
     // Bind Address picker: reflect saved choice (default localhost)
     const sn = $('serverNameSelect')
     if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
@@ -541,7 +547,7 @@ async function loadHardware() {
 }
 
 // ── Live topbar metrics (CPU/GPU/RAM/VRAM sparklines) ──
-const _sparkHistory = { cpu: [], gpu: [], ram: [], vram: [] }
+const _sparkHistory = { cpu: [], gpu: [], gpu2: [], ram: [], vram: [], vram2: [] }
 const _sparkMax = 60  // samples kept (~2 min at 2s)
 
 function drawSpark(id, data, color) {
@@ -590,6 +596,22 @@ function startMetricsPolling() {
     drawSpark('sparkGpu', _sparkHistory.gpu, '#60A5FA')
     drawSpark('sparkRam', _sparkHistory.ram, '#FBBF24')
     drawSpark('sparkVram', _sparkHistory.vram, '#F472B6')
+    // 2nd GPU (iGPU or dual dGPU) — ponytail: show only when 2 GPUs reported
+    const hasGpu2 = m.gpus && m.gpus.length > 1 && m.gpus[1] != null
+    const g2 = hasGpu2 ? m.gpus[1] : (m.gpu2 != null ? { gpu: m.gpu2, vram: m.vram2, vramUsed: m.vramUsed2, vramTotal: m.vramTotal2 } : null)
+    const mg2 = $('metricGpu2'), mv2 = $('metricVram2')
+    if (g2 && g2.gpu != null) {
+      pushMetric('gpu2', g2.gpu); pushMetric('vram2', g2.vram)
+      if ($('valGpu2')) $('valGpu2').textContent = g2.gpu + '%'
+      if ($('valVram2')) $('valVram2').textContent = g2.vramUsed ? g2.vramUsed + '/' + g2.vramTotal : '—'
+      drawSpark('sparkGpu2', _sparkHistory.gpu2, '#A78BFA')
+      drawSpark('sparkVram2', _sparkHistory.vram2, '#FB7185')
+      if (mg2) mg2.style.display = ''; if (mv2) mv2.style.display = ''
+      if (mg2) mg2.title = 'GPU 2' + (m.gpus[1] ? ' — ' + (m.gpus[1].vramTotal || '') : '')
+      if (mv2) mv2.title = 'VRAM 2 ' + (g2.vramUsed || '') + '/' + (g2.vramTotal || '')
+    } else {
+      if (mg2) mg2.style.display = 'none'; if (mv2) mv2.style.display = 'none'
+    }
   }
   if (window.__metricsTimer) clearInterval(window.__metricsTimer)
   window.__metricsTick = tick
@@ -2730,6 +2752,16 @@ $('gpuDeviceSaveBtn')?.addEventListener('click', async () => {
   cfg.gpuDevice = val
   await window.w2gp.configSave(cfg)
   showToast(val === 'auto' ? 'GPU device set to Auto' : 'GPU device set to ' + val + ' (applies on next launch)')
+})
+$('launcherGpuSaveBtn')?.addEventListener('click', async () => {
+  const val = $('launcherGpuSelect')?.value || 'auto'
+  const cfg = await window.w2gp.configLoad()
+  cfg.launcherGpu = val
+  cfg.electronGpu = (val !== 'disabled')
+  const gpu = $('electronGpuToggle')
+  if (gpu) gpu.checked = cfg.electronGpu !== false
+  await window.w2gp.configSave(cfg)
+  showToast(val === 'auto' ? 'Launcher GPU set to Auto (restart to apply)' : 'Launcher GPU set to ' + val + ' (restart to apply)')
 })
 // Bind Address picker — mirror of gpuDevice picker
 $('serverNameSaveBtn')?.addEventListener('click', async () => {
