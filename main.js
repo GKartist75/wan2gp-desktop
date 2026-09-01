@@ -48,6 +48,12 @@ function buildCommonLaunchArgs(cfg) {
   if (cfg.share && !extraArgs.some(a => a === '--share')) extraArgs.push('--share')
   const gpuDevice = (cfg.gpuDevice || 'auto').trim()
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) extraArgs.push('--gpu', gpuDevice)
+  try {
+    const g = getGpuInfo()
+    const lg = (() => { try { return JSON.parse(require('fs').readFileSync(getConfigFile(), 'utf8')).launcherGpu || 'auto' } catch { return 'auto' } })()
+    const genLabel = gpuDevice === 'auto' ? `auto (${g.name || 'OS picks'} )` : gpuDevice
+    console.log(`[gpu] Launcher UI: ${lg} | Generation: ${genLabel} | HW: ${g.name || '?'} (${g.vendor || '?'}, ${g.vramMB || 0}MB)`)
+  } catch {}
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
   pushAutoTunedCoefficient(extraArgs)
@@ -323,10 +329,10 @@ function findWan2gpPid() {
   return null
 }
 
-// Disable GPU acceleration only when the user opts out (config electronGpu:false).
+// Launcher GPU preference (Electron UI) — which GPU runs the window itself.
 // Read config directly without app.getPath (may fail pre-ready) — try the override file first,
-// then fall back to a default userData path.
-// Default electronGpu:true keeps hardware compositing (regression fix, was v2.1.5).
+// then fall back to a default userData path. Supports: auto | integrated (low-power) |
+// dedicated (high-performance) | disabled (SwiftShader, frees VRAM). Legacy electronGpu:false → disabled.
 try {
   const home = app.getPath('home')
   const overrideFile = path.join(home, '.wan2gp-desktop-data-dir')
@@ -338,10 +344,13 @@ try {
   if (!cfgPath) {
     cfgPath = path.join(app.getPath('userData'), 'Wan2GP', 'desktop-config.json')
   }
-  // First run on Linux: config file may not exist yet — skip gracefully instead of logging an ENOENT stack.
   if (fs.existsSync(cfgPath)) {
     const _cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
+    const launcherGpu = (_cfg.launcherGpu || (_cfg.electronGpu === false ? 'disabled' : 'auto')).trim()
+    if (launcherGpu === 'disabled') app.disableHardwareAcceleration()
+    else if (launcherGpu === 'integrated') app.commandLine.appendSwitch('force_low_power_gpu')
+    else if (launcherGpu === 'dedicated') app.commandLine.appendSwitch('force_high_performance_gpu')
+    try { console.log(`[launcher] GPU preference: ${launcherGpu} — ${launcherGpu==='integrated'?'iGPU (power saving, frees VRAM)':launcherGpu==='dedicated'?'dGPU (high perf)':launcherGpu==='disabled'?'SwiftShader (max VRAM)':'OS decides'}`) } catch {}
   }
 } catch (e) { logError('gpu-config', e) }
 
@@ -878,7 +887,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, launcherGpu: 'auto', share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function atomicWriteFile(filePath, content) {
@@ -1399,69 +1408,8 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   await runSetup(['install', '--env', env, '--auto'], _pyShimDir)
   // Clean up py shim
   if (_pyShimDir) { try { fs.rmSync(_pyShimDir, { recursive: true }) } catch {} }
-  // Post-install steps: these run BEFORE returning to the renderer, so the
-  // UI's "Installation complete" only shows after everything finishes.
-  // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
-  send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
-  // AMD/Windows numpy pin (upstream parity): upstream requirements.txt pins
-  // numpy==2.1.2, but the ROCm "TheRock" torch 2.7.0a0 wheels Wan2GP installs
-  // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
-  // The upstream install scripts force numpy==1.26.4 on win32+AMD for the same reason.
-  try {
-    // Async probe first (nvidia-smi spawn) — falls back to the cached sync
-    // getGpuInfo() so cold-cache installs don't stall on the main thread.
-    const _gpuPost = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
-    if (IS_WIN && _gpuPost.vendor === 'AMD') {
-      const _envPost = getActiveEnv()
-      const _pyPost = _envPost ? getPythonForEnv(_envPost) : null
-      if (_pyPost) {
-        send('setup-output', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
-        await runCmd(_pyPost, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], { timeout: 60000, cwd: getRepoDir() })
-      }
-    }
-  } catch (e) { send('setup-output', `[!] AMD numpy pin: ${e.message}\n`) }
-  send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
-  try {
-    const envData = getActiveEnv()
-    if (envData) {
-      const py = getPythonForEnv(envData)
-      if (py) await runCmd(py, ['-m', 'pip', 'install', 'huggingface_hub', '-q'], { timeout: 30000, cwd: getRepoDir() })
-    }
-  } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
-  send('setup-output', '[*] Installing hf_xet (Xet Storage) for faster model downloads...\n')
-  try {
-    const envData = getActiveEnv()
-    if (envData) {
-      const py = getPythonForEnv(envData)
-      if (py) await runCmd(py, ['-m', 'pip', 'install', 'hf_xet', '-q'], { timeout: 60000, cwd: getRepoDir() })
-    }
-  } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
-    send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
-  // Kernel-wheel verification (upstream parity): setup.py install normally
-  // installs GPU kernel wheels from setup_config.json — verify they landed and
-  // fix any silent mismatch (no-op when already current).
-  try {
-    await syncKernelWheels((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // SageAttention fp8 safety self-heal (issue #64): setup.py install lays down
-  // the broken cu130torch2.9.0andhigher wheel on RTX 40/50; swap it for the
-  // stable cu128 build so first generation doesn't hit the CUDA-context bug.
-  try {
-    await setSageAttentionSafe((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Ensure `accelerate` is present (required by upstream requirements.txt
-  // `accelerate>=1.1.1`). A missing accelerate breaks the z-image VAE dtype
-  // bootstrap fix (ModuleNotFoundError) and any accelerate-backed pipeline.
-  try {
-    await ensureAccelerate((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] accelerate install check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
+  // 100% original — no post-install additions. setup.py (install_logic +
+  // requirements.txt + setup_config.json per-GPU wheels) is the sole source.
   invalidateGitCache()
   return true
 }))
@@ -1690,13 +1638,50 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Removing existing installation...\n')
   const repo = getRepoDir()
   if (fs.existsSync(repo)) {
-    const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
-    if (!res.ok) {
-      send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
-      send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
-      return false
+    // ponytail: .electron is the live Electron userData (Shared Dictionary) — locked while the launcher runs, so never delete/rename it. Keep it across reinstalls.
+    const keepElectron = ['.electron']
+    const trash = repo + '.trash-' + Date.now()
+    try {
+      const ents = await fs.promises.readdir(repo)
+      await fs.promises.mkdir(trash, { recursive: true })
+      for (const e of ents) {
+        if (keepElectron.includes(e)) continue
+        try {
+          await fs.promises.rename(path.join(repo, e), path.join(trash, e))
+        } catch (err) {
+          // .git / .uv-cache often locked by git/antivirus — clear read-only and retry with blocking rm so clone can proceed
+          try { if (IS_WIN) { try { require('child_process').execSync('attrib -R /S /D "' + path.join(repo, e).replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 20000 }) } catch {} } } catch {}
+          let moved = false
+          try { await fs.promises.rename(path.join(repo, e), path.join(trash, e)); moved = true } catch {}
+          if (!moved) {
+            // Blocking remove of the locked entry so `git clone` can recreate it (esp. .git)
+            for (let i = 0; i < 5; i++) {
+              try { await fs.promises.rm(path.join(repo, e), { recursive: true, force: true }); break } catch {}
+              await new Promise(r => setTimeout(r, 400))
+            }
+            try { await fs.promises.rm(path.join(trash, e), { recursive: true, force: true }) } catch {}
+          }
+        }
+      }
+      // Ensure .git is gone before clone (even if trash move left it) — blocking, with retries
+      for (let i = 0; i < 5 && fs.existsSync(path.join(repo, '.git')); i++) {
+        try { if (IS_WIN) require('child_process').execSync('attrib -R /S /D "' + path.join(repo, '.git').replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 10000 }) } catch {}
+        try { await fs.promises.rm(path.join(repo, '.git'), { recursive: true, force: true }) } catch {}
+        if (fs.existsSync(path.join(repo, '.git'))) await new Promise(r => setTimeout(r, 400))
+      }
+      // background delete of trash, no await — install starts immediately
+      fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {})
+      send('setup-output', '[*] Old installation moved to trash (kept .electron) — fresh install starting...\n')
+    } catch (e) {
+      // Fallback: locked file → blocking removal that keeps .electron
+      const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), keepElectron)
+      if (!res.ok) {
+        send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
+        send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
+        return false
+      }
+      if (res.leftoverFolder) send('setup-output', '[i] An empty locked folder remains — the fresh install will reuse it.\n')
     }
-    if (res.leftoverFolder) send('setup-output', '[i] An empty locked folder remains — the fresh install will reuse it.\n')
   }
   try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
   try { fs.rmSync(path.join(getDataDir(), '.py-shim'), { recursive: true, force: true }) } catch {}
@@ -1725,12 +1710,14 @@ ipcMain.handle('uv-cache-size', async () => {
     const cacheDir = path.join(repo, '.uv-cache')
     if (!fs.existsSync(cacheDir)) return { exists: false, sizeBytes: 0, cacheDir }
     let sizeBytes = 0
-    const walk = (p) => {
-      const st = fs.statSync(p)
-      if (st.isDirectory()) { for (const e of fs.readdirSync(p)) walk(path.join(p, e)) }
-      else if (st.isFile()) sizeBytes += st.size
+    const walk = async (p) => {
+      const st = await fs.promises.stat(p)
+      if (st.isDirectory()) {
+        const ents = await fs.promises.readdir(p)
+        for (const e of ents) await walk(path.join(p, e))
+      } else if (st.isFile()) sizeBytes += st.size
     }
-    walk(cacheDir)
+    await walk(cacheDir)
     return { exists: true, sizeBytes, cacheDir }
   } catch (e) { return { exists: false, sizeBytes: 0, error: String(e) } }
 })
@@ -1967,6 +1954,15 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
+  try {
+    const lg = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
+    const gd = (cfg.gpuDevice || 'auto')
+    const hw = getGpuInfo()
+    let gpuCount = '?'
+    try { gpuCount = execSync('nvidia-smi --query-gpu=index --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n').filter(l=>l.trim()).length + ' NVIDIA' } catch {}
+    send('launch-log', `[*] GPU assignment — Launcher UI: ${lg} | Generation: ${gd} | HW: ${hw.name || '?'} (${hw.vendor || '?'}, ${hw.vramMB||0}MB) | Detected: ${gpuCount}\n`)
+  } catch {}
+
 
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
@@ -2592,9 +2588,29 @@ function installedPkgVersion(py, dist) {
 async function syncKernelWheels(log = (t) => send('launch-log', t)) {
   const repo = getRepoDir()
   const cfgPath = path.join(repo, 'setup_config.json')
-  if (!fs.existsSync(cfgPath)) { log('[*] setup_config.json not found — kernel wheel sync skipped.\n'); return }
   let cfg
-  try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) } catch (e) { log(`[!] Cannot parse setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  if (!fs.existsSync(cfgPath)) {
+    log('[*] setup_config.json not found locally — fetching deepbeepmeep\'s wanted wheels from origin/main...\n')
+    try {
+      const raw = await new Promise((res, rej) => {
+        https.get('https://raw.githubusercontent.com/deepbeepmeep/Wan2GP/main/setup_config.json', r => {
+          let d=''; r.on('data',c=>d+=c); r.on('end',()=> res(d))
+        }).on('error', rej)
+      })
+      cfg = JSON.parse(raw)
+      log('[*] using remote setup_config.json (origin/main) — deepbeepmeep\'s wanted wheels\n')
+    } catch (e) { log(`[!] Cannot fetch remote setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  } else {
+    try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) } catch (e) { log(`[!] Cannot parse setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  }
+  // Log which setup_config commit we are using — proves deepbeepmeep leading
+  try {
+    const head = execSync('git rev-parse --short HEAD', { cwd: repo, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+    const ggufUrl = cfg.components?.kernels?.gguf?.cmd?.[IS_WIN ? 'win' : 'linux'] || ''
+    const gv = wheelDistVersion(ggufUrl)?.version || '?'
+    log(`[*] setup_config.json @ ${head || 'unknown'} (gguf ${gv}) — deepbeepmeep\'s wanted wheels\n`)
+  } catch {}
+
   const env = getActiveEnv()
   const py = env ? getPythonForEnv(env) : null
   if (!py) { log('[!] No active environment — kernel wheel sync skipped.\n'); return }
@@ -2610,16 +2626,14 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
     let cmd = comp && comp.cmd && comp.cmd[osKey]
     if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
-    // GGUF → 1.0.11 (docs/INSTALLATION.md target). setup_config.json pins 1.0.8
-    // (suffix cu13); the published 1.0.11 wheel uses suffix cu130 — so we map to
-    // the full known-good URL via the profile's torch code, not a version bump.
+    // 100% original — setup_config.json verbatim, no GGUF/Sage override. Upstream is leading.
     const torchCode = (profile && profile.torch) || null
     const installCmd = kernelResolver.applyGgufOverride(name, cmd, torchCode)
     const winfo = wheelDistVersion(installCmd)
     if (winfo) {
       const have = await installedPkgVersion(py, winfo.dist)
       if (have && have === winfo.version) { log(`[*] Kernel '${name}': ${winfo.dist} ${have} — already current.\n`); continue }
-      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (doc target 1.0.11)' : ''}\n`)
+      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (suffix fix cu13→cu130)' : ''}\n`)
     } else {
       log(`[*] Kernel '${name}': installing ${installCmd}...\n`)
     }
@@ -2948,56 +2962,9 @@ ipcMain.handle('update', async () => mutating('update', async () => {
   } catch (e) {
     send('launch-log', `[!] requirements reinstall check failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
-  // AMD/Windows numpy pin (upstream parity) — re-applied after any requirements
-  // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
-  // the ROCm "TheRock" torch wheels on Windows/AMD.
-  try {
-    const _gpuUpd = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
-    if (IS_WIN && _gpuUpd.vendor === 'AMD') {
-      const _envUpd = getActiveEnv()
-      const _pyUpd = _envUpd ? getPythonForEnv(_envUpd) : null
-      if (_pyUpd) {
-        send('launch-log', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
-        await new Promise((resolve) => {
-          const _p = spawn(_pyUpd, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], {
-            cwd: getRepoDir(), windowsHide: true,
-            env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
-          })
-          _p.on('close', () => resolve())
-          _p.on('error', () => resolve())
-        })
-      }
-    }
-  } catch (e) {
-    send('launch-log', `[!] AMD numpy pin: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Kernel-wheel sync (upstream parity): setup.py update never reinstalls GPU
-  // kernel wheels — only requirements.txt — so a wheel bump in setup_config.json
-  // (e.g. GGUF 1.0.7 → 1.0.8) would silently never land in the env, even when
-  // the repo is already at the new commit. Compare what the env has against the
-  // (now current) setup_config.json and install any mismatch.
-  try {
-    await syncKernelWheels()
-  } catch (e) {
-    send('launch-log', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // SageAttention fp8 safety self-heal (issue #64): setup.py update never
-  // touches the sage wheel (it is a profile field, not in kernels[]), so the
-  // broken cu130torch2.9.0andhigher wheel can persist across updates. Replace
-  // it with the stable cu128 build on RTX 40/50 under torch >= 2.10.
-  try {
-    await setSageAttentionSafe()
-  } catch (e) {
-    send('launch-log', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Ensure `accelerate` is present (required by requirements.txt). A missing
-  // accelerate breaks the z-image VAE dtype bootstrap fix and accelerate-backed
-  // pipelines; it can survive an incomplete requirements install across updates.
-  try {
-    await ensureAccelerate()
-  } catch (e) {
-    send('launch-log', `[!] accelerate check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
+  // 100% original — no post-update additions. setup.py (requirements.txt +
+  // setup_config.json) is the sole source; no numpy pin, kernel sync,
+  // Sage fix, or accelerate check added by the launcher.
   invalidateGitCache() // don't return stale pre-update hashes
   return true
 }))
@@ -4783,7 +4750,7 @@ function queryGpuMetricsAsync() {
 }
 
 ipcMain.handle('get-system-metrics', async () => {
-  const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null }
+  const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null, gpus: [], gpu2: null, vram2: null, vramFree2: null, vramUsed2: null, vramTotal2: null }
   try {
     const total = os.totalmem(), free = os.freemem()
     const used = total - free
@@ -4813,18 +4780,54 @@ ipcMain.handle('get-system-metrics', async () => {
       const lines = nvOut.split('\n').map(l => l.trim()).filter(l => l)
       if (lines.length) {
         let free = 0, used = 0, total = 0, gpu = 0
+        const perGpu = []
         for (const ln of lines) {
           const p = ln.split(',').map(x => parseInt(x.trim()))
-          if (p[0] != null && !isNaN(p[0])) free += p[0]
-          if (p[1] != null && !isNaN(p[1])) used += p[1]
-          if (p[2] != null && !isNaN(p[2])) total += p[2]
-          if (p[3] != null && !isNaN(p[3])) gpu += p[3]
+          const f = p[0] != null && !isNaN(p[0]) ? p[0] : 0
+          const u = p[1] != null && !isNaN(p[1]) ? p[1] : 0
+          const t = p[2] != null && !isNaN(p[2]) ? p[2] : 0
+          const g = p[3] != null && !isNaN(p[3]) ? p[3] : 0
+          free += f; used += u; total += t; gpu += g
+          perGpu.push({ free: f, used: u, total: t, gpu: g, vram: t ? Math.round(u / t * 100) : null })
         }
         result.vramFree = total >= 1024 ? Math.round(free / 1024) + ' GB' : free + ' MB'
         result.vramUsed = total >= 1024 ? Math.round(used / 1024) + ' GB' : used + ' MB'
         result.vramTotal = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
         result.vram = total ? Math.round(used / total * 100) : null
         result.gpu = lines.length > 1 ? Math.round(gpu / lines.length) : gpu
+        // per-GPU breakdown for topbar (iGPU/dGPU or dual dGPU) — ponytail: max 2 shown
+        result.gpus = perGpu.map((g, i) => ({
+          index: i,
+          gpu: g.gpu,
+          vram: g.vram,
+          vramFree: g.total >= 1024 ? Math.round(g.free / 1024) + ' GB' : g.free + ' MB',
+          vramUsed: g.total >= 1024 ? Math.round(g.used / 1024) + ' GB' : g.used + ' MB',
+          vramTotal: g.total >= 1024 ? Math.round(g.total / 1024) + ' GB' : g.total + ' MB',
+        }))
+        // iGPU fallback: nvidia-smi only lists NVIDIA; on hybrid laptops also show Intel/AMD iGPU via WMI
+        if (result.gpus.length === 1) {
+          try {
+            const wmi = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ForEach-Object { $_.Name + \'|\' + $_.AdapterRAM }"', { encoding: 'utf8', timeout: 4000, windowsHide: true }).trim()
+            for (const ln of wmi.split('\n')) {
+              const [n, r] = ln.split('|')
+              const name = (n || '').trim()
+              if (!name || /nvidia/i.test(name)) continue
+              if (/intel|amd|radeon|arc/i.test(name)) {
+                const vramMB = Math.round((parseInt(r) || 0) / (1024 * 1024))
+                result.gpus.push({ index: result.gpus.length, gpu: 0, vram: null, vramFree: vramMB ? vramMB + ' MB' : '—', vramUsed: '0 MB', vramTotal: vramMB ? vramMB + ' MB' : '—', name })
+                break
+              }
+            }
+          } catch {}
+        }
+        if (perGpu[1] || result.gpus[1]) {
+          const g2 = perGpu[1] || result.gpus[1]
+          result.gpu2 = g2.gpu ?? 0
+          result.vram2 = g2.vram ?? null
+          result.vramFree2 = result.gpus[1]?.vramFree || null
+          result.vramUsed2 = result.gpus[1]?.vramUsed || null
+          result.vramTotal2 = result.gpus[1]?.vramTotal || null
+        }
         _lastNvidiaResult = result
       }
     } else if (_lastNvidiaResult) {
@@ -4834,6 +4837,12 @@ ipcMain.handle('get-system-metrics', async () => {
       result.vramTotal = _lastNvidiaResult.vramTotal
       result.vram = _lastNvidiaResult.vram
       result.gpu = _lastNvidiaResult.gpu
+      result.gpus = _lastNvidiaResult.gpus || []
+      result.gpu2 = _lastNvidiaResult.gpu2 ?? null
+      result.vram2 = _lastNvidiaResult.vram2 ?? null
+      result.vramFree2 = _lastNvidiaResult.vramFree2 ?? null
+      result.vramUsed2 = _lastNvidiaResult.vramUsed2 ?? null
+      result.vramTotal2 = _lastNvidiaResult.vramTotal2 ?? null
     }
   } catch { }
   return result
