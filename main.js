@@ -2714,7 +2714,31 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
  */
 async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
   const cfgChk = loadConfig()
-  if (cfgChk.sageSafe === false) { log('[*] SageAttention: upstream post4 chosen (safe disabled) — left as-is.'); return }
+  const wantSafe = cfgChk.sageSafe !== false // default safe (post6)
+  if (!wantSafe) {
+    // Upstream choice — if safe post6 is installed, downgrade to post4 to show the switch
+    try {
+      const env0 = getActiveEnv(); const py0 = env0 ? getPythonForEnv(env0) : null
+      if (py0) {
+        const tag0 = await new Promise((res) => {
+          const p = require('child_process').spawn(py0, ['-c', 'import importlib.metadata as m, os; d=m.distribution("sageattention"); print(os.path.basename(str(d._path)) if hasattr(d,"_path") else "")'], { windowsHide: true, stdio: ['ignore','pipe','pipe'] })
+          let o=''; p.stdout.on('data',d=>o+=d.toString()); p.on('close',()=>res(o.trim())); p.on('error',()=>res(''))
+        })
+        if (tag0.toUpperCase().includes('CU130TORCH2.10.0ANDHIGHER')) {
+          const brokenUrl = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu130torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl'
+          log('[*] SageAttention: upstream post4 chosen — downgrading from safe post6 to post4 (100% original)...')
+          await new Promise((resolve, reject) => {
+            const p = require('child_process').spawn(py0, ['-m','pip','install','--no-input','--force-reinstall', brokenUrl], { cwd: getRepoDir(), windowsHide: true, env: { ...process.env, PYTHONUNBUFFERED:'1' } })
+            p.stdout.on('data',d=>{const s=d.toString(); if(s) log(s)}); p.stderr.on('data',d=>{const s=d.toString(); if(s) log(s)}); p.on('close',c=>c===0?resolve():reject(new Error('pip exited '+c))); p.on('error',reject)
+          })
+          log('[*] SageAttention: upstream post4 restored.')
+        } else {
+          log('[*] SageAttention: upstream post4 chosen (safe disabled) — left as-is (' + (tag0 || 'unknown') + ').')
+        }
+      }
+    } catch {}
+    return
+  }
   const env = getActiveEnv()
   const py = env ? getPythonForEnv(env) : null
   if (!py) return
