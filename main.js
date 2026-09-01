@@ -1642,15 +1642,27 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
         try {
           await fs.promises.rename(path.join(repo, e), path.join(trash, e))
         } catch (err) {
-          // .git / .uv-cache often locked by git/antivirus — clear read-only and retry, else rm in place so clone can proceed
-          try { if (IS_WIN) { try { require('child_process').execSync('attrib -R /S /D "' + path.join(repo, e).replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 10000 }) } catch {} } } catch {}
-          try { await fs.promises.rename(path.join(repo, e), path.join(trash, e)) } catch {
-            try { await fs.promises.rm(path.join(repo, e), { recursive: true, force: true }) } catch {}
+          // .git / .uv-cache often locked by git/antivirus — clear read-only and retry with blocking rm so clone can proceed
+          try { if (IS_WIN) { try { require('child_process').execSync('attrib -R /S /D "' + path.join(repo, e).replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 20000 }) } catch {} } } catch {}
+          let moved = false
+          try { await fs.promises.rename(path.join(repo, e), path.join(trash, e)); moved = true } catch {}
+          if (!moved) {
+            // Blocking remove of the locked entry so `git clone` can recreate it (esp. .git)
+            for (let i = 0; i < 5; i++) {
+              try { await fs.promises.rm(path.join(repo, e), { recursive: true, force: true }); break } catch {}
+              await new Promise(r => setTimeout(r, 400))
+            }
             try { await fs.promises.rm(path.join(trash, e), { recursive: true, force: true }) } catch {}
           }
         }
       }
-      // background delete of trash, no await — install starts immediately (even if some entries stayed due to lock, clone will overwrite)
+      // Ensure .git is gone before clone (even if trash move left it) — blocking, with retries
+      for (let i = 0; i < 5 && fs.existsSync(path.join(repo, '.git')); i++) {
+        try { if (IS_WIN) require('child_process').execSync('attrib -R /S /D "' + path.join(repo, '.git').replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 10000 }) } catch {}
+        try { await fs.promises.rm(path.join(repo, '.git'), { recursive: true, force: true }) } catch {}
+        if (fs.existsSync(path.join(repo, '.git'))) await new Promise(r => setTimeout(r, 400))
+      }
+      // background delete of trash, no await — install starts immediately
       fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {})
       send('setup-output', '[*] Old installation moved to trash (kept .electron) — fresh install starting...\n')
     } catch (e) {
