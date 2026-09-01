@@ -1631,13 +1631,23 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Removing existing installation...\n')
   const repo = getRepoDir()
   if (fs.existsSync(repo)) {
-    const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
-    if (!res.ok) {
-      send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
-      send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
-      return false
+    // ponytail: rename to trash (instant, same volume) and delete in background — install starts immediately instead of waiting 10–30s for sync rm
+    const trash = repo + '.trash-' + Date.now()
+    try {
+      await fs.promises.rename(repo, trash)
+      await fs.promises.mkdir(repo, { recursive: true })
+      fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {}).then(() => send('setup-output', '[*] Old installation trash cleaned.\n'))
+      send('setup-output', '[*] Old installation moved to trash — fresh install starting...\n')
+    } catch (e) {
+      // Fallback: cross-device or locked → blocking removal (rare)
+      const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
+      if (!res.ok) {
+        send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
+        send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
+        return false
+      }
+      if (res.leftoverFolder) send('setup-output', '[i] An empty locked folder remains — the fresh install will reuse it.\n')
     }
-    if (res.leftoverFolder) send('setup-output', '[i] An empty locked folder remains — the fresh install will reuse it.\n')
   }
   try { fs.rmSync(getEnvsFile(), { force: true }) } catch {}
   try { fs.rmSync(path.join(getDataDir(), '.py-shim'), { recursive: true, force: true }) } catch {}
