@@ -288,6 +288,8 @@ function openSettings() {
     // Launcher GPU picker (Electron UI) — auto | integrated | dedicated | disabled
     const lg = $('launcherGpuSelect')
     if (lg) lg.value = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
+    const ss = $('sageSafeSelect')
+    if (ss) ss.value = (cfg.sageSafe === true ? 'safe' : 'upstream')
     // Bind Address picker: reflect saved choice (default localhost)
     const sn = $('serverNameSelect')
     if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
@@ -2762,6 +2764,13 @@ $('launcherGpuSaveBtn')?.addEventListener('click', async () => {
   if (gpu) gpu.checked = cfg.electronGpu !== false
   await window.w2gp.configSave(cfg)
   showToast(val === 'auto' ? 'Launcher GPU set to Auto (restart to apply)' : 'Launcher GPU set to ' + val + ' (restart to apply)')
+})
+$('sageSafeSaveBtn')?.addEventListener('click', async () => {
+  const val = $('sageSafeSelect')?.value || 'safe'
+  const cfg = await window.w2gp.configLoad()
+  cfg.sageSafe = (val !== 'upstream')
+  await window.w2gp.configSave(cfg)
+  showToast(val === 'safe' ? 'Sage: Safe post6 (applies on next sync/install)' : 'Sage: Upstream post4 (100% original, applies on next sync/install)')
 })
 // Bind Address picker — mirror of gpuDevice picker
 $('serverNameSaveBtn')?.addEventListener('click', async () => {
