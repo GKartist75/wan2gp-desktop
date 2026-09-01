@@ -323,10 +323,10 @@ function findWan2gpPid() {
   return null
 }
 
-// Disable GPU acceleration only when the user opts out (config electronGpu:false).
+// Launcher GPU preference (Electron UI) — which GPU runs the window itself.
 // Read config directly without app.getPath (may fail pre-ready) — try the override file first,
-// then fall back to a default userData path.
-// Default electronGpu:true keeps hardware compositing (regression fix, was v2.1.5).
+// then fall back to a default userData path. Supports: auto | integrated (low-power) |
+// dedicated (high-performance) | disabled (SwiftShader, frees VRAM). Legacy electronGpu:false → disabled.
 try {
   const home = app.getPath('home')
   const overrideFile = path.join(home, '.wan2gp-desktop-data-dir')
@@ -338,10 +338,12 @@ try {
   if (!cfgPath) {
     cfgPath = path.join(app.getPath('userData'), 'Wan2GP', 'desktop-config.json')
   }
-  // First run on Linux: config file may not exist yet — skip gracefully instead of logging an ENOENT stack.
   if (fs.existsSync(cfgPath)) {
     const _cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    if (_cfg.electronGpu === false) app.disableHardwareAcceleration()
+    const launcherGpu = (_cfg.launcherGpu || (_cfg.electronGpu === false ? 'disabled' : 'auto')).trim()
+    if (launcherGpu === 'disabled') app.disableHardwareAcceleration()
+    else if (launcherGpu === 'integrated') app.commandLine.appendSwitch('force_low_power_gpu')
+    else if (launcherGpu === 'dedicated') app.commandLine.appendSwitch('force_high_performance_gpu')
   }
 } catch (e) { logError('gpu-config', e) }
 
@@ -2610,8 +2612,8 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
     let cmd = comp && comp.cmd && comp.cmd[osKey]
     if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
-    // GGUF → 1.0.13 (docs/INSTALLATION.md target). setup_config.json pins 1.0.8
-    // (suffix cu13); the published 1.0.13 wheel uses suffix cu130 — so we map to
+    // GGUF → upstream leading. setup_config.json is source of truth (today 1.0.13);
+    // old cached 1.0.8 used suffix cu13 vs cu130 — applyGgufOverride fixes just the suffix,
     // the full known-good URL via the profile's torch code, not a version bump.
     const torchCode = (profile && profile.torch) || null
     const installCmd = kernelResolver.applyGgufOverride(name, cmd, torchCode)
@@ -2619,7 +2621,7 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     if (winfo) {
       const have = await installedPkgVersion(py, winfo.dist)
       if (have && have === winfo.version) { log(`[*] Kernel '${name}': ${winfo.dist} ${have} — already current.\n`); continue }
-      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (doc target 1.0.13)' : ''}\n`)
+      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (suffix fix cu13→cu130)' : ''}\n`)
     } else {
       log(`[*] Kernel '${name}': installing ${installCmd}...\n`)
     }

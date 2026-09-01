@@ -64,48 +64,32 @@ function wheelDistVersion(url) {
 }
 
 /**
- * GGUF llama.cpp CUDA kernel target version.
+ * GGUF wheel — upstream is leading. We do NOT pin a version.
  *
- * The doc (docs/INSTALLATION.md) documents 1.0.13 as the current wheel. The
- * wheel IS published — but its build suffix differs from the 1.0.8 entry that
- * setup_config.json carried: 1.0.8 uses `torch210cu13py311`, 1.0.13 uses
- * `torch210cu130py311` (CUDA 13.0, not "cu13"). A naive version-number bump on
- * the URL therefore 404s. So we map to the FULL published URLs (verified 302)
- * keyed by the profile's torch code, rather than string-surgerying the version.
+ * `setup_config.json` is the source of truth (today 1.0.13, tomorrow 1.0.14).
+ * The only fix we keep is the historic suffix typo `cu13` → `cu130` (CUDA 13.0)
+ * that old cached `setup_config.json` files (1.0.8) carried. That typo would 404;
+ * correcting the substring lets the upstream URL work verbatim, so the installer
+ * never overrides the version deepbeepmeep publishes.
  *
  * @type {string}
  */
-const GGUF_TARGET_VERSION = '1.0.13'
-
-// Full published wheel URLs for GGUF_TARGET_VERSION, keyed by torch code from
-// setup_config.json's gpu_profiles (cu130 / cu128). Verified live 302 (exists).
-// RTX 20/30/40/50 → cu130; legacy GTX 10/16 → cu128. AMD/Apple have no GGUF wheel.
-const GGUF_TARGET_URLS = {
-  cu130: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.13+torch210cu130py311-cp311-cp311',
-  cu128: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.13+torch210cu130py311-cp311-cp311',
-}
+const GGUF_TARGET_VERSION = null // upstream is leading — no pinned version
 
 /**
- * Resolve the GGUF wheel URL for the target version, preserving the platform
- * suffix (win_amd64 / linux_x86_64) of the profile's own URL.
+ * Resolve the GGUF wheel URL — pass-through, only fixing the `cu13` suffix typo.
  *
  * @param {string} key kernel profile key (e.g. 'gguf')
- * @param {string} cmd the setup_config.json wheel URL (e.g. ...1.0.8+torch210cu13py311-...-win_amd64.whl)
- * @param {string} torchCode profile torch code (e.g. 'cu130', 'cu128'); when
- *                 omitted, inferred from the cmd URL's `torchNNNcuXXX` segment.
- * @returns {string} a 1.0.11 URL with the same platform suffix, or the original
- *          cmd on any mismatch (so install never 404s on an unknown profile).
+ * @param {string} cmd the setup_config.json wheel URL
+ * @param {string} torchCode unused (kept for call-site compat)
+ * @returns {string} upstream URL verbatim, with `cu13` → `cu130` fixed if present
  */
 function applyGgufOverride(key, cmd, torchCode) {
   if (key !== 'gguf' || typeof cmd !== 'string') return cmd
-  const code = torchCode
-    || (/(torch\d+)(cu\d+)/.exec(cmd) && RegExp.$2)
-    || ''
-  const base = GGUF_TARGET_URLS[code]
-  if (!base) return cmd // unknown torch code → fall back to profile's own URL
-  const ext = /\.whl$/i.test(cmd) ? '.whl' : ''
-  const plat = (/-win_amd64/.test(cmd) && 'win_amd64') || (/-linux_x86_64/.test(cmd) && 'linux_x86_64') || 'win_amd64'
-  return `${base}-${plat}${ext}`
+  // Fix only the historic `torch210cu13py311` → `torch210cu130py311` typo; leave version untouched.
+  if (cmd.includes('cu13py311') && !cmd.includes('cu130py311')) return cmd.replace('cu13py311', 'cu130py311')
+  if (cmd.includes('cu13-') && !cmd.includes('cu130')) return cmd.replace('cu13', 'cu130')
+  return cmd
 }
 
 /**
@@ -160,7 +144,7 @@ function buildOverviewWheels(cfg, gpu, osKey) {
   return kernels.map((name) => {
     const def = KERNEL_DISPLAY[name] || { label: name, pipName: name }
     const cmd = components[name] && components[name].cmd && components[name].cmd[osKey]
-    const url = applyGgufOverride(name, cmd, torchCode) // GGUF → 1.0.13 (doc target)
+    const url = applyGgufOverride(name, cmd, torchCode) // GGUF → upstream leading, only cu13→cu130 fix
     let configured = null
     if (url) {
       const wi = wheelDistVersion(url)
