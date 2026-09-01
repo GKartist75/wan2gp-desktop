@@ -213,6 +213,17 @@
             <p class="token-hint">Which GPU runs the launcher window itself (not generation). Integrated frees 1–5 GB VRAM for generation; Disabled uses SwiftShader. Requires restart.</p>
           </div>
           <div class="settings-section" style="margin-top:12px">
+            <h3>SageAttention wheel</h3>
+            <div class="token-field">
+              <select id="sageSafeSelect" class="input" style="max-width:360px">
+                <option value="safe">Safe — post6 (fixes fp8 OOM / H3 black frames, RTX 30/40/50)</option>
+                <option value="upstream">Upstream — post4 (100% original)</option>
+              </select>
+              <button class="btn btn-primary small" id="sageSafeSaveBtn">Save</button>
+            </div>
+            <p class="token-hint">RTX 30/40/50: <code>post4</code> is deepbeepmeep's published wheel but corrupts CUDA context under torch 2.10; <code>post6</code> is the safe <code>cu130</code> fix. Change applies on next sync/install.</p>
+          </div>
+          <div class="settings-section" style="margin-top:12px">
             <h3>Bind Address</h3>
             <div class="token-field">
               <select id="serverNameSelect" class="input" style="max-width:360px">
