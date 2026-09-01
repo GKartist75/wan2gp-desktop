@@ -2610,8 +2610,8 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
     let cmd = comp && comp.cmd && comp.cmd[osKey]
     if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
-    // GGUF → 1.0.11 (docs/INSTALLATION.md target). setup_config.json pins 1.0.8
-    // (suffix cu13); the published 1.0.11 wheel uses suffix cu130 — so we map to
+    // GGUF → 1.0.13 (docs/INSTALLATION.md target). setup_config.json pins 1.0.8
+    // (suffix cu13); the published 1.0.13 wheel uses suffix cu130 — so we map to
     // the full known-good URL via the profile's torch code, not a version bump.
     const torchCode = (profile && profile.torch) || null
     const installCmd = kernelResolver.applyGgufOverride(name, cmd, torchCode)
@@ -2619,7 +2619,7 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     if (winfo) {
       const have = await installedPkgVersion(py, winfo.dist)
       if (have && have === winfo.version) { log(`[*] Kernel '${name}': ${winfo.dist} ${have} — already current.\n`); continue }
-      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (doc target 1.0.11)' : ''}\n`)
+      log(`[*] Kernel '${name}': installing ${winfo.dist} ${winfo.version}${have ? ` (had ${have})` : ''}...${installCmd !== cmd ? ' (doc target 1.0.13)' : ''}\n`)
     } else {
       log(`[*] Kernel '${name}': installing ${installCmd}...\n`)
     }

@@ -21,7 +21,7 @@ test('annotateWheels marks ok / mismatch / missing', async () => {
   const wheels = [
     { key: 'nunchaku', pipName: 'nunchaku', configured: '0.3.1' },
     { key: 'lightx2v', pipName: 'lightx2v', configured: '0.2.0' },
-    { key: 'gguf', pipName: 'llamacpp_gguf_cuda', configured: '1.0.11' },
+    { key: 'gguf', pipName: 'llamacpp_gguf_cuda', configured: '1.0.13' },
   ]
   // installedFn(py, pipName): nunchaku current, lightx2v older (mismatch), gguf missing
   const installed = async (py, name) => {

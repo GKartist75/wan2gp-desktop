@@ -51,10 +51,10 @@ test('Apple → MPS, AMD → gfx family, Intel → RTX_40 default', () => {
 
 // ── wheelDistVersion: THE root-cause fix (underscores must be preserved) ──
 test('wheelDistVersion keeps underscores (GGUF dist name)', () => {
-  const w = k.wheelDistVersion('https://example.com/llamacpp_gguf_cuda-1.0.11-cp311-cp311-win_amd64.whl')
+  const w = k.wheelDistVersion('https://example.com/llamacpp_gguf_cuda-1.0.13-cp311-cp311-win_amd64.whl')
   assert.ok(w, 'parsed')
   assert.strictEqual(w.dist, 'llamacpp_gguf_cuda', 'dist name kept verbatim (no _→- rewrite)')
-  assert.strictEqual(w.version, '1.0.11')
+  assert.strictEqual(w.version, '1.0.13')
 })
 
 test('wheelDistVersion parses a normal wheel', () => {
@@ -106,7 +106,7 @@ test('RTX 50 overview lists nunchaku_cu13 + light2xv + gguf with configured vers
   assert.deepStrictEqual(keys, ['nunchaku_cu13', 'light2xv', 'gguf'])
   const gguf = wheels.find(w => w.key === 'gguf')
   assert.strictEqual(gguf.pipName, 'llamacpp_gguf_cuda', 'uses the CUDA kernel dist, not the `gguf` quant tool')
-  assert.ok(gguf.configured.startsWith('1.0.11'), `GGUF shows 1.0.11 (got ${gguf.configured})`)
+  assert.ok(gguf.configured.startsWith('1.0.13'), `GGUF shows 1.0.13 (got ${gguf.configured})`)
   assert.strictEqual(gguf.label, 'GGUF (llamacpp)')
 })
 
@@ -133,26 +133,26 @@ test('resolveKernelWheels returns profile key + ordered kernel names', () => {
   assert.deepStrictEqual(r.kernels, ['nunchaku_cu13', 'light2xv', 'gguf'])
 })
 
-// ── GGUF 1.0.11 override (docs/INSTALLATION.md target) ──
-test('applyGgufOverride maps GGUF to full 1.0.11 URL by torch code, leaves others untouched', () => {
+// ── GGUF 1.0.13 override (docs/INSTALLATION.md target) ──
+test('applyGgufOverride maps GGUF to full 1.0.13 URL by torch code, leaves others untouched', () => {
   const gguf = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.8+torch210cu13py311-cp311-cp311-win_amd64.whl'
   const win = k.applyGgufOverride('gguf', gguf, 'cu130')
-  assert.ok(win.includes('llamacpp_gguf_cuda-1.0.11+torch210cu130py311'), 'GGUF win URL → 1.0.11 cu130')
+  assert.ok(win.includes('llamacpp_gguf_cuda-1.0.13+torch210cu130py311'), 'GGUF win URL → 1.0.13 cu130')
   assert.ok(win.endsWith('-win_amd64.whl'), 'platform suffix preserved')
   const linux = k.applyGgufOverride('gguf', gguf, 'cu130')
   // linux source → linux suffix
   const linuxSrc = gguf.replace('win_amd64', 'linux_x86_64')
   assert.ok(k.applyGgufOverride('gguf', linuxSrc, 'cu130').endsWith('-linux_x86_64.whl'), 'linux suffix preserved')
-  // cu128 legacy profile
+  // cu128 legacy profile (now also maps to 1.0.13 cu130 unified wheel)
   const legacy = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.8+torch271cu128py310-cp310-cp310-win_amd64.whl'
-  assert.ok(k.applyGgufOverride('gguf', legacy, 'cu128').includes('1.0.11+torch271cu128py310'), 'cu128 → 1.0.11 cu128')
-  assert.strictEqual(k.GGUF_TARGET_VERSION, '1.0.11')
+  assert.ok(k.applyGgufOverride('gguf', legacy, 'cu128').includes('1.0.13+torch210cu130py311'), 'cu128 → 1.0.13 cu130')
+  assert.strictEqual(k.GGUF_TARGET_VERSION, '1.0.13')
   const nunchaku = 'https://github.com/nunchaku-ai/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu13.0torch2.10-cp311-cp311-win_amd64.whl'
   assert.strictEqual(k.applyGgufOverride('nunchaku_cu13', nunchaku, 'cu130'), nunchaku, 'non-GGUF kernel unchanged')
 })
 
-test('buildOverviewWheels reports GGUF configured version as 1.0.11 (doc target)', () => {
+test('buildOverviewWheels reports GGUF configured version as 1.0.13 (doc target)', () => {
   const wheels = k.buildOverviewWheels(CFG, { vendor: 'NVIDIA', name: 'RTX 5090' }, 'win')
   const gguf = wheels.find(w => w.key === 'gguf')
-  assert.ok(gguf.configured.startsWith('1.0.11'), 'overview shows doc-target 1.0.11, not the 1.0.8 profile pin')
+  assert.ok(gguf.configured.startsWith('1.0.13'), 'overview shows doc-target 1.0.13, not the 1.0.8 profile pin')
 })

@@ -66,23 +66,23 @@ function wheelDistVersion(url) {
 /**
  * GGUF llama.cpp CUDA kernel target version.
  *
- * The doc (docs/INSTALLATION.md) documents 1.0.11 as the current wheel. The
+ * The doc (docs/INSTALLATION.md) documents 1.0.13 as the current wheel. The
  * wheel IS published — but its build suffix differs from the 1.0.8 entry that
- * setup_config.json carries: 1.0.8 uses `torch210cu13py311`, 1.0.11 uses
+ * setup_config.json carried: 1.0.8 uses `torch210cu13py311`, 1.0.13 uses
  * `torch210cu130py311` (CUDA 13.0, not "cu13"). A naive version-number bump on
  * the URL therefore 404s. So we map to the FULL published URLs (verified 302)
  * keyed by the profile's torch code, rather than string-surgerying the version.
  *
  * @type {string}
  */
-const GGUF_TARGET_VERSION = '1.0.11'
+const GGUF_TARGET_VERSION = '1.0.13'
 
 // Full published wheel URLs for GGUF_TARGET_VERSION, keyed by torch code from
 // setup_config.json's gpu_profiles (cu130 / cu128). Verified live 302 (exists).
 // RTX 20/30/40/50 → cu130; legacy GTX 10/16 → cu128. AMD/Apple have no GGUF wheel.
 const GGUF_TARGET_URLS = {
-  cu130: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.11+torch210cu130py311-cp311-cp311',
-  cu128: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.11+torch271cu128py310-cp310-cp310',
+  cu130: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.13+torch210cu130py311-cp311-cp311',
+  cu128: 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.13+torch210cu130py311-cp311-cp311',
 }
 
 /**
@@ -160,7 +160,7 @@ function buildOverviewWheels(cfg, gpu, osKey) {
   return kernels.map((name) => {
     const def = KERNEL_DISPLAY[name] || { label: name, pipName: name }
     const cmd = components[name] && components[name].cmd && components[name].cmd[osKey]
-    const url = applyGgufOverride(name, cmd, torchCode) // GGUF → 1.0.11 (doc target)
+    const url = applyGgufOverride(name, cmd, torchCode) // GGUF → 1.0.13 (doc target)
     let configured = null
     if (url) {
       const wi = wheelDistVersion(url)
