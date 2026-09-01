@@ -2594,9 +2594,29 @@ function installedPkgVersion(py, dist) {
 async function syncKernelWheels(log = (t) => send('launch-log', t)) {
   const repo = getRepoDir()
   const cfgPath = path.join(repo, 'setup_config.json')
-  if (!fs.existsSync(cfgPath)) { log('[*] setup_config.json not found — kernel wheel sync skipped.\n'); return }
   let cfg
-  try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) } catch (e) { log(`[!] Cannot parse setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  if (!fs.existsSync(cfgPath)) {
+    log('[*] setup_config.json not found locally — fetching deepbeepmeep\'s wanted wheels from origin/main...\n')
+    try {
+      const raw = await new Promise((res, rej) => {
+        https.get('https://raw.githubusercontent.com/deepbeepmeep/Wan2GP/main/setup_config.json', r => {
+          let d=''; r.on('data',c=>d+=c); r.on('end',()=> res(d))
+        }).on('error', rej)
+      })
+      cfg = JSON.parse(raw)
+      log('[*] using remote setup_config.json (origin/main) — deepbeepmeep\'s wanted wheels\n')
+    } catch (e) { log(`[!] Cannot fetch remote setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  } else {
+    try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) } catch (e) { log(`[!] Cannot parse setup_config.json — kernel wheel sync skipped: ${e.message}\n`); return }
+  }
+  // Log which setup_config commit we are using — proves deepbeepmeep leading
+  try {
+    const head = execSync('git rev-parse --short HEAD', { cwd: repo, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()
+    const ggufUrl = cfg.components?.kernels?.gguf?.cmd?.[IS_WIN ? 'win' : 'linux'] || ''
+    const gv = wheelDistVersion(ggufUrl)?.version || '?'
+    log(`[*] setup_config.json @ ${head || 'unknown'} (gguf ${gv}) — deepbeepmeep\'s wanted wheels\n`)
+  } catch {}
+
   const env = getActiveEnv()
   const py = env ? getPythonForEnv(env) : null
   if (!py) { log('[!] No active environment — kernel wheel sync skipped.\n'); return }
@@ -4785,7 +4805,7 @@ function queryGpuMetricsAsync() {
 }
 
 ipcMain.handle('get-system-metrics', async () => {
-  const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null }
+  const result = { ramFree: null, vramFree: null, cpu: null, gpu: null, ramUsed: null, ramTotal: null, vramUsed: null, vramTotal: null, gpus: [], gpu2: null, vram2: null, vramFree2: null, vramUsed2: null, vramTotal2: null }
   try {
     const total = os.totalmem(), free = os.freemem()
     const used = total - free
@@ -4815,18 +4835,37 @@ ipcMain.handle('get-system-metrics', async () => {
       const lines = nvOut.split('\n').map(l => l.trim()).filter(l => l)
       if (lines.length) {
         let free = 0, used = 0, total = 0, gpu = 0
+        const perGpu = []
         for (const ln of lines) {
           const p = ln.split(',').map(x => parseInt(x.trim()))
-          if (p[0] != null && !isNaN(p[0])) free += p[0]
-          if (p[1] != null && !isNaN(p[1])) used += p[1]
-          if (p[2] != null && !isNaN(p[2])) total += p[2]
-          if (p[3] != null && !isNaN(p[3])) gpu += p[3]
+          const f = p[0] != null && !isNaN(p[0]) ? p[0] : 0
+          const u = p[1] != null && !isNaN(p[1]) ? p[1] : 0
+          const t = p[2] != null && !isNaN(p[2]) ? p[2] : 0
+          const g = p[3] != null && !isNaN(p[3]) ? p[3] : 0
+          free += f; used += u; total += t; gpu += g
+          perGpu.push({ free: f, used: u, total: t, gpu: g, vram: t ? Math.round(u / t * 100) : null })
         }
         result.vramFree = total >= 1024 ? Math.round(free / 1024) + ' GB' : free + ' MB'
         result.vramUsed = total >= 1024 ? Math.round(used / 1024) + ' GB' : used + ' MB'
         result.vramTotal = total >= 1024 ? Math.round(total / 1024) + ' GB' : total + ' MB'
         result.vram = total ? Math.round(used / total * 100) : null
         result.gpu = lines.length > 1 ? Math.round(gpu / lines.length) : gpu
+        // per-GPU breakdown for topbar (iGPU/dGPU or dual dGPU) — ponytail: max 2 shown
+        result.gpus = perGpu.map((g, i) => ({
+          index: i,
+          gpu: g.gpu,
+          vram: g.vram,
+          vramFree: g.total >= 1024 ? Math.round(g.free / 1024) + ' GB' : g.free + ' MB',
+          vramUsed: g.total >= 1024 ? Math.round(g.used / 1024) + ' GB' : g.used + ' MB',
+          vramTotal: g.total >= 1024 ? Math.round(g.total / 1024) + ' GB' : g.total + ' MB',
+        }))
+        if (perGpu[1]) {
+          result.gpu2 = perGpu[1].gpu
+          result.vram2 = perGpu[1].vram
+          result.vramFree2 = result.gpus[1].vramFree
+          result.vramUsed2 = result.gpus[1].vramUsed
+          result.vramTotal2 = result.gpus[1].vramTotal
+        }
         _lastNvidiaResult = result
       }
     } else if (_lastNvidiaResult) {
@@ -4836,6 +4875,12 @@ ipcMain.handle('get-system-metrics', async () => {
       result.vramTotal = _lastNvidiaResult.vramTotal
       result.vram = _lastNvidiaResult.vram
       result.gpu = _lastNvidiaResult.gpu
+      result.gpus = _lastNvidiaResult.gpus || []
+      result.gpu2 = _lastNvidiaResult.gpu2 ?? null
+      result.vram2 = _lastNvidiaResult.vram2 ?? null
+      result.vramFree2 = _lastNvidiaResult.vramFree2 ?? null
+      result.vramUsed2 = _lastNvidiaResult.vramUsed2 ?? null
+      result.vramTotal2 = _lastNvidiaResult.vramTotal2 ?? null
     }
   } catch { }
   return result
