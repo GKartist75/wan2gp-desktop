@@ -1635,15 +1635,23 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
     const keepElectron = ['.electron']
     const trash = repo + '.trash-' + Date.now()
     try {
-      // Move everything except .electron to trash (instant), keep .electron in place
       const ents = await fs.promises.readdir(repo)
       await fs.promises.mkdir(trash, { recursive: true })
       for (const e of ents) {
         if (keepElectron.includes(e)) continue
-        await fs.promises.rename(path.join(repo, e), path.join(trash, e))
+        try {
+          await fs.promises.rename(path.join(repo, e), path.join(trash, e))
+        } catch (err) {
+          // .git / .uv-cache often locked by git/antivirus — clear read-only and retry, else rm in place so clone can proceed
+          try { if (IS_WIN) { try { require('child_process').execSync('attrib -R /S /D "' + path.join(repo, e).replace(/[\\/]$/, '') + '"', { windowsHide: true, timeout: 10000 }) } catch {} } } catch {}
+          try { await fs.promises.rename(path.join(repo, e), path.join(trash, e)) } catch {
+            try { await fs.promises.rm(path.join(repo, e), { recursive: true, force: true }) } catch {}
+            try { await fs.promises.rm(path.join(trash, e), { recursive: true, force: true }) } catch {}
+          }
+        }
       }
-      // background delete of trash, no await — install starts immediately
-      fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {}).then(() => send('setup-output', '[*] Old installation trash cleaned.\n'))
+      // background delete of trash, no await — install starts immediately (even if some entries stayed due to lock, clone will overwrite)
+      fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {})
       send('setup-output', '[*] Old installation moved to trash (kept .electron) — fresh install starting...\n')
     } catch (e) {
       // Fallback: locked file → blocking removal that keeps .electron
