@@ -1631,16 +1631,23 @@ ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Removing existing installation...\n')
   const repo = getRepoDir()
   if (fs.existsSync(repo)) {
-    // ponytail: rename to trash (instant, same volume) and delete in background — install starts immediately instead of waiting 10–30s for sync rm
+    // ponytail: .electron is the live Electron userData (Shared Dictionary) — locked while the launcher runs, so never delete/rename it. Keep it across reinstalls.
+    const keepElectron = ['.electron']
     const trash = repo + '.trash-' + Date.now()
     try {
-      await fs.promises.rename(repo, trash)
-      await fs.promises.mkdir(repo, { recursive: true })
+      // Move everything except .electron to trash (instant), keep .electron in place
+      const ents = await fs.promises.readdir(repo)
+      await fs.promises.mkdir(trash, { recursive: true })
+      for (const e of ents) {
+        if (keepElectron.includes(e)) continue
+        await fs.promises.rename(path.join(repo, e), path.join(trash, e))
+      }
+      // background delete of trash, no await — install starts immediately
       fs.promises.rm(trash, { recursive: true, force: true }).catch(() => {}).then(() => send('setup-output', '[*] Old installation trash cleaned.\n'))
-      send('setup-output', '[*] Old installation moved to trash — fresh install starting...\n')
+      send('setup-output', '[*] Old installation moved to trash (kept .electron) — fresh install starting...\n')
     } catch (e) {
-      // Fallback: cross-device or locked → blocking removal (rare)
-      const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), null)
+      // Fallback: locked file → blocking removal that keeps .electron
+      const res = await forceRemoveRepo(repo, (m) => send('setup-output', m + '\n'), keepElectron)
       if (!res.ok) {
         send('setup-output', `[!] Could not remove the existing installation${res.error ? ': ' + res.error : ''}\n`)
         send('setup-output', '[!] Close any terminal/Explorer window open in the Wan2GP folder (or wait for antivirus scanning to finish), then retry.\n')
