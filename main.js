@@ -887,7 +887,7 @@ function loadConfig() {
   try {
     if (fs.existsSync(getConfigFile())) return JSON.parse(fs.readFileSync(getConfigFile(), 'utf8'))
   } catch (e) { logError('loadConfig', e) }
-  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, launcherGpu: 'auto', sageSafe: true, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
+  return { githubToken: '', hfToken: '', claudeApiKey: '', theme: 'dark', serverPort: 7860, serverName: 'localhost', defaultBrowser: 'system', termDockDefault: 'bottom', electronGpu: true, launcherGpu: 'auto', sageSafe: false, share: false, autoUpdateEnabled: true, ggufEnv: { enabled: true, matmulMode: 'auto', streamK: true, bf16Fp16: false } }
 }
 
 function atomicWriteFile(filePath, content) {
@@ -2714,7 +2714,7 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
  */
 async function setSageAttentionSafe(log = (t) => send('launch-log', t)) {
   const cfgChk = loadConfig()
-  const wantSafe = cfgChk.sageSafe !== false // default safe (post6)
+  const wantSafe = cfgChk.sageSafe === true // default upstream (post4) as deepbeepmeep advises
   if (!wantSafe) {
     // Upstream choice — if safe post6 is installed, downgrade to post4 to show the switch
     try {

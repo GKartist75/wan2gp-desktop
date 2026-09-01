@@ -289,7 +289,7 @@ function openSettings() {
     const lg = $('launcherGpuSelect')
     if (lg) lg.value = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
     const ss = $('sageSafeSelect')
-    if (ss) ss.value = (cfg.sageSafe === false ? 'upstream' : 'safe')
+    if (ss) ss.value = (cfg.sageSafe === true ? 'safe' : 'upstream')
     // Bind Address picker: reflect saved choice (default localhost)
     const sn = $('serverNameSelect')
     if (sn) sn.value = (cfg.serverName === '127.0.0.1') ? '127.0.0.1' : 'localhost'
