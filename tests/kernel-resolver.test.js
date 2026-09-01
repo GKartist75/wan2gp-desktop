@@ -72,10 +72,10 @@ const SAGE_CU130 = 'https://github.com/woct0rdho/SageAttention/releases/download
 const SAGE_CU128 = 'https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post6/sageattention-2.2.0+cu130torch2.10.0andhigher.post6-cp310-abi3-win_amd64.whl'
 
 test('applySageOverride swaps broken cu130→safe cu130.post6 for RTX 30/40/50 under torch>=2.10', () => {
+  // 100% original — no swap, verbatim passthrough even for broken post4 wheel
   for (const gpu of [{ name: 'RTX 3090' }, { name: 'RTX 4090' }, { name: 'RTX 5080' }]) {
     const out = k.applySageOverride('sage', SAGE_CU130, { vendor: 'NVIDIA', ...gpu }, { torchGte210: true })
-    assert.ok(out.includes('cu130torch2.10.0andhigher.post6'), `swapped ${gpu.name} to the stable cu130.post6 build`)
-    assert.ok(!out.includes('cu130torch2.9.0andhigher.post4'), `broken cu130 build gone for ${gpu.name}`)
+    assert.strictEqual(out, SAGE_CU130, `100% original — no swap for ${gpu.name}`)
   }
 })
 
@@ -133,17 +133,10 @@ test('resolveKernelWheels returns profile key + ordered kernel names', () => {
   assert.deepStrictEqual(r.kernels, ['nunchaku_cu13', 'light2xv', 'gguf'])
 })
 
-// ── GGUF upstream-leading: only cu13→cu130 suffix fix, version untouched ──
+// ── 100% original — no GGUF override, verbatim passthrough ──
 test('applyGgufOverride maps GGUF to full 1.0.13 URL by torch code, leaves others untouched', () => {
   const gguf = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.8+torch210cu13py311-cp311-cp311-win_amd64.whl'
-  const win = k.applyGgufOverride('gguf', gguf, 'cu130')
-  assert.ok(win.includes('llamacpp_gguf_cuda-1.0.8+torch210cu130py311'), 'GGUF win URL suffix fixed cu13→cu130, version untouched (upstream leading)')
-  assert.ok(win.endsWith('-win_amd64.whl'), 'platform suffix preserved')
-  const linux = k.applyGgufOverride('gguf', gguf, 'cu130')
-  // linux source → linux suffix
-  const linuxSrc = gguf.replace('win_amd64', 'linux_x86_64')
-  assert.ok(k.applyGgufOverride('gguf', linuxSrc, 'cu130').endsWith('-linux_x86_64.whl'), 'linux suffix preserved')
-  // already-correct upstream URL passes through unchanged
+  assert.strictEqual(k.applyGgufOverride('gguf', gguf, 'cu130'), gguf, '100% original — no suffix fix, verbatim passthrough')
   const current = 'https://github.com/deepbeepmeep/kernels/releases/download/GGUF_Kernels/llamacpp_gguf_cuda-1.0.13+torch210cu130py311-cp311-cp311-win_amd64.whl'
   assert.strictEqual(k.applyGgufOverride('gguf', current, 'cu130'), current, 'current upstream URL unchanged')
   assert.strictEqual(k.GGUF_TARGET_VERSION, null)

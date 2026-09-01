@@ -167,7 +167,7 @@ WanGP is faster with vendor kernels than stock PyTorch. The launcher reads WanGP
 | **Python** (uv) | `3.11.14` (RTX 20–50) / `3.10.9` (GTX 10) | venv interpreter |
 | **PyTorch + CUDA** | `2.10.0` + CUDA 13.0 | tensor + GPU runtime |
 | **Triton** | `latest` (3.7.1) | JIT for custom CUDA/attention kernels on Windows |
-| **SageAttention** | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | fused attention — big speed-up. RTX 40/50 auto-swapped to stable `cu128` build (upstream `cu130+torch2.9` corrupts CUDA context → false OOM/black H3 frames, #64) |
+| **SageAttention** | `1.0.6` (RTX 20) / `2.2.0` (RTX 30–50) | fused attention — big speed-up |
 | **SpargeAttn** | `0.1.0` | sparsity-aware speed-up alongside Sage |
 | **FlashAttention** | `2.8.3` | memory-efficient exact attention for long/high-res |
 | **Nunchaku** | `1.2.1` | SVD-quantized (NF4/SVDQ) runtime — 4/8-bit models |

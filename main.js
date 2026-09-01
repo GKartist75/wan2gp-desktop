@@ -1401,69 +1401,8 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   await runSetup(['install', '--env', env, '--auto'], _pyShimDir)
   // Clean up py shim
   if (_pyShimDir) { try { fs.rmSync(_pyShimDir, { recursive: true }) } catch {} }
-  // Post-install steps: these run BEFORE returning to the renderer, so the
-  // UI's "Installation complete" only shows after everything finishes.
-  // Use a dedicated phase label so the renderer shows "Finishing..." not "Complete!".
-  send('setup-phase', { id: 'postinstall', label: 'Post-install: verifying dependencies', done: false })
-  // AMD/Windows numpy pin (upstream parity): upstream requirements.txt pins
-  // numpy==2.1.2, but the ROCm "TheRock" torch 2.7.0a0 wheels Wan2GP installs
-  // for AMD on Windows were built against numpy 1.x and crash with numpy 2.
-  // The upstream install scripts force numpy==1.26.4 on win32+AMD for the same reason.
-  try {
-    // Async probe first (nvidia-smi spawn) — falls back to the cached sync
-    // getGpuInfo() so cold-cache installs don't stall on the main thread.
-    const _gpuPost = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
-    if (IS_WIN && _gpuPost.vendor === 'AMD') {
-      const _envPost = getActiveEnv()
-      const _pyPost = _envPost ? getPythonForEnv(_envPost) : null
-      if (_pyPost) {
-        send('setup-output', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
-        await runCmd(_pyPost, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], { timeout: 60000, cwd: getRepoDir() })
-      }
-    }
-  } catch (e) { send('setup-output', `[!] AMD numpy pin: ${e.message}\n`) }
-  send('setup-output', '[*] Ensuring huggingface_hub is installed...\n')
-  try {
-    const envData = getActiveEnv()
-    if (envData) {
-      const py = getPythonForEnv(envData)
-      if (py) await runCmd(py, ['-m', 'pip', 'install', 'huggingface_hub', '-q'], { timeout: 30000, cwd: getRepoDir() })
-    }
-  } catch (e) { send('setup-output', `[!] huggingface_hub install: ${e.message}\n`) }
-  send('setup-output', '[*] Installing hf_xet (Xet Storage) for faster model downloads...\n')
-  try {
-    const envData = getActiveEnv()
-    if (envData) {
-      const py = getPythonForEnv(envData)
-      if (py) await runCmd(py, ['-m', 'pip', 'install', 'hf_xet', '-q'], { timeout: 60000, cwd: getRepoDir() })
-    }
-  } catch (e) { send('setup-output', `[!] hf_xet install: ${e.message}\n`)
-    send('setup-output', '[*] Note: hf_xet is optional — downloads work without it.\n') }
-  // Kernel-wheel verification (upstream parity): setup.py install normally
-  // installs GPU kernel wheels from setup_config.json — verify they landed and
-  // fix any silent mismatch (no-op when already current).
-  try {
-    await syncKernelWheels((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // SageAttention fp8 safety self-heal (issue #64): setup.py install lays down
-  // the broken cu130torch2.9.0andhigher wheel on RTX 40/50; swap it for the
-  // stable cu128 build so first generation doesn't hit the CUDA-context bug.
-  try {
-    await setSageAttentionSafe((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Ensure `accelerate` is present (required by upstream requirements.txt
-  // `accelerate>=1.1.1`). A missing accelerate breaks the z-image VAE dtype
-  // bootstrap fix (ModuleNotFoundError) and any accelerate-backed pipeline.
-  try {
-    await ensureAccelerate((t) => send('setup-output', t))
-  } catch (e) {
-    send('setup-output', `[!] accelerate install check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  send('setup-phase', { id: 'postinstall', label: 'Post-install dependencies ready', done: true })
+  // 100% original — no post-install additions. setup.py (install_logic +
+  // requirements.txt + setup_config.json per-GPU wheels) is the sole source.
   invalidateGitCache()
   return true
 }))
@@ -2632,9 +2571,7 @@ async function syncKernelWheels(log = (t) => send('launch-log', t)) {
     const comp = (cfg.components || {}).kernels && cfg.components.kernels[name]
     let cmd = comp && comp.cmd && comp.cmd[osKey]
     if (!cmd || !/^https?:\/\/.*\.whl$/i.test(cmd)) { log(`[!] Kernel '${name}': no ${osKey} wheel URL in setup_config.json — skipped.\n`); continue }
-    // GGUF → upstream leading. setup_config.json is source of truth (today 1.0.13);
-    // old cached 1.0.8 used suffix cu13 vs cu130 — applyGgufOverride fixes just the suffix,
-    // the full known-good URL via the profile's torch code, not a version bump.
+    // 100% original — setup_config.json verbatim, no GGUF/Sage override. Upstream is leading.
     const torchCode = (profile && profile.torch) || null
     const installCmd = kernelResolver.applyGgufOverride(name, cmd, torchCode)
     const winfo = wheelDistVersion(installCmd)
@@ -2970,56 +2907,9 @@ ipcMain.handle('update', async () => mutating('update', async () => {
   } catch (e) {
     send('launch-log', `[!] requirements reinstall check failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
   }
-  // AMD/Windows numpy pin (upstream parity) — re-applied after any requirements
-  // reinstall above, since requirements.txt itself pins numpy==2.1.2 which breaks
-  // the ROCm "TheRock" torch wheels on Windows/AMD.
-  try {
-    const _gpuUpd = (await autoTune.detectGpuInfo().catch(() => null)) || getGpuInfo()
-    if (IS_WIN && _gpuUpd.vendor === 'AMD') {
-      const _envUpd = getActiveEnv()
-      const _pyUpd = _envUpd ? getPythonForEnv(_envUpd) : null
-      if (_pyUpd) {
-        send('launch-log', '[*] AMD GPU detected on Windows — pinning numpy==1.26.4 (ROCm torch compatibility)...\n')
-        await new Promise((resolve) => {
-          const _p = spawn(_pyUpd, ['-m', 'pip', 'install', 'numpy==1.26.4', '-q'], {
-            cwd: getRepoDir(), windowsHide: true,
-            env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
-          })
-          _p.on('close', () => resolve())
-          _p.on('error', () => resolve())
-        })
-      }
-    }
-  } catch (e) {
-    send('launch-log', `[!] AMD numpy pin: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Kernel-wheel sync (upstream parity): setup.py update never reinstalls GPU
-  // kernel wheels — only requirements.txt — so a wheel bump in setup_config.json
-  // (e.g. GGUF 1.0.7 → 1.0.8) would silently never land in the env, even when
-  // the repo is already at the new commit. Compare what the env has against the
-  // (now current) setup_config.json and install any mismatch.
-  try {
-    await syncKernelWheels()
-  } catch (e) {
-    send('launch-log', `[!] Kernel wheel sync failed: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // SageAttention fp8 safety self-heal (issue #64): setup.py update never
-  // touches the sage wheel (it is a profile field, not in kernels[]), so the
-  // broken cu130torch2.9.0andhigher wheel can persist across updates. Replace
-  // it with the stable cu128 build on RTX 40/50 under torch >= 2.10.
-  try {
-    await setSageAttentionSafe()
-  } catch (e) {
-    send('launch-log', `[!] SageAttention self-heal skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
-  // Ensure `accelerate` is present (required by requirements.txt). A missing
-  // accelerate breaks the z-image VAE dtype bootstrap fix and accelerate-backed
-  // pipelines; it can survive an incomplete requirements install across updates.
-  try {
-    await ensureAccelerate()
-  } catch (e) {
-    send('launch-log', `[!] accelerate check skipped: ${(e.stderr || e.message || String(e)).toString().trim()}\n`)
-  }
+  // 100% original — no post-update additions. setup.py (requirements.txt +
+  // setup_config.json) is the sole source; no numpy pin, kernel sync,
+  // Sage fix, or accelerate check added by the launcher.
   invalidateGitCache() // don't return stale pre-update hashes
   return true
 }))
