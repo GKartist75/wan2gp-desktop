@@ -48,6 +48,12 @@ function buildCommonLaunchArgs(cfg) {
   if (cfg.share && !extraArgs.some(a => a === '--share')) extraArgs.push('--share')
   const gpuDevice = (cfg.gpuDevice || 'auto').trim()
   if (gpuDevice !== 'auto' && /^cuda:\d+$/.test(gpuDevice) && !extraArgs.some(a => a === '--gpu')) extraArgs.push('--gpu', gpuDevice)
+  try {
+    const g = getGpuInfo()
+    const lg = (() => { try { return JSON.parse(require('fs').readFileSync(getConfigFile(), 'utf8')).launcherGpu || 'auto' } catch { return 'auto' } })()
+    const genLabel = gpuDevice === 'auto' ? `auto (${g.name || 'OS picks'} )` : gpuDevice
+    console.log(`[gpu] Launcher UI: ${lg} | Generation: ${genLabel} | HW: ${g.name || '?'} (${g.vendor || '?'}, ${g.vramMB || 0}MB)`)
+  } catch {}
   if (!extraArgs.some(a => a === '--advanced')) extraArgs.push('--advanced')
   if (!extraArgs.some(a => a === '--multiple-images')) extraArgs.push('--multiple-images')
   pushAutoTunedCoefficient(extraArgs)
@@ -344,6 +350,7 @@ try {
     if (launcherGpu === 'disabled') app.disableHardwareAcceleration()
     else if (launcherGpu === 'integrated') app.commandLine.appendSwitch('force_low_power_gpu')
     else if (launcherGpu === 'dedicated') app.commandLine.appendSwitch('force_high_performance_gpu')
+    try { console.log(`[launcher] GPU preference: ${launcherGpu} — ${launcherGpu==='integrated'?'iGPU (power saving, frees VRAM)':launcherGpu==='dedicated'?'dGPU (high perf)':launcherGpu==='disabled'?'SwiftShader (max VRAM)':'OS decides'}`) } catch {}
   }
 } catch (e) { logError('gpu-config', e) }
 
@@ -1947,6 +1954,15 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   send('launch-log', `[*] Python: ${py}\n`)
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
+  try {
+    const lg = (cfg.launcherGpu || (cfg.electronGpu === false ? 'disabled' : 'auto'))
+    const gd = (cfg.gpuDevice || 'auto')
+    const hw = getGpuInfo()
+    let gpuCount = '?'
+    try { gpuCount = execSync('nvidia-smi --query-gpu=index --format=csv,noheader', { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim().split('\n').filter(l=>l.trim()).length + ' NVIDIA' } catch {}
+    send('launch-log', `[*] GPU assignment — Launcher UI: ${lg} | Generation: ${gd} | HW: ${hw.name || '?'} (${hw.vendor || '?'}, ${hw.vramMB||0}MB) | Detected: ${gpuCount}\n`)
+  } catch {}
+
 
   // Include HF_TOKEN in spawned process env
   const launchCfg = loadConfig()
