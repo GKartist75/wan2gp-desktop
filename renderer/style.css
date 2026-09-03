@@ -121,8 +121,8 @@ body {
 .topbar-left { flex: 0 0 auto; min-width: 0; -webkit-app-region: no-drag; }
 .topbar-right { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; justify-content: flex-end; -webkit-app-region: no-drag; }
 .topbar-center {
-  position: absolute; left: 16px;
   display: flex; align-items: center; gap: 8px; pointer-events: none; white-space: nowrap;
+  flex: 0 1 auto; min-width: 0; overflow: hidden;
 }
 .brand-mark-small {
   font-family: 'Instrument Serif', 'Georgia', serif; font-size: 1.25rem; font-weight: 400;
@@ -130,7 +130,7 @@ body {
   display: flex; align-items: center; gap: 2px;
 }
 .brand-mark-small span { color: var(--text-primary); }
-.app-title { font-size: 0.8125rem; font-weight: 500; color: var(--text-primary); }
+.app-title { font-size: 0.8125rem; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; }
 .app-version {
   font-size: 0.6rem; font-weight: 500; color: var(--text-tertiary);
   background: var(--surface-hover); border: 1px solid var(--border);
@@ -154,6 +154,8 @@ body {
   line-height: 0;
 }
 .btn-icon:hover { background: var(--surface-hover); color: var(--text-primary); }
+#stopWangpBtn { color: #EF4444; }
+#stopWangpBtn:hover { background: rgba(239,68,68,.14); color: #EF4444; }
 .btn-icon svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .btn-ghost {
   background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
@@ -921,8 +923,10 @@ body {
 .toggle-row input { accent-color: var(--accent); width: 16px; height: 16px; }
 
 /* ── Topbar live metrics (CPU/GPU/RAM/VRAM sparklines) ── */
-.topbar-metrics { display: flex; align-items: center; gap: 12px; margin-right: 10px; -webkit-app-region: no-drag; }
-.metric { display: flex; align-items: center; gap: 4px; font-size: 0.56rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; }
+.topbar-metrics { display: flex; align-items: center; gap: 12px; margin-right: 10px; -webkit-app-region: no-drag; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+@media (max-width: 1150px) { .metric-spark { display: none; } }
+@media (max-width: 900px) { .app-title { display: none; } }
+.metric { display: flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 0.56rem; color: var(--text-tertiary); font-family: 'Geist Mono', monospace; }
 .metric-label { font-weight: 600; color: var(--text-secondary); letter-spacing: 0.03em; }
 .metric-spark { width: 44px; height: 18px; display: block; background: var(--surface-hover); border-radius: 2px; }
 .metric-val { min-width: 30px; text-align: right; color: var(--text-primary); }

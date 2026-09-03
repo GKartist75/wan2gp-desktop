@@ -416,24 +416,16 @@
           <div class="metric" id="metricVram2" style="display:none" title="VRAM 2"><span class="metric-label">VRAM2</span><canvas class="metric-spark" id="sparkVram2" width="44" height="18"></canvas><span class="metric-val" id="valVram2">—</span></div>
         </div>
         <div id="wvControls" class="wv-controls" style="display:none">
-          <button class="btn-icon wv-btn" id="wvBackBtn" aria-label="Go back" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg></button>
-          <button class="btn-icon wv-btn" id="wvFwdBtn" aria-label="Go forward" disabled><svg viewBox="0 0 24 24" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg></button>
-          <button class="btn-icon wv-btn" id="wvReloadBtn" aria-label="Reload"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
           <span class="wv-sep"></span>
           <input type="range" id="zoomSlider" class="zoom-slider" min="25" max="200" value="100" title="Zoom">
           <span class="zoom-label" id="zoomLabel">100%</span>
           <span class="wv-sep"></span>
           <button class="btn btn-ghost small" id="backToDashboardBtn">← Back to Dashboard</button>
-          <button class="btn-icon wv-btn" id="popoutBtn" title="Open in separate window">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          </button>
-          <button class="btn-icon wv-btn" id="ftToggleBtn" title="Toggle floating terminal">⊞</button>
+          <button class="btn btn-ghost small" id="ftToggleBtn" title="Toggle floating terminal">⊞ Console</button>
+          <button class="btn-icon wv-btn" id="wvReloadBtn" aria-label="Reload Wan2GP view" title="Reload Wan2GP view"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
         </div>
         <button class="btn-icon" id="stopWangpBtn" title="Stop Wan2GP server" style="display:none">
           <svg viewBox="0 0 24 24" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
-        </button>
-        <button class="btn-icon" id="refreshBtn" title="Refresh dashboard &amp; metrics">
-          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
         <button class="btn btn-ghost small" id="taskMgrBtn" title="Open Windows Task Manager">
           <svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="9" x2="16" y2="9" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="17" x2="12" y2="17" stroke="currentColor" stroke-width="1.5"/></svg>

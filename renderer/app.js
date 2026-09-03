@@ -1972,26 +1972,13 @@ async function checkCrashRecovery() {
 }
 
 // ── BrowserView navigation / zoom (relayed via main process) ──
-function updateNavButtons(state) {
-  if ($('wvBackBtn')) $('wvBackBtn').disabled = !state.canGoBack
-  if ($('wvFwdBtn')) $('wvFwdBtn').disabled = !state.canGoForward
-}
-
-$('wvBackBtn').addEventListener('click', () => window.w2gp.bvNavigate('back'))
-$('wvFwdBtn').addEventListener('click', () => window.w2gp.bvNavigate('forward'))
 $('wvReloadBtn').addEventListener('click', () => window.w2gp.bvNavigate('reload'))
-// Listen for live nav state updates (pushed from main process after each navigation)
-window.w2gp.onBvNavState(updateNavButtons)
 let _zoomDebounce = null
 $('zoomSlider').addEventListener('input', () => {
   const pct = parseInt($('zoomSlider').value)
   $('zoomLabel').textContent = pct + '%'
   clearTimeout(_zoomDebounce)
   _zoomDebounce = setTimeout(() => window.w2gp.bvSetZoom(pct / 100), 120)
-})
-
-$('popoutBtn')?.addEventListener('click', () => {
-  if (currentUrl) window.w2gp.popoutWebview(currentUrl)
 })
 
 // ── Running LED ──
@@ -2632,22 +2619,6 @@ document.querySelectorAll('input[name="termDock"]').forEach(r => {
 
 // F12 is built-in DevTools shortcut. The IPC handler in main.js is kept
 // (it opens the BrowserView DevTools when embedded), just no UI button needed.
-
-// Topbar refresh: re-poll dashboard + hardware + a fresh metrics tick
-$('refreshBtn')?.addEventListener('click', async () => {
-  try { refreshDashboard() } catch {}
-  try { loadHardware() } catch {}
-  try {
-    const m = await window.w2gp.getSystemMetrics()
-    if (m) {
-      if (m.ramFree) { const el = $('specRamFree'); if (el) el.textContent = '(' + m.ramFree + ' free)' }
-      if (m.vramFree) { const el = $('specVramFree'); if (el) el.textContent = '(' + m.vramFree + ' free)' }
-      // nudge sparkline redraw via the polling tick
-      if (window.__metricsTick) window.__metricsTick()
-    }
-  } catch {}
-  showToast('Refreshed')
-})
 
 $('tokenSaveBtn')?.addEventListener('click', async () => {
   const token = $('githubTokenInput')?.value

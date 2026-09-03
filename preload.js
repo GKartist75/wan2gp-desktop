@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld('w2gp', {
   launch: (mode) => ipcRenderer.invoke('launch', mode),
   launchWebview: () => ipcRenderer.invoke('launch-webview'),
   stopWangp: () => ipcRenderer.invoke('stop-wangp'),
-  popoutWebview: (url) => ipcRenderer.invoke('popout-webview', url),
 
   // BrowserView (in-app Wan2GP embed — renders reliably on Electron 40; intercepts /manifest.json)
   createBrowserView: (url, opts) => ipcRenderer.invoke('create-browser-view', url, opts),
@@ -30,11 +29,6 @@ contextBridge.exposeInMainWorld('w2gp', {
   detachBrowserView: () => ipcRenderer.invoke('detach-browser-view'),
   reattachBrowserView: () => ipcRenderer.invoke('reattach-browser-view'),
   bvNavigate: (action) => ipcRenderer.invoke('bv-navigate', action),
-  onBvNavState: (cb) => {
-    const h = (_e, state) => cb(state)
-    ipcRenderer.on('bv-nav-state', h)
-    return () => ipcRenderer.removeListener('bv-nav-state', h)
-  },
   bvSetZoom: (factor) => ipcRenderer.invoke('bv-set-zoom', factor),
   bvSetDock: (dock) => ipcRenderer.invoke('bv-set-dock', dock),
 
