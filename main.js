@@ -2326,27 +2326,6 @@ ipcMain.handle('launch-webview', async () => {
 })
 
 ipcMain.handle('stop-wangp', () => { stopWangpServer() })
-// ── Phase 4: Pop-out webview ──
-let detachedWin = null
-ipcMain.handle('popout-webview', (_, url) => {
-  try {
-    detachedWin = new BrowserWindow({
-      width: 1280, height: 800, title: 'Wan2GP',
-      // Keep queue/timer updates flowing while the pop-out is minimized or
-      // occluded — same rationale as the embedded no-throttle BrowserView.
-      webPreferences: { backgroundThrottling: false },
-    })
-    detachedWin.loadURL(url)
-    watchRenderer(detachedWin.webContents, 'pop-out', () => {
-      setTimeout(() => {
-        if (!detachedWin || detachedWin.isDestroyed()) return
-        try { detachedWin.webContents.reload() } catch {}
-      }, 1000)
-    })
-    detachedWin.on('closed', () => { detachedWin = null; mainWin?.webContents.send('webview-returned') })
-    return { success: true }
-  } catch (e) { return { error: e.message } }
-})
 
 // ── Wan2GP embedded via BrowserView (renders reliably on Electron 40; <webview>/<iframe>
 //     both fail: <webview> is blank on E40, <iframe> hits gradio#11553 manifest 404 → blank).
@@ -2533,23 +2512,9 @@ ipcMain.handle('bv-set-dock', (_, dock) => {
 })
 
 ipcMain.handle('bv-navigate', (_, action) => {
-  if (!_bv) return
-  switch (action) {
-    case 'back': _bv.webContents.goBack(); break
-    case 'forward': _bv.webContents.goForward(); break
-    case 'reload': _bv.webContents.reload(); break
-  }
-  // Update navigation state after a short delay to let Chromium process the navigation
-  setTimeout(() => sendNavState(), 100)
+  if (!_bv || action !== 'reload') return
+  _bv.webContents.reload()
 })
-
-function sendNavState() {
-  if (!mainWin || !_bv) return
-  mainWin.webContents.send('bv-nav-state', {
-    canGoBack: _bv.webContents.canGoBack(),
-    canGoForward: _bv.webContents.canGoForward()
-  })
-}
 ipcMain.handle('bv-set-zoom', (_, factor) => {
   if (_bv) _bv.webContents.setZoomLevel(Math.log2(factor))
 })
