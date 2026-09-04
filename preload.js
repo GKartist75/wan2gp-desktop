@@ -147,6 +147,23 @@ contextBridge.exposeInMainWorld('w2gp', {
   notifierTest: (cfg) => ipcRenderer.invoke('notifier-test', cfg),
   notifierEnsure: () => ipcRenderer.invoke('notifier-ensure'),
 
+  // Wan2GP plugins (Manage → Plugins tab)
+  pluginsList: () => ipcRenderer.invoke('plugins-list'),  pluginInstall: (url) => ipcRenderer.invoke('plugin-install', url),
+  pluginCheckUpdate: (id) => ipcRenderer.invoke('plugin-check-update', id),
+  pluginCheckUpdates: () => ipcRenderer.invoke('plugin-check-updates'),
+  pluginUpdate: (id) => ipcRenderer.invoke('plugin-update', id),
+  pluginUninstall: (id) => ipcRenderer.invoke('plugin-uninstall', id),
+  pluginRefreshCatalog: () => ipcRenderer.invoke('plugin-refresh-catalog'),
+
+  // DLSS5 optional runtime (dashboard card)
+  dlss5Status: () => ipcRenderer.invoke('dlss5-status'),
+  installDlss5: (force) => ipcRenderer.invoke('install-dlss5', !!force),
+  onDlss5Progress: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('dlss5-progress', h)
+    return () => ipcRenderer.removeListener('dlss5-progress', h)
+  },
+
   // Pulsebar overlay
   pulsebarHide: () => ipcRenderer.invoke('pulsebar-hide'),
 

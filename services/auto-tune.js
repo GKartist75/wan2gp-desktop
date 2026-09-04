@@ -457,7 +457,8 @@ function appliedKeys() {
     'audio_profile',
     'vram_safety_coefficient',
     'vae_config',
-    'transformer_quantization'
+    'transformer_quantization',
+    'enable_int8_kernels'
   ]
 }
 
@@ -481,6 +482,7 @@ function recommend(hw, opts) {
       image_profile: 4.5,
       audio_profile: 4.5,
       transformer_quantization: 'int8',
+      enable_int8_kernels: 1,
       vae_config: 0,
       vram_safety_coefficient: 0.70,
       _recommendation_label: 'Auto-tune unavailable on this hardware',
@@ -525,6 +527,7 @@ function recommend(hw, opts) {
     vram_safety_coefficient: coeff,
     vae_config: vaeCfg,
     transformer_quantization: quant,
+    enable_int8_kernels: 1,
     _recommendation_label: failsafe
       ? 'Failsafe · P5 (maximum compatibility)'
       : (PROFILE_LABELS[videoProfile] || 'Custom'),

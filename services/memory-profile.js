@@ -24,7 +24,8 @@ const MEMORY_KEYS = [
   'audio_profile',
   'vram_safety_coefficient',
   'vae_config',
-  'transformer_quantization'
+  'transformer_quantization',
+  'enable_int8_kernels'
 ]
 
 // Valid mmgp profile numbers (1..5, with the 3.5/4.5 half-steps Wan2GP supports).
@@ -63,6 +64,10 @@ function validateMemorySettings(s) {
     } else if (key === 'transformer_quantization') {
       if (!VALID_QUANT.includes(v)) {
         errors.push({ field: key, message: `must be one of ${VALID_QUANT.join(', ')}` })
+      }
+    } else if (key === 'enable_int8_kernels') {
+      if (![0, 1, '0', '1'].includes(v)) {
+        errors.push({ field: key, message: 'must be 0 or 1' })
       }
     }
   }
