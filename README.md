@@ -16,6 +16,22 @@
   <a href="https://htmlpreview.github.io/?https://github.com/GKartist75/wan2gp-desktop/blob/main/infographic.html">📖 Visual walkthrough — install, Auto-Tune, dashboard & launch modes on one page →</a>
 </p>
 
+> ## ⚡ Looking for lighter & faster? Try the Tauri edition
+>
+> **We recommend [Wan2GP Desktop Launcher Tauri](https://github.com/GKartist75/Wan2GP-Desktop-Tauri)** — same launcher, same Wan2GP, same features, new shell. This Electron edition ships its own Chromium + Node.js runtime inside every install; the Tauri edition uses the **WebView2 engine already built into Windows** and a compiled **Rust** backend.
+>
+> | | This Electron edition | **Tauri edition** |
+> |---|---|---|
+> | Installer download | ≈ 97 MB | **≈ 3 MB (~30× smaller)** |
+> | Installed app | ≈ 300+ MB (Chromium + Node) | **≈ 7 MB** |
+> | Idle RAM (launcher shell) | ~200–400 MB | **~30–80 MB** |
+> | Backend | JavaScript on Node | **Compiled Rust (no GC pauses)** |
+> | Updates | Full ~97 MB re-download | Small patch |
+>
+> **What that means for generation:** the launcher doesn't render video — but every MB of RAM and VRAM it doesn't waste stays available for models. Its **Launcher GPU** setting (Integrated / Disabled) can push the UI off your NVIDIA card entirely, freeing **1–5 GB VRAM** for Wan2GP.
+>
+> **Switching is painless:** your Wan2GP install, models, `wgp_config.json` and `desktop-config.json` carry over untouched — the Tauri build follows this launcher's data-dir pointer automatically, and can silently uninstall this Electron edition afterwards (data kept).
+
 ---
 
 ## Why Wan2GP? Why this launcher?
