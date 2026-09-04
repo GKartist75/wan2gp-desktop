@@ -139,10 +139,13 @@ The **Manage → Settings** tab also holds the **GitHub token** field (lifts Git
 **Settings written** to `wgp_config.json`:
 - `video_profile` / `image_profile` / `audio_profile` — profile `1, 2, 3, 3.5, 4, 4.5, 5`
 - `transformer_quantization` — Scaled Int8 (recommended), FP8, NVFP4, or None
+- `enable_int8_kernels` — Enabled if Triton available (default, experimental, ~10% faster with INT8 checkpoints)
 - `vae_config` — always **Auto** (runtime picks VAE tiling from real VRAM headroom)
 - `vram_safety_coefficient` — `0.80` (≥12GB), `0.70` (<12GB), `0.60` (failsafe) — forwarded as `--vram-safety-coefficient` on every launch (Extra Launch Args win)
 
 **Failsafe** — tick *"Prefer failsafe (P5 — maximum compatibility)"* to force P5 regardless of matrix, for hardware where the recommendation still crashes.
+
+![Auto-Tune — hardware detection, rec/saved tags, and Int8 Kernels default-on](screenshots/autotune-int8.png)
 
 ---
 
@@ -171,7 +174,7 @@ WanGP is faster with vendor kernels than stock PyTorch. The launcher reads WanGP
 | **SpargeAttn** | `0.1.0` | sparsity-aware speed-up alongside Sage |
 | **FlashAttention** | `2.8.3` | memory-efficient exact attention for long/high-res |
 | **Nunchaku** | `1.2.1` | SVD-quantized (NF4/SVDQ) runtime — 4/8-bit models |
-| **GGUF llama.cpp CUDA** | `1.0.13` | CUDA GGUF kernels (Stream-K, quantized KV-cache) |
+| **GGUF llama.cpp CUDA** | `1.0.14` | CUDA GGUF kernels (Stream-K, quantized KV-cache, speculative-workload fix) |
 | **LightX2V** | `0.0.2` | FP4 kernels — **RTX 50xx / sm120+ only** |
 | **bitsandbytes** | `0.49.2` | 8-bit/NF4 dequant for NF4 checkpoints |
 
@@ -186,12 +189,14 @@ WanGP is faster with vendor kernels than stock PyTorch. The launcher reads WanGP
 | SageAttention | RTX 20 → 1.0.6, RTX 30–50 → 2.2.0 (GTX 10 skipped) |
 | SpargeAttn | matching `cu130`/`py3.11` wheel |
 | FlashAttention | `2.8.3` prebuilt wheel |
-| GGUF llama.cpp CUDA | `1.0.13` (Stream-K, quantized KV-cache) — synced on every update |
+| GGUF llama.cpp CUDA | `1.0.14` (Stream-K, quantized KV-cache) — synced on every update |
 | Nunchaku / bitsandbytes / LightX2V | Nunchaku 1.2.1 + bnb 0.49.2 (all); LightX2V 0.0.2 on RTX 50xx / sm120+ only |
 
 **PyTorch matrix:** RTX 20/30/40/50 → Py 3.11.14 + PyTorch 2.10 + CUDA 13.0/13.1 · GTX 10xx → Py 3.10.9 + PyTorch 2.7.1 + CUDA 12.8. Avoids 2.8.0 (RAM leak) + 2.9.0 (VAE VRAM bug).
 
 > GTX 10/16 stay on legacy **CUDA 12.8** (no R580). Modern RTX needs **R580+** (checked before install). Upstream: [INSTALLATION.md](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/INSTALLATION.md)
+
+![Active Environment — installed packages and GPU kernel wheels](screenshots/env-kernel-wheels.png)
 
 ---
 
@@ -201,9 +206,13 @@ Configure without editing JSON: **Settings → Deepy** or the Dashboard card.
 
 - **Disabled** — Deepy off; keeps local Prompt Enhancer (Florence 2 + Llama 3.2 3B / Joy 8B).
 - **Deepy Zero** — local, no account/key. Qwen3.5 VL 4B (recommended) / 9B / Qwen3.8 VL 27B.
-- **Deepy Prime** — remote LLM via **OpenCode** (free, local models), **Claude Code** or **Codex** (paid). Prime exposes WanGP's MCP tools.
+- **Deepy Prime** — remote LLM via **OpenCode** (free, local models), **Claude Code** (`claude-agent-sdk==0.1.66` pinned bridge) or **Codex** (paid), or local **Qwen3.8 VL 27B** (needs the 27B model + GGUF 1.0.14; auto-sets 32k context + Summarize). Prime exposes WanGP's MCP tools.
 
 Switching live-re-renders the selector; **Apply** writes a consistent `wgp_config.json` (with backup). Also editable inside WanGP: *Configuration → Prompt Enhancer / Deepy*.
+
+![Deepy Prime — local Qwen3.8 + remote LLM engines with install and server controls](screenshots/deepy-prime-engines.png)
+
+![Deepy Zero — local Qwen model picker (Prompt Enhancer)](screenshots/deepy-zero-models.png)
 
 | Disabled — local Prompt Enhancer | Deepy Zero — local Qwen | Deepy Prime — remote LLMs | Active env |
 |---|---|---|---|
@@ -215,6 +224,29 @@ Switching live-re-renders the selector; **Apply** writes a consistent `wgp_confi
 - 💲 **OpenAI Codex — paid.** Own CLI + OpenAI account.
 
 > New to this? Start with **OpenCode** — the only zero-cost option.
+
+---
+
+## 🧩 Plugin Manager — Status Pro included
+
+**Manage → Plugins** lists Wan2GP's catalog merged with your installed `plugins/` folder (system vs community grouping), with search, Name/Latest/Author sort, and per-plugin enable checkboxes. From a git URL you can install (clone + `requirements.txt` + enable), per-plugin ↻ check/update, 🗑 uninstall, library refresh, and check-all-updates — all with console progress.
+
+- **Status Pro** is a default plugin: installed automatically on fresh setup and kept enabled (locked checkbox), but still uninstallable — one click reinstalls it.
+- **★ Favourites** auto-install on fresh setup (stored in `desktop-config.json` → `favoritePlugins`).
+- Update badges (⇪) persist across restarts.
+- Changes apply on next Wan2GP launch.
+
+![Plugin Manager — community catalog with install, update, and favourites](screenshots/plugins-manager.png)
+
+## ✨ DLSS5 installer — optional NVIDIA upsamplers
+
+Dashboard card (below Deepy) runs WanGP's own `scripts/install_dlss5.ps1` (workers v1.1.2, ReShade 6.8.0, RenoDX 4.70, DLSSNR 310.8.SF-v2, DLSS 310.8.0, Frame Generation 310.7.0) into `dlss5/` with a live per-component checklist — downloading → SHA-256 ✓ → installed — plus console progress.
+
+![DLSS5 installer — live per-component checklist with SHA-256 verification](screenshots/dlss5-checklist.png)
+
+- Strict consent: type `I ACCEPT` (third-party binaries are community-hosted, unsigned, proprietary — see [docs/DLSS5.md](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/DLSS5.md)).
+- **Force** backs up + replaces conflicting files. **Stop Wan2GP first.**
+- Needs Windows 11 + RTX 30+ (Neural Rendering) / RTX 40+ (Frame Generation) + HAGS.
 
 ---
 
@@ -254,6 +286,7 @@ No prerequisites needed — launcher installs Git/Python/uv/Miniconda for you. F
 
 > Full history: [docs/changelog.md](docs/changelog.md) · Each version below links to its standalone notes.
 
+- **[v3.3.0](changelogs/CHANGELOG-v3.3.0.md)** — 🧩 Plugin Manager (Status Pro default, favourites auto-install, persistent update badges), ✨ DLSS5 installer card, Deepy local Qwen3.8 Prime, Int8 Kernels auto-tune, boot update check, scoped stop sweep.
 - **[v3.2.0](changelogs/CHANGELOG-v3.2.0.md)** — Topbar cleanup: duplicate refresh icon removed, dead `<`/`>` nav buttons removed, popout removed, red stop button, reload next to stop, labeled ⊞ Console button, metrics/title overlap fixed.
 - **[v3.1.6](changelogs/CHANGELOG-v3.1.6.md)** — Env hint moved/grey + smaller Check Updates + Desktop Full/Quick (delta vs 93 MB full) + deduped launch check + Shift+local.
 - **[v3.1.5](changelogs/CHANGELOG-v3.1.5.md)** — Full 93 MB update + sha512 verify (no blockmap delta) — fixes `This app can't run` after 3.1.3→3.1.4 auto-update.

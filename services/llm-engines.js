@@ -11,7 +11,7 @@
  *             null if the engine has no CLI (pure-pip SDK).
  *   - `pipPackage`: python package to detect in the active env (shows ✓/✗).
  *             null if the engine is external only (Codex/OpenCode need no pip).
- *   - `install`: { mode:'pip', spec:'claude-agent-sdk==0.1.40' }  → guided
+ *   - `install`: { mode:'pip', spec:'claude-agent-sdk==0.1.66' }  → guided
  *             one-click installer runs `python -m pip install <spec>` in the
  *             active env (Wan2GP's documented pinned command for Claude Code).
  *             null for external CLIs — those get a manual install hint instead.
@@ -19,7 +19,7 @@
  *             external install steps and a "Start server" affordance.
  *
  * Pinned versions come straight from Wan2GP's REMOTE_LLMS.md (Claude Code:
- * `pip install claude-agent-sdk==0.1.40`; "Do not install an unpinned newer
+ * `pip install claude-agent-sdk==0.1.66`; "Do not install an unpinned newer
  * SDK because it can replace WanGP's MCP/Pydantic dependencies").
  */
 
@@ -31,7 +31,7 @@ const LLM_ENGINES = [
     docs: 'https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/REMOTE_LLMS.md#claude-code',
     cli: 'claude',
     pipPackage: 'claude_agent_sdk',
-    install: { mode: 'pip', spec: 'claude-agent-sdk==0.1.40' },
+    install: { mode: 'pip', spec: 'claude-agent-sdk==0.1.66' },
     external: false,
     // One-time interactive sign-in required before the bridge works.
     auth: {
@@ -40,7 +40,7 @@ const LLM_ENGINES = [
       help: 'WanGP does not receive or store your password or tokens. Authentication is owned by Claude Code. Click "How to sign in" to open the official Claude Code authentication guide (Max/Pro plan, or use the Anthropic API key option in Settings).',
       docsUrl: 'https://code.claude.com/docs/en/authentication'
     },
-    notes: 'Pinned to 0.1.40 on purpose — a newer SDK can clobber Wan2GP’s MCP/Pydantic deps.'
+    notes: 'Pinned to 0.1.66 on purpose — a newer SDK can clobber Wan2GP’s MCP/Pydantic deps.'
   },
   {
     id: 'codex',

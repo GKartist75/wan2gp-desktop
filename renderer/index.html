@@ -38,6 +38,7 @@
       <button class="settings-tab" data-tab="about">About</button>
       <button class="settings-tab" data-tab="updates">Updates</button>
       <button class="settings-tab" data-tab="autotune">⚡ Auto-Tune</button>
+      <button class="settings-tab" data-tab="plugins">🧩 Plugins</button>
     </div>
     <div class="settings-scroll">
       <div class="settings-tab-content active" data-tab="general">
@@ -283,6 +284,38 @@
           <p class="token-hint" id="manageUpdateDesktopStatus" style="margin-top:6px"></p>
         </div>
       </div>
+      <!-- ═══════ Plugins Tab ═══════ -->
+      <div class="settings-tab-content" data-tab="plugins">
+        <div class="settings-section">
+          <h3>🧩 Wan2GP Plugins</h3>
+          <p class="token-hint">Enable your favourite plugins (e.g. Status Pro) or install new ones from a git URL. Changes apply on next Wan2GP launch.</p>
+        </div>
+        <div class="settings-section">
+          <h3>Installed & Available</h3>
+          <div class="token-field" style="margin-bottom:6px">
+            <button class="btn btn-ghost small" id="pluginRefreshBtn">↻ Refresh library</button>
+            <button class="btn btn-ghost small" id="pluginCheckUpdatesBtn">Check updates</button>
+            <span class="token-hint" id="pluginRefreshStatus" style="margin-left:8px"></span>
+          </div>
+          <div class="token-field" style="margin-bottom:6px">
+            <input type="text" id="pluginSearchInput" class="input" placeholder="Search plugins…" style="max-width:220px">
+            <button class="btn btn-ghost small plugin-sort" data-sort="name">Name</button>
+            <button class="btn btn-ghost small plugin-sort" data-sort="date">Latest</button>
+            <button class="btn btn-ghost small plugin-sort" data-sort="author">Created by</button>
+          </div>
+          <div id="pluginList"><p class="token-hint">Loading…</p></div>
+          <button class="btn btn-primary small" id="pluginSaveBtn" style="margin-top:8px">Save enabled plugins</button>
+          <p class="token-hint" id="pluginSaveStatus" style="margin-top:6px"></p>
+        </div>
+        <div class="settings-section">
+          <h3>Install from URL</h3>
+          <div class="token-field">
+            <input type="text" id="pluginUrlInput" class="input" placeholder="https://github.com/…/…" style="max-width:420px">
+            <button class="btn btn-primary small" id="pluginInstallBtn">Install</button>
+          </div>
+          <p class="token-hint">Clones into <code>plugins/</code>, installs any <code>requirements.txt</code>, and enables it. Progress shows in the console.</p>
+        </div>
+      </div>
       <div class="settings-tab-content" data-tab="autotune">
         <div class="settings-section">
           <h3>⚡ Performance Auto-Tune</h3>
@@ -374,6 +407,14 @@
                 <option value="fp8">fp8</option><option value="nvfp4">nvfp4</option>
               </select>
               <div class="mem-hint"><span id="recQuant" class="tag-rec">rec: —</span><span id="savedQuant" class="tag-saved">saved: —</span></div>
+            </div>
+            <div class="mem-field" style="grid-column:1/-1">
+              <label class="token-hint">Int8 Kernels (Experimental, ~10% faster, needs Triton)</label>
+              <select id="memInt8" class="input">
+                <option value="1">Enabled if Triton available (default)</option>
+                <option value="0">Disabled</option>
+              </select>
+              <div class="mem-hint"><span id="recInt8" class="tag-rec">rec: —</span><span id="savedInt8" class="tag-saved">saved: —</span></div>
             </div>
           </div>
           <div class="mem-hint" style="padding:10px 12px 0">
@@ -575,7 +616,7 @@
           <div class="deepy-mode-row">
             <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="disabled"> Disabled</label>
             <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="zero"> Deepy Zero <span class="deepy-mode-sub">local model</span></label>
-            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="prime"> Deepy Prime <span class="deepy-mode-sub">remote LLM</span></label>
+            <label class="deepy-mode-opt"><input type="radio" name="deepyMode" value="prime"> Deepy Prime <span class="deepy-mode-sub">remote / local LLM</span></label>
           </div>
           <!-- Local model (Prompt Enhancer) selector — shown for Disabled/Zero,
                hidden for Prime. Options are data-driven from services/deepy-config.js
@@ -590,6 +631,8 @@
             <div class="deepy-cost-note">
               <span class="dot-ok">●</span> <strong>OpenCode</strong> — free, local models, no account.
               <span class="dot-bad">●</span> <strong>Claude Code / Codex</strong> — paid (subscription or API credits).
+              <br><span class="dot-ok">●</span> <strong>Qwen3.8 VL 27B (local)</strong> — runs on your GPU; needs the 27B model + GGUF kernels 1.0.14 (Sync Kernels). Auto-sets 32k context + Summarize.
+              <br>Prime plans advanced multi-step work and is required for every external LLM (it exposes WanGP's MCP tools). Zero is lightweight and local-only.
             </div>
             <div id="deepyEngineOptions" class="deepy-engine-options"></div>
             <!-- Guided LLM engine setup for Deepy Prime (Claude Code / Codex / OpenCode).
@@ -608,6 +651,36 @@
             <button class="btn btn-primary" id="deepyApplyBtn" disabled>Apply</button>
           </div>
           <div id="deepyStatusMsg" class="pip-advanced-hint" style="margin-top:8px"></div>
+        </div>
+
+        <!-- Optional DLSS5 runtime (upstream scripts/install_dlss5.ps1). Consent
+             ("I ACCEPT") is taken in the modal below — never skipped. -->
+        <div class="card" id="dlss5Card" style="margin-top:10px">
+          <div class="card-header">
+            <span class="card-title">DLSS 5 (optional runtime)</span>
+          </div>
+          <p class="path-hint">NVIDIA DLSS upsamplers for Wan2GP — installs into <code>dlss5/</code> via Wan2GP's own script. <a id="dlss5DocsLink" href="#" style="color:var(--accent)">How it works (docs)</a></p>
+          <p class="path-hint" id="dlss5StatusMsg" style="margin-top:6px">Checking…</p>
+          <div id="dlss5Progress" style="display:none;margin-top:6px"></div>
+          <div class="deepy-actions">
+            <button class="btn btn-primary" id="dlss5InstallBtn">Install DLSS 5…</button>
+            <label class="path-hint" style="margin-left:8px"><input type="checkbox" id="dlss5ForceChk"> Force (backup + replace existing files)</label>
+          </div>
+          <p class="path-hint" style="margin-top:4px"><em>Stop Wan2GP first — files under <code>dlss5/</code> can't be replaced while in use.</em></p>
+        </div>
+
+        <!-- Strict-consent modal: type I ACCEPT to run the third-party installer. -->
+        <div id="dlss5Modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99;align-items:center;justify-content:center">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;max-width:520px;margin:10vh auto">
+            <h3 style="margin:0 0 8px">Install DLSS 5 runtime?</h3>
+            <p class="path-hint">This downloads native third-party binaries (NVIDIA DLSS, ReShade, RenoDX, DLSSNR 310.8.SF-v2 — community-hosted, unsigned, proprietary) with GPU and filesystem access. Wan2GP does not grant redistribution rights or guarantee these files. Continue only if you accept the copyright, licensing, and security risks. Details: <a id="dlss5DocsLink2" href="#" style="color:var(--accent)">docs/DLSS5.md</a></p>
+            <p class="path-hint">Type <code>I ACCEPT</code> to continue:</p>
+            <input type="text" id="dlss5AcceptInput" class="input" placeholder="I ACCEPT" style="width:100%;margin-bottom:10px" autocomplete="off">
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn btn-ghost" id="dlss5CancelBtn">Cancel</button>
+              <button class="btn btn-primary" id="dlss5ConfirmBtn" disabled>Install</button>
+            </div>
+          </div>
         </div>
 
         <!-- Advanced pip install: open-ended, but spec-validated (no shell, no

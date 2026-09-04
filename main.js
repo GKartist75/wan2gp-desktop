@@ -19,6 +19,8 @@ const { LLM_ENGINES, pipModuleFor, npmPackageFor } = require('./services/llm-eng
 const { resolveCmd } = require('./services/resolve-cmd.js')
 const { spawnCmd } = require('./services/spawn-cmd.js')
 const { setDeepy: setDeepyConfig, readStatus: readDeepyStatus } = require('./services/deepy-config.js')
+const plugins = require('./services/plugins.js')
+const dlss5 = require('./services/dlss5.js')
 const migrate = require('./lib/migrate.js')
 const { getDirSize, mergeDirContents, mergeDirContentsAsync, flattenRepo, rewriteModelPaths, reconcileModelFolders, reconcileModelFoldersAsync } = migrate
 
@@ -289,6 +291,20 @@ function stopWangpServer() {
     return true
   }
   if (_wangpProc) { killProcessTree(_wangpProc); _wangpProc = null; return true }
+  // Orphan sweep (port of Tauri scoped stop): tracked handles are gone (stale
+  // port, shim→child split, relaunch while server runs) but OUR repo's wgp.py
+  // may still be alive. Kill only processes whose command line points at our
+  // repo — never a blanket python.exe kill. Loop: each kill can reveal a child.
+  try {
+    let killedAny = false
+    for (let i = 0; i < 5; i++) {
+      const orphan = findWan2gpPid()
+      if (!orphan) break
+      killProcessTree({ pid: orphan })
+      killedAny = true
+    }
+    if (killedAny) return true
+  } catch {}
   return false
 }
 
@@ -305,17 +321,27 @@ function forceTeardown() {
   try { if (tray) { tray.destroy(); tray = null } } catch {}
 }
 
-// Find the running Wan2GP python PID (used to make external-terminal Stop bulletproof).
+// Find OUR running Wan2GP python PID (used to make external-terminal Stop bulletproof).
 // Done in Node (not the .bat) to avoid cmd %-escaping pitfalls in a cmd CommandLine filter.
-// Windows: Uses Get-CimInstance (modern WMI) instead of deprecated wmic.
-// POSIX: pgrep -f matches the full command line (the spawn includes wgp.py).
+// Scoped to our repo dir (port of Tauri scoped stop): a bare 'wgp.py' match could hit
+// another checkout on the same machine. Windows: Uses Get-CimInstance (modern WMI)
+// instead of deprecated wmic. POSIX: pgrep -f matches the full command line.
 function findWan2gpPid() {
+  let repoNorm = ''
+  try { repoNorm = path.resolve(getRepoDir()).replace(/\//g, '\\').toLowerCase() } catch {}
   try {
     if (!IS_WIN) {
       const out = execSync('pgrep -f wgp.py', { encoding: 'utf8', timeout: 5000 }).toString().trim()
       if (!out) return null
       const pids = out.split('\n').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n))
-      return pids[0] || null
+      if (!repoNorm) return pids[0] || null
+      for (const pid of pids) {
+        try {
+          const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').toLowerCase()
+          if (cmd.includes('wgp.py') && cmd.includes(repoNorm)) return pid
+        } catch {}
+      }
+      return null
     }
     // One query for ALL python.exe processes (pid|commandline), instead of a
     // PowerShell round-trip per PID — several unrelated Python processes used
@@ -323,7 +349,9 @@ function findWan2gpPid() {
     const out = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'python.exe\' } | ForEach-Object { $_.ProcessId.ToString() + \'|\' + $_.CommandLine }"', { windowsHide: true, timeout: 5000 }).toString()
     for (const line of out.split('\n')) {
       const bar = line.indexOf('|')
-      if (bar > 0 && line.slice(bar + 1).includes('wgp.py')) return parseInt(line.slice(0, bar), 10)
+      if (bar <= 0) continue
+      const cmd = line.slice(bar + 1).replace(/\//g, '\\').toLowerCase()
+      if (cmd.includes('wgp.py') && (!repoNorm || cmd.includes(repoNorm))) return parseInt(line.slice(0, bar), 10)
     }
   } catch {}
   return null
@@ -1411,6 +1439,9 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   // 100% original — no post-install additions. setup.py (install_logic +
   // requirements.txt + setup_config.json per-GPU wheels) is the sole source.
   invalidateGitCache()
+  // Favourite plugins (Manage → Plugins ★): auto-clone after fresh setup.
+  // Best-effort — never fails the install.
+  try { await plugins.ensureFavoritePlugins(pluginDeps()) } catch {}
   return true
 }))
 
@@ -3670,7 +3701,7 @@ function getHardwareDefaults() {
   return out
 }
 
-ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, savePath }) => {
+ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, savePath, enabled_plugins }) => {
   const hw = getHardwareDefaults()
   const configPath = path.join(getRepoDir(), 'wgp_config.json')
   const existed = fs.existsSync(configPath)
@@ -3686,6 +3717,8 @@ ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, save
   // explicit choice when given; otherwise the dedicated default. A repo-relative
   // stored path (legacy default / migrated install) is treated as "no choice"
   // and upgraded to the separate default too.
+  // Plugins tab (Save enabled plugins): explicit list wins, no defaults fill here.
+  if (enabled_plugins) cfg.enabled_plugins = enabled_plugins
   if (checkpointsPaths) cfg.checkpoints_paths = checkpointsPaths
   else if (!cfg.checkpoints_paths || isRepoRelativePaths(cfg.checkpoints_paths, getRepoDir()))
     cfg.checkpoints_paths = [path.join(md, 'ckpts'), '.']
@@ -4327,6 +4360,121 @@ ipcMain.handle('restore-requirements', async () => {
   } catch (e) { return { error: e.message } }
 })
 
+// ── Wan2GP plugin manager (list / install / update / uninstall / favourites) ──
+// Backend lives in services/plugins.js (port of the Tauri spike's plugins.rs);
+// these handlers only wire IPC + the mutating() guard + console streaming.
+function pluginDeps() {
+  return { repo: getRepoDir, send, getActiveEnv, getPythonForEnv, loadConfig, atomicWriteFile, IS_WIN }
+}
+ipcMain.handle('plugins-list', async () => {
+  try { return plugins.pluginsList(getRepoDir()) }
+  catch (e) { return { ok: false, error: e.message } }
+})
+ipcMain.handle('plugin-install', async (_, url) => mutating('plugin-install', async () => {
+  const u = String(url || '').trim()
+  if (!(u.startsWith('https://') || u.startsWith('http://') || u.includes('github.com:')))
+    return { ok: false, error: 'Give a plugin git URL (https://github.com/…/…)' }
+  if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) return { ok: false, error: 'Wan2GP not installed — run Install first' }
+  const log = (m) => send('launch-log', m)
+  try {
+    const id = await plugins.installPluginInner(pluginDeps(), u, log)
+    log(`[✓] Plugin ${id} installed and enabled — restart Wan2GP to load it.\n`)
+    return { ok: true, id }
+  } catch (e) { return { ok: false, error: e.message } }
+}))
+ipcMain.handle('plugin-check-update', async (_, id) => {
+  const pid = String(id || '').trim()
+  if (!plugins.validPluginId(pid)) return { ok: false, error: 'Bad plugin id' }
+  return { ok: true, ...plugins.checkUpdateInner(getRepoDir(), pid) }
+})
+ipcMain.handle('plugin-check-updates', async () => {
+  try {
+    const repo = getRepoDir()
+    const updates = []
+    let avail = 0
+    let ids = []
+    try {
+      ids = fs.readdirSync(path.join(repo, 'plugins')).filter((name) => {
+        if (plugins.SYSTEM_PLUGINS.includes(name)) return false
+        try {
+          return fs.statSync(path.join(repo, 'plugins', name)).isDirectory() &&
+            fs.existsSync(path.join(repo, 'plugins', name, '.git'))
+        } catch { return false }
+      }).sort()
+    } catch {}
+    send('launch-log', `[*] Checking plugin updates (${ids.length} installed)…\n`)
+    for (const pid of ids) {
+      const r = plugins.checkUpdateInner(repo, pid)
+      if (r.update) avail++
+      updates.push({ id: pid, update: r.update, behind: r.behind })
+    }
+    send('launch-log', `[*] Plugin update check done: ${avail} update(s) available.\n`)
+    return { ok: true, updates, updates_available: avail }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+ipcMain.handle('plugin-update', async (_, id) => mutating('plugin-update', async () => {
+  const pid = String(id || '').trim()
+  if (!plugins.validPluginId(pid)) return { ok: false, error: 'Bad plugin id' }
+  const log = (m) => send('launch-log', m)
+  try {
+    await plugins.pluginUpdate(pluginDeps(), pid, log)
+    return { ok: true, id: pid }
+  } catch (e) { return { ok: false, error: e.message } }
+}))
+ipcMain.handle('plugin-uninstall', async (_, id) => {
+  const pid = String(id || '').trim()
+  if (!plugins.validPluginId(pid)) return { ok: false, error: 'Bad plugin id' }
+  try { return plugins.pluginUninstall(pluginDeps(), pid) }
+  catch (e) { return { ok: false, error: e.message } }
+})
+ipcMain.handle('plugin-refresh-catalog', async () => mutating('plugin-refresh', async () => {
+  const log = (m) => send('launch-log', m)
+  try { return await plugins.pluginRefreshCatalog(pluginDeps(), log) }
+  catch (e) { return { ok: false, error: e.message } }
+}))
+
+// ── DLSS5 optional runtime (upstream scripts/install_dlss5.ps1) ──
+// Consent ("I ACCEPT") is taken in the UI modal, so the script gets
+// -AcceptThirdPartyRisk and never blocks on Read-Host. Verdict comes from
+// re-probing dlss5/, not from parsing script output.
+ipcMain.handle('dlss5-status', async () => {
+  try { return dlss5.dlss5Status(getRepoDir()) }
+  catch (e) { return { ok: false, error: e.message } }
+})
+ipcMain.handle('install-dlss5', async (_, force) => mutating('install-dlss5', async () => {
+  if (!IS_WIN) return { ok: false, error: 'DLSS5 is Windows-only' }
+  const repo = getRepoDir()
+  if (!fs.existsSync(path.join(repo, 'wgp.py'))) return { ok: false, error: 'Wan2GP not installed' }
+  const ps1 = path.join(repo, 'scripts', 'install_dlss5.ps1')
+  if (!fs.existsSync(ps1)) return { ok: false, error: 'install_dlss5.ps1 not found — update Wan2GP first' }
+  send('setup-output', '[*] Installing DLSS5 runtime (upstream script — progress below)…\n')
+  send('setup-output', '[*] Stop Wan2GP first — files under dlss5/ can\'t be replaced while in use.\n')
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1, '-WanGPRoot', repo, '-AcceptThirdPartyRisk']
+  if (force) args.push('-Force')
+  let spawnErr = false
+  await new Promise((resolve) => {
+    let proc
+    try {
+      proc = spawn('powershell', args, { cwd: repo, windowsHide: true, env: { ...process.env } })
+    } catch (e) { send('setup-output', '[!] spawn failed: ' + e.message + '\n'); spawnErr = true; resolve(); return }
+    const onData = (d) => {
+      const s = d.toString()
+      if (s) {
+        send('setup-output', s)
+        for (const ev of dlss5.dlss5ClassifyChunk(s)) send('dlss5-progress', ev)
+      }
+    }
+    proc.stdout && proc.stdout.on('data', onData)
+    proc.stderr && proc.stderr.on('data', onData)
+    proc.on('close', () => resolve())
+    proc.on('error', (e) => { send('setup-output', '[!] spawn error: ' + e.message + '\n'); spawnErr = true; resolve() })
+  })
+  const st = dlss5.dlss5Status(repo)
+  if (st.complete && !spawnErr) return { ok: true, success: true, complete: true }
+  if (st.installed) return { ok: true, success: true, complete: false, hint: 'Partial install — see console; rerun with Force if files conflict.' }
+  return { ok: false, error: 'DLSS5 install failed — see console output' }
+}))
+
 // ── LLM engine catalog (guided Deepy Prime setup) ──
 // Returns the engine catalog plus live status: is the CLI on PATH and/or the
 // pip bridge present in the active env? The renderer renders ONE generic card
@@ -4374,16 +4522,30 @@ ipcMain.handle('llm-engines:list', async () => {
   try {
     const env = getActiveEnv()
     const py = env ? getPythonForEnv(env) : null
+    // Live server probe for engines with serve control (mirrors Tauri spike):
+    // the tracked child may be gone while the server still listens (or vice versa).
+    const probeServer = (serverUrl) => new Promise((resolve) => {
+      try {
+        const u = new URL(serverUrl)
+        const sock = new net.Socket()
+        sock.setTimeout(1500)
+        sock.on('connect', () => { sock.destroy(); resolve(true) })
+        sock.on('error', () => { sock.destroy(); resolve(false) })
+        sock.on('timeout', () => { sock.destroy(); resolve(false) })
+        sock.connect(parseInt(u.port, 10) || 80, u.hostname)
+      } catch { resolve(false) }
+    })
     const engines = await Promise.all(LLM_ENGINES.map(async (e) => {
       const cliOnPath = e.cli ? await checkCommandOnPath(e.cli) : null
       const pipInstalled = e.pipPackage ? await pipPackageInstalled(py, pipModuleFor(e)) : null
+      const serverRunning = e.serve && e.serverUrl ? await probeServer(e.serverUrl) : null
       return {
         id: e.id, label: e.label, desc: e.desc, docs: e.docs,
         cli: e.cli, cliOnPath,
         pipPackage: e.pipPackage, pipInstalled,
         install: e.install, external: e.external,
         serverUrl: e.serverUrl || null,
-        serve: e.serve || null,
+        serve: e.serve || null, serverRunning,
         auth: e.auth || null, notes: e.notes || null
       }
     }))
@@ -4547,7 +4709,14 @@ ipcMain.handle('llm-engine-serve', async (_, engineId, action) => {
     if (!e || !e.serve) return { error: 'This engine has no server control' }
     if (action === 'stop') {
       const p = _llmServerProcs[engineId]
-      if (p) { try { p.kill() } catch {} delete _llmServerProcs[engineId] }
+      // ponytail: /T kills the tree — the tracked PID may be a cmd /C wrapper
+      // around a .cmd shim, not the server itself (p.kill() would orphan it).
+      if (p) {
+        try {
+          if (IS_WIN && p.pid) execSync('taskkill /F /T /PID ' + p.pid, { windowsHide: true, timeout: 5000 })
+          else p.kill()
+        } catch {} delete _llmServerProcs[engineId]
+      }
       return { success: true, running: false }
     }
     if (action === 'start') {

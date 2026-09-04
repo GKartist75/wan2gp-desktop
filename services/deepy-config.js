@@ -28,7 +28,9 @@ const DEEPY_ENGINE_MAP = {
   'claude-code': { profile: 'claude', exe: 'claude' },
   codex: { profile: 'codex', exe: 'codex' }
 }
-const PROFILE_TO_UI = { opencode: 'opencode', claude: 'claude-code', codex: 'codex' }
+// Local Prime engine (no external binary — runs on the Qwen3.8 VL 27B local model).
+const LOCAL_QWEN38 = 'local-qwen38'
+const PROFILE_TO_UI = { opencode: 'opencode', claude: 'claude-code', codex: 'codex', qwen38_27b: 'local-qwen38' }
 
 // Canonical Deepy mode -> { enabled, type }
 const DEEPY_MODES = {
@@ -79,6 +81,7 @@ const DEEPY_ZERO_PRESET = {
   deepy_vram_mode: 'unload',
   deepy_context_tokens: 16386,
   deepy_kv_cache_quantization: 'auto',
+  deepy_repetition_penalty: true,
   deepy_compaction_type: 'discard',
   deepy_tool_gen_image: 'Krea 2 Turbo (8 Steps)',
   deepy_tool_edit_image: 'Flux Klein 9B',
@@ -103,7 +106,8 @@ const DEEPY_PRIME_PRESET = {
   deepy_file_system_paths: [],
   deepy_read_everywhere: false,
   deepy_auto_cancel_queue_tasks: true,
-  deepy_separate_requests_with_empty_line: true
+  deepy_separate_requests_with_empty_line: true,
+  deepy_repetition_penalty: true
 }
 
 // Resolve the local-model (enhancer_enabled) id for a given mode + user choice.
@@ -165,8 +169,8 @@ function readStatus(cfg) {
 function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
   const { fs, path, resolveCmd } = deps
   if (!DEEPY_MODES[mode]) return { ok: false, error: 'Unknown Deepy mode: ' + mode }
-  if (mode === 'prime' && !DEEPY_ENGINE_MAP[engineId]) {
-    return { ok: false, error: 'Prime requires an engine (OpenCode / Claude Code / Codex).' }
+  if (mode === 'prime' && engineId !== LOCAL_QWEN38 && !DEEPY_ENGINE_MAP[engineId]) {
+    return { ok: false, error: 'Prime requires an engine (OpenCode / Claude Code / Codex / local Qwen3.8 27B).' }
   }
   const cfgPath = path.join(repoDir, 'wgp_config.json')
   if (!fs.existsSync(cfgPath)) return { ok: false, error: 'wgp_config.json not found — install Wan2GP first.' }
@@ -186,6 +190,18 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
   if (mode !== 'prime') cfg.enhancer_enabled = enhancer.id
 
   if (mode === 'prime') {
+    if (engineId === LOCAL_QWEN38) {
+      // Local Prime: runs on Qwen3.8 VL 27B — upstream requires the 27B model
+      // plus context >= 32000 and Summarize compaction, and the Configuration
+      // UI auto-raises both, so mirror that here.
+      cfg.enhancer_enabled = 5
+      cfg.llm_engines = cfg.llm_engines || {}
+      cfg.llm_engines.deepy = 'qwen38_27b'
+      cfg.llm_engines.prompt_enhancer = 'same_as_deepy'
+      if ((parseInt(cfg.deepy_context_tokens, 10) || 0) < 32000) cfg.deepy_context_tokens = 32000
+      cfg.deepy_compaction_type = 'summarize'
+      cfg.deepy_repetition_penalty = true
+    } else {
     const map = DEEPY_ENGINE_MAP[engineId]
     cfg.llm_engines = cfg.llm_engines || {}
     cfg.llm_engines.deepy = map.profile
@@ -202,6 +218,7 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
     // Apply the full Deepy Prime default preset (guidance, MCP servers, file
     // system access, etc.) so it matches Wan2GP's working Deepy Prime config.
     Object.assign(cfg, DEEPY_PRIME_PRESET)
+    }
   } else if (mode === 'zero') {
     // Apply the full Deepy Zero default preset (VRAM mode, context tokens,
     // KV-cache quantization, compaction type, tool variants) and the chosen
@@ -222,14 +239,16 @@ function setDeepy(deps, repoDir, mode, engineId, enhancerId) {
   }
 
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
+  const primeLabel = engineId === LOCAL_QWEN38 ? 'Qwen3.8 VL 27B (local)'
+    : (DEEPY_ENGINE_MAP[engineId] ? DEEPY_ENGINE_MAP[engineId].profile : 'unknown engine')
   const label = mode === 'prime'
-    ? `Deepy Prime set to ${DEEPY_ENGINE_MAP[engineId].profile}`
+    ? `Deepy Prime set to ${primeLabel}`
     : (mode === 'zero' ? 'Deepy Zero enabled (local model)' : 'Deepy disabled')
   return {
     ok: true,
     mode,
-    engine: mode === 'prime' ? DEEPY_ENGINE_MAP[engineId].profile : null,
-    executable: (mode === 'prime') ? cfg.llm_engines.profiles[DEEPY_ENGINE_MAP[engineId].profile].executable : null,
+    engine: mode === 'prime' ? (engineId === LOCAL_QWEN38 ? 'qwen38_27b' : DEEPY_ENGINE_MAP[engineId].profile) : null,
+    executable: (mode === 'prime' && engineId !== LOCAL_QWEN38) ? cfg.llm_engines.profiles[DEEPY_ENGINE_MAP[engineId].profile].executable : null,
     enhancerId: (mode !== 'prime') ? enhancer.id : null,
     backup: bak,
     message: label + '. Launch Wan2GP and click "Ask Deepy".'

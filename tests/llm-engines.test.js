@@ -22,7 +22,7 @@ test('claude-code carries the pinned install spec from REMOTE_LLMS.md', () => {
   const c = LLM_ENGINES.find(e => e.id === 'claude-code')
   assert.ok(c)
   assert.strictEqual(c.install.mode, 'pip')
-  assert.strictEqual(c.install.spec, 'claude-agent-sdk==0.1.40')
+  assert.strictEqual(c.install.spec, 'claude-agent-sdk==0.1.66')
   assert.strictEqual(c.cli, 'claude')
 })
 

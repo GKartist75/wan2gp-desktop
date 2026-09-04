@@ -161,6 +161,7 @@ body {
   background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
 }
 .btn-ghost:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-hover); }
+.btn-ghost.active { color: var(--accent); border-color: var(--accent); }
 .btn-primary {
   background: var(--accent); color: #FFFFFF;
 }
@@ -242,6 +243,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0; /* grid blowout: a long option label (Int8) stretched its column and clipped the other one */
+}
+.mem-field .input {
+  min-width: 0;
 }
 .mem-field > label.token-hint {
   margin-bottom: 0;
@@ -916,6 +921,11 @@ body {
 /* ── Default Browser list (Manage panel) ── */
 .browser-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .browser-row { font-size: 0.75rem; }
+/* plugin rows carry action buttons — divider between entries for scannability */
+#pluginList .browser-row { border-bottom: 1px solid var(--border); padding: 7px 0; }
+#pluginList .browser-row:last-child { border-bottom: none; }
+.plugin-group { font-size: 0.68rem; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 10px 0 2px; }
+.plugin-group:first-child { margin-top: 0; }
 .browser-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); }
 .browser-opt input { accent-color: var(--accent); }
 .browser-opt input:disabled + * { color: var(--text-tertiary); }
