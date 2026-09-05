@@ -15,6 +15,7 @@ const path = require('path')
 
 const DLSS5_FILES = [
   'host/nr-depth-worker.exe',
+  'host/nvngx.dll',
   'host/dxgi.dll',
   'host/renodx-dlss5.addon64',
   'host/nvngx_dlssnr.dll',

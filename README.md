@@ -256,7 +256,7 @@ Switching live-re-renders the selector; **Apply** writes a consistent `wgp_confi
 
 ## ✨ DLSS5 installer — optional NVIDIA upsamplers
 
-Dashboard card (below Deepy) runs WanGP's own `scripts/install_dlss5.ps1` (workers v1.1.2, ReShade 6.8.0, RenoDX 4.70, DLSSNR 310.8.SF-v2, DLSS 310.8.0, Frame Generation 310.7.0) into `dlss5/` with a live per-component checklist — downloading → SHA-256 ✓ → installed — plus console progress.
+Dashboard card (below Deepy) runs WanGP's own `scripts/install_dlss5.ps1` (workers v1.1.3, ReShade 6.8.0, RenoDX 4.70, DLSSNR 310.8.SF-v2, DLSS 310.8.0, Frame Generation 310.7.0) into `dlss5/` with a live per-component checklist — downloading → SHA-256 ✓ → installed — plus console progress.
 
 ![DLSS5 installer — live per-component checklist with SHA-256 verification](screenshots/dlss5-checklist.png)
 
@@ -302,6 +302,7 @@ No prerequisites needed — launcher installs Git/Python/uv/Miniconda for you. F
 
 > Full history: [docs/changelog.md](docs/changelog.md) · Each version below links to its standalone notes.
 
+- **[v3.4.0](changelogs/CHANGELOG-v3.4.0.md)** — DLSS5 status counts all 8 runtime files (+ `host/nvngx.dll`), README tracks workers v1.1.3.
 - **[v3.3.0](changelogs/CHANGELOG-v3.3.0.md)** — 🧩 Plugin Manager (Status Pro default, favourites auto-install, persistent update badges), ✨ DLSS5 installer card, Deepy local Qwen3.8 Prime, Int8 Kernels auto-tune, boot update check, scoped stop sweep.
 - **[v3.2.0](changelogs/CHANGELOG-v3.2.0.md)** — Topbar cleanup: duplicate refresh icon removed, dead `<`/`>` nav buttons removed, popout removed, red stop button, reload next to stop, labeled ⊞ Console button, metrics/title overlap fixed.
 - **[v3.1.6](changelogs/CHANGELOG-v3.1.6.md)** — Env hint moved/grey + smaller Check Updates + Desktop Full/Quick (delta vs 93 MB full) + deduped launch check + Shift+local.
