@@ -302,6 +302,7 @@ No prerequisites needed — launcher installs Git/Python/uv/Miniconda for you. F
 
 > Full history: [docs/changelog.md](docs/changelog.md) · Each version below links to its standalone notes.
 
+- **[v3.4.1](changelogs/CHANGELOG-v3.4.1.md)** — DLSS5 panel always shows all 8 files with versions + per-file SHAs (installed / not installed).
 - **[v3.4.0](changelogs/CHANGELOG-v3.4.0.md)** — DLSS5 status counts all 8 runtime files (+ `host/nvngx.dll`), README tracks workers v1.1.3.
 - **[v3.3.0](changelogs/CHANGELOG-v3.3.0.md)** — 🧩 Plugin Manager (Status Pro default, favourites auto-install, persistent update badges), ✨ DLSS5 installer card, Deepy local Qwen3.8 Prime, Int8 Kernels auto-tune, boot update check, scoped stop sweep.
 - **[v3.2.0](changelogs/CHANGELOG-v3.2.0.md)** — Topbar cleanup: duplicate refresh icon removed, dead `<`/`>` nav buttons removed, popout removed, red stop button, reload next to stop, labeled ⊞ Console button, metrics/title overlap fixed.

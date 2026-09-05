@@ -2714,6 +2714,9 @@ async function refreshDlss5() {
   msg.textContent = s.complete ? `✓ DLSS 5 installed (${s.present}/${s.total} files).`
     : s.installed ? `Partial DLSS 5 install (${s.present}/${s.total} files) — reinstall, or tick Force to replace.`
     : 'DLSS 5 not installed — optional NVIDIA upsampler runtime.'
+  _dlss5Rows = Array.isArray(s.files) ? s.files : []
+  _dlss5State = {}
+  renderDlss5Progress()
 }
 $('dlss5InstallBtn')?.addEventListener('click', () => {
   $('dlss5AcceptInput').value = ''; $('dlss5ConfirmBtn').disabled = true
@@ -2725,40 +2728,41 @@ $('dlss5CancelBtn')?.addEventListener('click', () => { $('dlss5Modal').style.dis
 // ponytail: the script owns integrity — rows only mirror its Downloading /
 // verified / Installed lines. True byte-% isn't in the script output, so the
 // downloading state is honest (no fake progress bar).
-const DLSS5_PKGS = [
-  { id: 'workers', label: 'Workers v1.1.2' },
-  { id: 'reshade', label: 'ReShade 6.8.0' },
-  { id: 'renodx', label: 'RenoDX DLSS5 4.70' },
-  { id: 'dlssnr', label: 'DLSSNR 310.8.SF-v2' },
-  { id: 'dlss', label: 'DLSS Super Resolution 310.8.0' },
-  { id: 'dlssg', label: 'DLSS Frame Generation 310.7.0' }
-]
-let _dlss5State = {}, _dlss5LastPkg = null, _dlss5Files = 0, _dlss5Done = false
+// ── DLSS5 file overview: one always-visible row per installed file (path +
+// version + expected SHA from the backend manifest) with installed /
+// not-installed state. Live install events only override the phase mid-install;
+// refreshDlss5 re-seeds backend truth after.
+// ponytail: the script owns integrity — rows mirror its Downloading /
+// verified / Installed lines. True byte-% isn't in the script output, so the
+// downloading state is honest (no fake progress bar).
+let _dlss5Rows = [], _dlss5State = {}, _dlss5LastPkg = null, _dlss5Done = false
 function renderDlss5Progress() {
   const box = $('dlss5Progress')
   if (!box) return
-  if (!Object.keys(_dlss5State).length && !_dlss5Done && !_dlss5Files) { box.innerHTML = ''; box.style.display = 'none'; return }
+  if (!_dlss5Rows.length && !_dlss5Done) { box.innerHTML = ''; box.style.display = 'none'; return }
   box.style.display = 'block'
-  box.innerHTML = DLSS5_PKGS.filter(p => _dlss5State[p.id]).map(p => {
-    const s = _dlss5State[p.id]
-    const done = s.phase === 'verified'
-    const icon = done ? '<span class="dot-ok">●</span>' : '<span>…</span>'
-    const note = done && s.sha ? '✓ SHA ' + escHtml(s.sha.slice(0, 12)) + '…' : 'downloading…'
-    return `<div class="spec-row"><span class="spec-label">${icon} ${p.label}</span><span class="spec-value">${note}</span></div>`
-  }).join('') + (_dlss5Files ? `<div class="spec-row"><span class="spec-label">Files installed</span><span class="spec-value">${_dlss5Files}</span></div>` : '')
+  box.innerHTML = _dlss5Rows.map(f => {
+    const ph = _dlss5State[f.id]
+    const sha = String(f.sha || '')
+    if (ph === 'downloading') return `<div class="spec-row"><span class="spec-label"><span>…</span> ${escHtml(f.id)}</span><span class="spec-value">${escHtml(f.version)} · downloading…</span></div>`
+    const ok = ph === 'verified' || (!ph && f.installed)
+    const icon = ok ? '<span class="dot-ok">●</span>' : '<span style="color:#F87171">●</span>'
+    const note = `${escHtml(f.version)} · ` + (ok ? '✓ SHA ' : 'SHA ') + escHtml(sha.slice(0, 12)) + '… ' + (ok ? '' : '— not installed')
+    return `<div class="spec-row"><span class="spec-label">${icon} ${escHtml(f.id)}</span><span class="spec-value">${note}</span></div>`
+  }).join('')
     + (_dlss5Done ? '<div class="pip-advanced-hint" style="color:#4ADE80">✓ DLSS 5 components installed — restart Wan2GP.</div>' : '')
 }
 function dlss5OnEvent(d) {
   if (!d || !d.phase) return
-  if (d.phase === 'downloading' && d.pkg && d.pkg !== 'other') { _dlss5State[d.pkg] = { phase: 'downloading' }; _dlss5LastPkg = d.pkg }
-  else if (d.phase === 'verified' && _dlss5LastPkg) { _dlss5State[_dlss5LastPkg] = { phase: 'verified', sha: d.sha || '' } }
-  else if (d.phase === 'installed' || d.phase === 'present') { _dlss5Files++ }
+  if (d.phase === 'downloading' && d.pkg && d.pkg !== 'other') { for (const f of _dlss5Rows) if (f.pkg === d.pkg) _dlss5State[f.id] = 'downloading'; _dlss5LastPkg = d.pkg }
+  else if (d.phase === 'verified' && _dlss5LastPkg) { for (const f of _dlss5Rows) if (f.pkg === _dlss5LastPkg) _dlss5State[f.id] = 'verified' }
+  else if ((d.phase === 'installed' || d.phase === 'present') && d.path) { _dlss5State[String(d.path).replace(/\\/g, '/')] = 'verified' }
   else if (d.phase === 'done') { _dlss5Done = true }
   else return
   renderDlss5Progress()
 }
 $('dlss5ConfirmBtn')?.addEventListener('click', async () => {
-  _dlss5State = {}; _dlss5LastPkg = null; _dlss5Files = 0; _dlss5Done = false; renderDlss5Progress()
+  _dlss5LastPkg = null; _dlss5State = {}; _dlss5Done = false; renderDlss5Progress()
   $('dlss5Modal').style.display = 'none'
   const force = !!$('dlss5ForceChk')?.checked
   const btn = $('dlss5InstallBtn'); btn.disabled = true
