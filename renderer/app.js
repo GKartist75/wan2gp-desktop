@@ -2714,6 +2714,9 @@ async function refreshDlss5() {
   msg.textContent = s.complete ? `✓ DLSS 5 installed (${s.present}/${s.total} files).`
     : s.installed ? `Partial DLSS 5 install (${s.present}/${s.total} files) — reinstall, or tick Force to replace.`
     : 'DLSS 5 not installed — optional NVIDIA upsampler runtime.'
+  _dlss5Pkgs = Array.isArray(s.packages) ? s.packages : []
+  for (const p of _dlss5Pkgs) _dlss5State[p.id] = { phase: p.installed ? 'verified' : 'missing', sha: p.sha }
+  renderDlss5Progress()
 }
 $('dlss5InstallBtn')?.addEventListener('click', () => {
   $('dlss5AcceptInput').value = ''; $('dlss5ConfirmBtn').disabled = true
@@ -2725,26 +2728,26 @@ $('dlss5CancelBtn')?.addEventListener('click', () => { $('dlss5Modal').style.dis
 // ponytail: the script owns integrity — rows only mirror its Downloading /
 // verified / Installed lines. True byte-% isn't in the script output, so the
 // downloading state is honest (no fake progress bar).
-const DLSS5_PKGS = [
-  { id: 'workers', label: 'Workers v1.1.2' },
-  { id: 'reshade', label: 'ReShade 6.8.0' },
-  { id: 'renodx', label: 'RenoDX DLSS5 4.70' },
-  { id: 'dlssnr', label: 'DLSSNR 310.8.SF-v2' },
-  { id: 'dlss', label: 'DLSS Super Resolution 310.8.0' },
-  { id: 'dlssg', label: 'DLSS Frame Generation 310.7.0' }
-]
-let _dlss5State = {}, _dlss5LastPkg = null, _dlss5Files = 0, _dlss5Done = false
+// ── DLSS5 file overview: always-visible rows (label + SHA from the backend
+// manifest) with installed / not-installed state. Live install events only
+// override the phase mid-install; refreshDlss5 re-seeds backend truth after.
+// ponytail: the script owns integrity — rows mirror its Downloading /
+// verified / Installed lines. True byte-% isn't in the script output, so the
+// downloading state is honest (no fake progress bar).
+let _dlss5Pkgs = [], _dlss5State = {}, _dlss5LastPkg = null, _dlss5Files = 0, _dlss5Done = false
 function renderDlss5Progress() {
   const box = $('dlss5Progress')
   if (!box) return
-  if (!Object.keys(_dlss5State).length && !_dlss5Done && !_dlss5Files) { box.innerHTML = ''; box.style.display = 'none'; return }
+  if (!_dlss5Pkgs.length && !_dlss5Done && !_dlss5Files) { box.innerHTML = ''; box.style.display = 'none'; return }
   box.style.display = 'block'
-  box.innerHTML = DLSS5_PKGS.filter(p => _dlss5State[p.id]).map(p => {
-    const s = _dlss5State[p.id]
-    const done = s.phase === 'verified'
-    const icon = done ? '<span class="dot-ok">●</span>' : '<span>…</span>'
-    const note = done && s.sha ? '✓ SHA ' + escHtml(s.sha.slice(0, 12)) + '…' : 'downloading…'
-    return `<div class="spec-row"><span class="spec-label">${icon} ${p.label}</span><span class="spec-value">${note}</span></div>`
+  box.innerHTML = _dlss5Pkgs.map(p => {
+    const s = _dlss5State[p.id] || {}
+    const sha = String(s.sha || p.sha || '')
+    if (s.phase === 'downloading') return `<div class="spec-row"><span class="spec-label"><span>…</span> ${escHtml(p.label)}</span><span class="spec-value">downloading…</span></div>`
+    const ok = s.phase === 'verified'
+    const icon = ok ? '<span class="dot-ok">●</span>' : '<span style="color:#F87171">●</span>'
+    const note = (ok ? '✓ SHA ' : 'SHA ') + escHtml(sha.slice(0, 12)) + '… ' + (ok ? '' : '— not installed')
+    return `<div class="spec-row"><span class="spec-label">${icon} ${escHtml(p.label)}</span><span class="spec-value">${note}</span></div>`
   }).join('') + (_dlss5Files ? `<div class="spec-row"><span class="spec-label">Files installed</span><span class="spec-value">${_dlss5Files}</span></div>` : '')
     + (_dlss5Done ? '<div class="pip-advanced-hint" style="color:#4ADE80">✓ DLSS 5 components installed — restart Wan2GP.</div>' : '')
 }
@@ -2758,7 +2761,7 @@ function dlss5OnEvent(d) {
   renderDlss5Progress()
 }
 $('dlss5ConfirmBtn')?.addEventListener('click', async () => {
-  _dlss5State = {}; _dlss5LastPkg = null; _dlss5Files = 0; _dlss5Done = false; renderDlss5Progress()
+  _dlss5LastPkg = null; _dlss5Files = 0; _dlss5Done = false; renderDlss5Progress()
   $('dlss5Modal').style.display = 'none'
   const force = !!$('dlss5ForceChk')?.checked
   const btn = $('dlss5InstallBtn'); btn.disabled = true
