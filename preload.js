@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('w2gp', {
   platform: process.platform,
   // Install
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
+  classifyTarget: () => ipcRenderer.invoke('classify-target'),
+  folderSize: (dir) => ipcRenderer.invoke('folder-size', dir),
   detectGpu: () => ipcRenderer.invoke('detect-gpu'),
   detectGpus: () => ipcRenderer.invoke('detect-gpus'),
   install: (envType) => ipcRenderer.invoke('install', envType),
@@ -73,11 +75,12 @@ contextBridge.exposeInMainWorld('w2gp', {
 
   // Paths
   getInstallPaths: () => ipcRenderer.invoke('get-install-paths'),
-  getDiskSpace: () => ipcRenderer.invoke('get-disk-space'),
+  getDiskSpace: (dir) => ipcRenderer.invoke('get-disk-space', dir || null),
   openFolder: (p) => ipcRenderer.invoke('open-folder', p),
   setDataDir: (dir) => ipcRenderer.invoke('set-data-dir', dir),
   resetDataDir: () => ipcRenderer.invoke('reset-data-dir'),
   migrateToPreferred: (choices) => ipcRenderer.invoke('migrate-to-preferred', choices),
+  migratePoint: (choices) => ipcRenderer.invoke('migrate-point', choices),
   moveFolder: (src, dst) => ipcRenderer.invoke('move-folder', src, dst),
   migrateChoose: () => ipcRenderer.invoke('migrate-choose'),
   onOpenMigration: (cb) => ipcRenderer.on('open-migration', () => cb()),
@@ -191,6 +194,11 @@ contextBridge.exposeInMainWorld('w2gp', {
     const h = (_e, profile) => cb(profile)
     ipcRenderer.on('setup-profile', h)
     return () => ipcRenderer.removeListener('setup-profile', h)
+  },
+  onInstallProgress: (cb) => {
+    const h = (_e, d) => cb(d)
+    ipcRenderer.on('install-progress', h)
+    return () => ipcRenderer.removeListener('install-progress', h)
   },
   onLaunchLog: (cb) => {
     const h = (_e, d) => cb(d)

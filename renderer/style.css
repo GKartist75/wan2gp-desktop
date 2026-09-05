@@ -929,6 +929,25 @@ body {
 .browser-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); }
 .browser-opt input { accent-color: var(--accent); }
 .browser-opt input:disabled + * { color: var(--text-tertiary); }
+/* plugin rows with available updates — amber wash + left accent + bold badge */
+#pluginList .browser-row.plugin-has-update { background: color-mix(in srgb, var(--signal-amber) 9%, transparent); box-shadow: inset 3px 0 0 var(--signal-amber); border-radius: 0 8px 8px 0; padding-left: 8px; }
+#pluginList .browser-row.plugin-has-update .browser-opt { color: var(--text-primary); }
+.plugin-update-badge { color: var(--signal-amber); font-weight: 700; }
+#pluginList .browser-row.plugin-has-update .btn { border-color: color-mix(in srgb, var(--signal-amber) 55%, transparent); }
+/* installer live downloads — per-file rows with sizes + animated bar */
+.install-progress { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+#installProgressList { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.iprog-row { font-size: 0.68rem; }
+.iprog-top { display: flex; gap: 8px; align-items: baseline; }
+.iprog-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.iprog-size { color: var(--text-tertiary); white-space: nowrap; }
+.iprog-state { white-space: nowrap; }
+.iprog-state.downloading { color: var(--signal-amber); }
+.iprog-state.installed { color: var(--signal-green); }
+.iprog-bar { height: 3px; border-radius: 2px; background: var(--surface-hover); margin-top: 3px; overflow: hidden; }
+.iprog-bar > div { height: 100%; width: 40%; border-radius: 2px; background: var(--signal-amber); animation: iprog-slide 1.1s linear infinite; }
+.iprog-bar.done > div { width: 100%; background: var(--signal-green); animation: none; }
+@keyframes iprog-slide { from { margin-left: -40%; } to { margin-left: 100%; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; }
 .toggle-row input { accent-color: var(--accent); width: 16px; height: 16px; }
 

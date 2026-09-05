@@ -283,6 +283,11 @@
           <button class="btn btn-primary small" id="manageUpdateDesktopBtn">↻ Check Desktop Updates</button>
           <p class="token-hint" id="manageUpdateDesktopStatus" style="margin-top:6px"></p>
         </div>
+        <div class="settings-section">
+          <h3>Setup</h3>
+          <p class="token-hint">Re-open the installer — fresh install, repair, reuse or migrate, with all pre-flight checks.</p>
+          <button class="btn btn-ghost small" id="manageRunSetupBtn">🧭 Run Setup again</button>
+        </div>
       </div>
       <!-- ═══════ Plugins Tab ═══════ -->
       <div class="settings-tab-content" data-tab="plugins">
@@ -560,6 +565,7 @@
             <span class="env-type-tag" id="envType"></span>
             <button class="env-unlink-btn" id="envUnlinkBtn" title="Uninstall active environment">unlink</button>
             <button class="env-restore-btn" id="envRestoreBtn" title="Reinstall all packages from requirements.txt">restore</button>
+            <button class="env-restore-btn" id="envReinstallBtn" title="Recreate the whole environment (Python, PyTorch, packages, kernels). Models & settings are kept.">reinstall</button>
             <button class="btn btn-ghost small" id="checkPkgUpdatesBtn" title="Check PyPI for package updates" style="margin-left:auto;padding:1px 6px;font-size:0.55rem;line-height:1.4">↻ Check Updates</button>
           </div>
           <p class="token-hint" style="margin:6px 12px 0">↻ Check Updates queries PyPI for newer versions. Updating a single package (e.g. torch) can break the env (CUDA mismatch, black frames) — use <em>restore</em> to reinstall the tested <code>requirements.txt</code>.</p>
@@ -837,7 +843,7 @@
           <button class="btn btn-ghost small" id="clearAppDataPath" title="Reset to default">✕</button>
         </div>
         <div id="installRootWarn" class="install-root-warn hidden"></div>
-        <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile. Always pick a <strong>folder</strong> — a bare drive root is not allowed.</p>
+        <p class="path-hint">Where the Wan2GP repo, Python venv/env, and settings live. Default <code>C:\Wan2GP</code> on a fast SSD with 50+ GB free. Keep it OUT of AppData so it isn't buried in a roaming profile. Picking a bare drive root automatically uses <code>&lt;root&gt;\Wan2GP</code>.</p>
         <div id="moveToPreferredWrap" class="migrate-note hidden">
           <span class="migrate-warn">⚠ Your Wan2GP data is currently inside your roaming AppData profile (<code id="currentDataDirPath">…</code>).</span>
           <button class="btn btn-primary small" id="moveToPreferredBtn">Migrate to new location</button>
@@ -871,6 +877,23 @@
       </div>
 
       <button id="installStartBtn">Install</button>
+
+      <!-- Live downloads (parsed from uv output — per-file rows + versions) -->
+      <div class="install-progress" id="installProgress" style="display:none">
+        <div class="ipkgs-header">Downloads <span id="installProgressCount" class="ipo-profile-badge"></span></div>
+        <div id="installProgressList"></div>
+      </div>
+
+      <!-- Target-folder verdict (classify-target): Fresh / Adopt-Reuse / warn -->
+      <div id="targetVerdict" class="install-stack" style="display:none">
+        <div class="ipkgs-header">Install location check</div>
+        <div id="targetVerdictBody"></div>
+        <div class="reinstall-buttons" style="margin-top:8px">
+          <button class="btn btn-primary small" id="targetAdoptBtn" style="display:none">Install / repair environment</button>
+          <button class="btn btn-primary small" id="targetUseModelsBtn" style="display:none">Reuse its models in a fresh install</button>
+          <button class="btn btn-ghost small" id="targetBrowseBtn" style="display:none">Choose empty folder…</button>
+        </div>
+      </div>
 
       <!-- Hardware info -->
       <div class="install-hw">
@@ -918,7 +941,9 @@
         <div class="ipkgs-header">Resolved install stack</div>
         <div class="istack-grid" id="installStackGrid"></div>
         <div class="istack-warn" id="installStackWarn"></div>
+        <div class="istack-warn" id="modelDiskGates"></div>
         <button class="btn btn-ghost small" id="validateInstallBtn" style="margin-top:8px;display:none">Validate installation</button>
+        <button class="btn btn-ghost small" id="copyDiagnosticsBtn" style="margin-top:8px;display:none">Copy diagnostics</button>
       </div>
 
       <!-- Reinstall choice (shown when Wan2GP already installed) -->
@@ -1037,6 +1062,7 @@
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="migrationCancelBtn">Cancel</button>
+        <button class="btn btn-ghost" id="migrationPointBtn" title="Don't move anything — just use the Wan2GP install already in that folder">Just switch to it</button>
         <button class="btn btn-primary" id="migrationMoveBtn">Move &amp; restart</button>
       </div>
     </div>

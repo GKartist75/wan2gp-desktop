@@ -443,6 +443,11 @@ function getDataDir() {
         } else if (fs.existsSync(resolved) || fs.existsSync(path.join(resolved, 'Wan2GP'))) {
           // Pinned dir (or its Wan2GP core) still exists — trust it.
           return resolved
+        } else if (fs.existsSync(path.dirname(resolved))) {
+          // Fresh pick that doesn't exist yet (e.g. D:\Wan2GP auto-resolved
+          // from D:\) — honor it while the parent drive is alive (install
+          // creates it). Tauri parity: ignoring this silently reverted to default.
+          return resolved
         } else {
           // Stale override: the pinned folder was renamed/moved/deleted (e.g. the
           // user renamed their Wan2GP folder, then reinstalled). A dead pin makes
@@ -861,41 +866,105 @@ function sysPython() {
 // Windows" loader error 0xc0e90002) is auto-repaired with a forced reinstall
 // before falling back to a verified system Python.
 // ponytail: once uv becomes mandatory, return null here to hard-fail instead of falling back.
-async function installPython() {
-  const find311 = async () => {
-    try { return (await asyncExec('uv python find 3.11', { encoding: 'utf8', windowsHide: true, timeout: 30000 })).trim() } catch { return '' }
+// Exact Python pin setup.py demands via `uv venv --python X`. Read from the
+// freshly-cloned setup_config.json when present (gpu_profiles[profile].python
+// is minor-only upstream — resolved via components.python.<minor>.ver), so an
+// upstream bump can't silently re-open the "No interpreter found" hole.
+// Falls back to the known matrix (Tauri parity).
+function scanVersion(s) {
+  const m = String(s || '').match(/(\d+\.\d+(?:\.\d+)?)/)
+  return m ? m[1] : ''
+}
+function pinnedPythonWanted() {
+  try {
+    const cfgPath = path.join(getRepoDir(), 'setup_config.json')
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+      const gpu = getGpuInfo() || {}
+      const profile = kernelResolver.kernelProfileKey(gpu)
+      const cands = []
+      const perProf = cfg.gpu_profiles && cfg.gpu_profiles[profile] && cfg.gpu_profiles[profile].python
+      if (perProf) cands.push(perProf)
+      for (const k of ['python', 'python_version']) if (cfg[k]) cands.push(cfg[k])
+      if (cfg.components && cfg.components.python) cands.push(cfg.components.python)
+      for (const c of cands) {
+        const ver = scanVersion(typeof c === 'string' ? c : '')
+        if (!ver) continue
+        if (ver.split('.').length >= 3) return ver
+        // minor-only → resolve via components.python.<minor>.ver
+        const exact = cfg.components && cfg.components.python && cfg.components.python[ver] && cfg.components.python[ver].ver
+        const full = scanVersion(exact || '')
+        if (full.split('.').length >= 3) return full
+        if (ver.startsWith('3.11')) return '3.11.14'
+        if (ver.startsWith('3.10')) return '3.10.9'
+        return ver
+      }
+    }
+  } catch {}
+  try {
+    const gpu = getGpuInfo() || {}
+    if (kernelResolver.kernelProfileKey(gpu) === 'GTX_10') return '3.10.9'
+  } catch {}
+  return '3.11.14'
+}
+
+async function installPython(wanted) {
+  // Exact pin setup.py demands (Tauri parity: dynamic pin, not minor).
+  // Existing callers pass nothing — resolve once here.
+  const want = wanted || pinnedPythonWanted()
+  const minor = want.split('.').slice(0, 2).join('.')
+  const findExact = async () => {
+    try { return (await asyncExec('uv python find ' + want, { encoding: 'utf8', windowsHide: true, timeout: 30000 })).trim() } catch { return '' }
   }
-  // Confirm the interpreter actually executes — uv's "find" only locates it,
-  // and a corrupted/blocked managed install still shows up in the list.
-  const runs = async (p) => {
+  // Confirm the interpreter actually executes AND is the exact pin — uv's
+  // "find" only locates it, and a neighbouring patch won't satisfy setup.py.
+  const runsExact = async (p) => {
     if (!p) return false
-    try { await asyncExec(`"${p}" -c "import sys"`, { stdio: 'pipe', windowsHide: true, timeout: 30000 }); return true } catch { return false }
+    try {
+      const v = await asyncExec(`"${p}" -c "import sys; print(sys.version)"`, { encoding: 'utf8', stdio: 'pipe', windowsHide: true, timeout: 30000 })
+      return v.trim().startsWith(want)
+    } catch { return false }
   }
-  // Preferred: uv-managed 3.11 (default env type already requires uv)
-  try { await asyncExec('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 120000 }) } catch {}
-  let p = await find311()
-  if (await runs(p)) return p
-  // Managed 3.11 exists but won't run (corrupted download / loader block).
+  // Best-effort self-update: an old uv doesn't know new patches exist and
+  // fails with "No interpreter found". Ignored when offline/already current.
+  send('setup-output', `[*] Ensuring Python ${want} via uv (setup.py needs this exact version)…\n`)
+  try { await asyncExec('uv self update', { stdio: 'pipe', windowsHide: true, timeout: 120000 }) } catch {}
+  // uv's own data drive (managed Pythons live under %APPDATA%\\uv): a full C:
+  // fails the download even with terabytes free on the install drive.
+  try {
+    const uvData = process.env.UV_PYTHON_INSTALL_DIR || (process.env.APPDATA ? path.join(process.env.APPDATA, 'uv') : '')
+    if (uvData && typeof fs.statfsSync === 'function') {
+      const s = fs.statfsSync(path.parse(uvData).root)
+      const freeGb = (s.bsize * s.bfree) / 1073741824
+      if (freeGb < 2) send('setup-output', `[!] uv's own data drive (${uvData} — ${freeGb.toFixed(1)} GB free) is nearly full, so the Python download itself may fail. Free space there too.\n`)
+    }
+  } catch {}
+  // Preferred: uv-managed exact pin (default env type already requires uv)
+  try { await asyncExec('uv python install ' + want, { stdio: 'pipe', windowsHide: true, timeout: 180000 }) } catch {}
+  let p = await findExact()
+  if (await runsExact(p)) { send('setup-output', `[*] Python ${want} ready: ${p}\n`); return p }
+  // Managed copy exists but won't run (corrupted download / loader block).
   // Force a clean reinstall instead of handing the broken exe to setup.py.
-  send('setup-output', '[!] Managed Python 3.11 is broken (DLL load failure). Forcing a clean reinstall...\n')
-  try { await asyncExec('uv python install --reinstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) }
+  send('setup-output', `[!] Managed Python ${want} is broken (DLL load failure). Forcing a clean reinstall...\n`)
+  try { await asyncExec('uv python install --reinstall ' + want, { stdio: 'pipe', windowsHide: true, timeout: 240000 }) }
   catch {
     // Older uv without --reinstall: uninstall + install
-    try { await asyncExec('uv python uninstall 3.11', { stdio: 'pipe', windowsHide: true, timeout: 60000 }) } catch {}
-    try { await asyncExec('uv python install 3.11', { stdio: 'pipe', windowsHide: true, timeout: 240000 }) } catch {}
+    try { await asyncExec('uv python uninstall ' + want, { stdio: 'pipe', windowsHide: true, timeout: 60000 }) } catch {}
+    try { await asyncExec('uv python install ' + want, { stdio: 'pipe', windowsHide: true, timeout: 240000 }) } catch {}
   }
-  p = await find311()
-  if (await runs(p)) return p
-  // Fallback: any system 3.11 that actually runs (verified, so setup.py never
-  // spawns a dead exe — previously this dead-ended in "exited code 9009").
-  const sysCandidates = IS_WIN ? ['python', 'python3.11'] : ['python3.11', 'python3']
+  p = await findExact()
+  if (await runsExact(p)) { send('setup-output', `[*] Python ${want} reinstalled: ${p}\n`); return p }
+  // Fallback: a system Python of the exact pin that actually runs (verified,
+  // so setup.py never spawns a dead exe — previously this dead-ended in "exited code 9009").
+  const sysCandidates = IS_WIN ? ['python', 'python' + minor] : ['python' + minor, 'python3', 'python']
   for (const cand of sysCandidates) {
     let resolved = cand
     try { resolved = (await asyncExec(IS_WIN ? 'where ' + cand : 'which ' + cand, { encoding: 'utf8', windowsHide: true })).split('\n')[0].trim() || cand } catch {}
-    if (await runs(resolved)) return resolved
+    if (await runsExact(resolved)) return resolved
   }
   return null
 }
+
 
 // ── Log history buffer (replayed to floating terminal window on create) ──
 const _logHistory = []
@@ -1136,22 +1205,52 @@ function runCmd(cmd, args, opts = {}) {
   })
 }
 
+// Classify uv's piped download lines into live install-progress events (Tauri
+// parity): "Downloading X (Y MiB)" → "Prepared/Installed N" → "+ x==ver".
+function installProgressClassify(chunk) {
+  for (const raw of String(chunk).split('\n')) {
+    const t = raw.trim()
+    if (!t) continue
+    const low = t.toLowerCase()
+    let ev = null
+    if (low.startsWith('downloading ')) {
+      const rest = low.slice('downloading '.length)
+      const i = rest.indexOf('(')
+      const name = (i >= 0 ? rest.slice(0, i) : rest).trim()
+      const size = i >= 0 ? rest.slice(i + 1).replace(/\($/, '').replace(/\)$/, '').trim() : ''
+      if (name) ev = { phase: 'downloading', pkg: name, size }
+    } else if (t.startsWith('Resolved ')) {
+      ev = { phase: 'resolved', count: t.split(/\s+/)[1] || '?' }
+    } else if (t.startsWith('Prepared ')) {
+      ev = { phase: 'prepared' }
+    } else if (t.startsWith('Installed ')) {
+      ev = { phase: 'installed-batch' }
+    } else if (t.startsWith('+ ')) {
+      const parts = t.slice(2).split('==')
+      if (parts.length >= 2) ev = { phase: 'package-installed', pkg: parts[0].trim(), version: parts[1].trim() }
+    }
+    if (ev) send('install-progress', ev)
+  }
+}
+
 // Sleep helper — async replacement for the old Atomics.wait-based sleepSync.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ── Run setup.py with structured events ──
 async function runSetup(args, extraPath) {
   // Resolve the interpreter first (async — uv can take minutes to install a
-  // broken 3.11; this used to freeze the whole app via execSync).
-  const py = await installPython()
+  // broken pin; this used to freeze the whole app via execSync). Exact pin
+  // from setup_config.json — a neighbouring patch won't satisfy setup.py.
+  const want = pinnedPythonWanted()
+  const py = await installPython(want)
   if (!py) {
-    send('setup-output', '[!] No usable Python 3.11 found: the uv-managed install is broken and no working system Python 3.11 is available.\n')
-    send('setup-output', '[!] Fix: run "uv python install --reinstall 3.11" in a terminal (or uninstall + install), or install Python 3.11 from https://www.python.org/downloads/ and retry.\n')
-    throw new Error('No usable Python 3.11 interpreter found (see output above)')
+    send('setup-output', `[!] No usable Python ${want} found: the uv-managed install is broken and no working system Python ${want} is available.\n`)
+    send('setup-output', `[!] Fix: run "uv self update", then "uv python install --reinstall ${want}" in a terminal (or uninstall + install), or install Python ${want} from https://www.python.org/downloads/ and retry.\n`)
+    throw new Error(`No usable Python ${want} interpreter found (see output above)`)
   }
   return new Promise((resolve, reject) => {
     var env = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', CONDA_NO_PLUGINS: 'true', CONDA_SOLVER: 'classic',
-        TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0' }
+        TQDM_MININTERVAL: '0', TQDM_MINITERS: '1', HF_HUB_DISABLE_PROGRESS_BARS: '0', UV_PYTHON_DOWNLOADS: 'automatic' }
     // Keep uv's package cache on the SAME drive as the install target so venv
     // creation can hardlink wheels instead of copying (avoids the noisy
     // "Failed to hardlink files; falling back to full copy" + faster install).
@@ -1184,6 +1283,7 @@ async function runSetup(args, extraPath) {
     const emit = (text) => {
       lastOutputTs = Date.now()
       send('setup-output', text)
+      installProgressClassify(text)
       lineBuf += text
       const lines = lineBuf.split('\n')
       lineBuf = lines.pop()
@@ -1252,10 +1352,54 @@ function getPythonForEnv(env) {
 
 // ── IPC ──
 
-ipcMain.handle('check-installed', () => ({
-  repo: fs.existsSync(path.join(getRepoDir(), 'wgp.py')),
-  env: getActiveEnv() !== null
-}))
+ipcMain.handle('check-installed', () => {
+  const repoDir = getRepoDir()
+  const hasRepo = fs.existsSync(path.join(repoDir, 'wgp.py'))
+  // Previous install location now missing (external drive disconnected or
+  // drive letter changed)? Report it so first-run can say so explicitly.
+  let missingPrevious = null
+  try {
+    const m = path.join(os.homedir(), '.wan2gp-desktop-installed')
+    if (fs.existsSync(m)) {
+      const prev = fs.readFileSync(m, 'utf8').trim()
+      if (prev && !fs.existsSync(path.join(prev, 'wgp.py')) && !hasRepo) missingPrevious = prev
+    }
+  } catch {}
+  return { repo: hasRepo, env: getActiveEnv() !== null, missingPrevious }
+})
+
+// Install-target triage (Tauri parity): what is already in the folder?
+// Verdicts: empty | ours_healthy | ours_broken_env | repo_no_env | pinokio | foreign.
+ipcMain.handle('classify-target', () => {
+  const repo = getRepoDir()
+  let envs = null
+  try {
+    if (fs.existsSync(getEnvsFile())) envs = JSON.parse(fs.readFileSync(getEnvsFile(), 'utf8'))
+  } catch {}
+  return migrate.classifyTarget(repo, envs)
+})
+
+// Folder size with top-level breakdown (backup dialogs, pinokio model sizes).
+ipcMain.handle('folder-size', (_, dir) => {
+  try {
+    if (!dir || !fs.existsSync(dir)) return { ok: false, error: 'Folder not found' }
+    const entries = []
+    let total = 0
+    for (const n of fs.readdirSync(dir)) {
+      const p = path.join(dir, n)
+      let b = 0, isDir = false
+      try {
+        const st = fs.statSync(p)
+        isDir = st.isDirectory() && !st.isSymbolicLink()
+        b = isDir ? migrate.getDirSize(p) : st.size
+      } catch {}
+      total += b
+      entries.push({ name: n, bytes: b, isDir })
+    }
+    entries.sort((a, b) => b.bytes - a.bytes)
+    return { ok: true, success: true, path: dir, bytes: total, entries }
+  } catch (e) { return { ok: false, error: e.message } }
+})
 
 ipcMain.handle('detect-gpu', async () => {
   // Async, bounded — never blocks the main process (previously execSync with
@@ -1289,6 +1433,12 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
   // driver can't run the cu130 stack Wan2GP's profile will install.
   const _drvWarn = checkNvidiaDriver()
   if (_drvWarn) send('setup-output', _drvWarn)
+  // Never install/repair inside a Pinokio-managed tree (own lifecycle + env).
+  // Fresh-install elsewhere and point the model folders at its library.
+  {
+    const pz = migrate.pinokioRoot(getRepoDir())
+    if (pz) throw new Error(`This folder is Pinokio-managed (${pz}). Installing here would corrupt Pinokio's Wan2GP. Pick an empty folder and reuse Pinokio's ckpts/loras/outputs as your model folders — no re-downloads, Pinokio keeps working.`)
+  }
   if (!fs.existsSync(path.join(getRepoDir(), 'wgp.py'))) {
     send('setup-output', '[*] Cloning Wan2GP repository...\n')
     // Guard the data dir: if the user picked a bare drive root (e.g. D:\),
@@ -1338,6 +1488,16 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
     // leave a broken repo.
     const tmpClone = path.join(cloneTarget, '.wan2gp-clone-tmp-' + Date.now())
     if (fs.existsSync(tmpClone)) fs.rmSync(tmpClone, { recursive: true, force: true })
+    // Clean leftovers from previously interrupted installs (each run mints a
+    // new tmp name, so killed runs pile up otherwise). Tauri parity.
+    try {
+      for (const n of fs.readdirSync(cloneTarget)) {
+        if (n.startsWith('.wan2gp-clone-tmp-')) {
+          try { fs.rmSync(path.join(cloneTarget, n), { recursive: true, force: true }) } catch {}
+          send('setup-output', `[*] Removed leftover ${n} from an interrupted install.\n`)
+        }
+      }
+    } catch {}
     try {
       // Async — the clone used to block the entire app (execSync, up to 2 min).
       await runCmd('git', ['clone', '--depth', '1', 'https://github.com/deepbeepmeep/Wan2GP.git', tmpClone], { timeout: 120000 })
@@ -1433,12 +1593,48 @@ ipcMain.handle('install', async (_, envType) => mutating('install', async () => 
       }
     }
   }
+  // Retry-loop closure (Tauri parity): an env dir whose python exists but
+  // won't run breaks setup.py the same way forever — remove it first.
+  // Only proven-broken envs are touched (the check must run AND fail).
+  try {
+    const _ae = getActiveEnv()
+    if (_ae && _ae.type !== 'conda') {
+      const _py = getPythonForEnv(_ae)
+      if (_py && fs.existsSync(_py)) {
+        try { await runCmd(_py, ['-c', 'import sys'], { timeout: 30000 }) }
+        catch {
+          const _base = path.dirname(path.dirname(_py))
+          send('setup-output', `[*] Removing broken env at ${_base} …\n`)
+          fs.rmSync(_base, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 })
+        }
+      }
+    }
+  } catch {}
   await runSetup(['install', '--env', env, '--auto'], _pyShimDir)
   // Clean up py shim
   if (_pyShimDir) { try { fs.rmSync(_pyShimDir, { recursive: true }) } catch {} }
   // 100% original — no post-install additions. setup.py (install_logic +
   // requirements.txt + setup_config.json per-GPU wheels) is the sole source.
   invalidateGitCache()
+  // Post-install smoke test (Tauri parity): exit 0 is not proof — gate the
+  // success path on torch importing and the GPU being visible from the env.
+  try {
+    const _env = getActiveEnv()
+    const _py = _env ? getPythonForEnv(_env) : null
+    if (!_py) throw new Error('no env python')
+    send('setup-output', '[*] Verifying install: importing torch in the new environment…\n')
+    const _out = await runCmd(_py, ['-c', 'import torch; print(\'torch \' + torch.__version__ + \' cuda=\' + str(torch.cuda.is_available()))'], { timeout: 180000, maxBuffer: 1024 * 1024 })
+    send('setup-output', `[✓] Smoke test passed: ${_out.trim().split('\n').pop()}\n`)
+    if ((getGpuInfo().vendor || '').toUpperCase() === 'NVIDIA' && !/cuda=True/i.test(_out)) {
+      throw new Error('torch can\'t see the NVIDIA GPU (cuda=False) — likely a driver/CUDA mismatch. Update to NVIDIA R580+, reboot, then repair the environment.')
+    }
+  } catch (e) {
+    if (/cuda=False|driver\/CUDA/.test(e.message)) throw e
+    throw new Error('Install finished but `import torch` fails — the environment is broken. Retry the install or report it. (' + e.message + ')')
+  }
+  // Remember the working install location (Tauri parity): a disconnected /
+  // re-lettered drive warns instead of a blank first run.
+  try { fs.writeFileSync(path.join(os.homedir(), '.wan2gp-desktop-installed'), getRepoDir()) } catch {}
   // Favourite plugins (Manage → Plugins ★): auto-clone after fresh setup.
   // Best-effort — never fails the install.
   try { await plugins.ensureFavoritePlugins(pluginDeps()) } catch {}
@@ -1628,16 +1824,27 @@ async function forceRemoveRepo(repo, log, keepFolders) {
 
 ipcMain.handle('reinstall', async () => mutating('reinstall', async () => {
   send('setup-output', '[*] Preparing reinstall...\n')
-  // Ask user if they want to backup plugins, finetunes, and config
+  // A wipe inside a Pinokio tree would destroy Pinokio's install — refuse.
+  {
+    const pz = migrate.pinokioRoot(getRepoDir())
+    if (pz) throw new Error(`This folder is Pinokio-managed (${pz}). Wiping it would destroy Pinokio's Wan2GP. Uninstall from inside Pinokio instead, or pick another folder.`)
+  }
+  // Ask user if they want to backup plugins, finetunes, and config.
+  // Show the folder size first — a wipe without it is how model libraries die.
   var doBackup = false
   try {
+    let sizeNote = ''
+    try {
+      const gb = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1048576)) + ' MB'
+      sizeNote = `\n\nInstall folder: ${getRepoDir()} (${gb(migrate.getDirSize(getRepoDir()))})`
+    } catch {}
     const result = await dialog.showMessageBox({
       type: 'question', buttons: ['Backup & Restore (recommended)', 'Skip backup'],
       defaultId: 0, cancelId: 1,
       parent: mainWin, modal: true,
       title: 'Reinstall Wan2GP',
       message: 'Do you want to backup plugins, finetunes, and config before reinstalling?',
-      detail: 'A backup lets you restore your custom plugins and configuration after the fresh install. If you skip, they will be lost.'
+      detail: 'A backup lets you restore your custom plugins and configuration after the fresh install. If you skip, they will be lost.' + sizeNote
     })
     doBackup = result.response === 0
   } catch { doBackup = true /* fallback: backup */ }
@@ -1822,10 +2029,17 @@ ipcMain.handle('uninstall', async () => mutating('uninstall', async () => {
     log('[!] Wan2GP is not installed (no installation folder found).')
     return { success: false, error: 'Wan2GP is not installed' }
   }
+  {
+    const pz = migrate.pinokioRoot(repo)
+    if (pz) return { success: false, error: `This folder is Pinokio-managed (${pz}). Uninstall it from inside Pinokio — the launcher won't touch it.` }
+  }
   // Which in-repo folders hold user files? Models live under ckpts/loras in the
   // current Wan2GP layout; older installs use models/; output is outputs/ or output/.
   const userFolders = ['ckpts', 'loras', 'outputs', 'output', 'models']
   const present = userFolders.filter(f => fs.existsSync(path.join(repo, f)))
+  // Sizes next to each folder so "delete everything" is an informed choice.
+  const _gb = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1048576)) + ' MB'
+  const presentSized = present.map(f => { let b = 0; try { b = migrate.getDirSize(path.join(repo, f)) } catch {} return path.join(repo, f) + ' (' + _gb(b) + ')' })
   let keepFiles = false
   try {
     const result = await dialog.showMessageBox({
@@ -1837,7 +2051,7 @@ ipcMain.handle('uninstall', async () => mutating('uninstall', async () => {
       message: 'Remove the Wan2GP installation?',
       detail: 'This deletes the Wan2GP app, its Python environment, and all installed packages.\n\n' +
         (present.length
-          ? `Keep these folders (checkpoints, LoRAs, output)?\n  ${present.map(f => path.join(repo, f)).join('\n  ')}\n\n`
+          ? `Keep these folders (checkpoints, LoRAs, output)?\n  ${presentSized.join('\n  ')}\n\n`
           : '') +
         'Folders outside the installation (custom checkpoints/LoRA/output paths) are never touched.'
     })
@@ -1983,6 +2197,13 @@ ipcMain.handle('launch', async (_, mode = 'browser') => mutating('launch', async
   send('launch-log', '[*] Starting Wan2GP...\n')
   send('launch-log', `[*] Environment: ${env.name} (${env.type})\n`)
   send('launch-log', `[*] Python: ${py}\n`)
+  // Pre-flight (Tauri parity): the interpreter must import torch. Refuse with
+  // directions instead of spawning into a ModuleNotFoundError traceback.
+  try {
+    await spawnAsyncCaptured(py, ['-c', 'import torch; print(torch.__version__)'])
+  } catch (e) {
+    throw new Error(`Cannot launch: the environment's Python can't import torch (${py}). Finish the install first, or repair/unlink the environment and reinstall — launching now would crash on \`import torch\`. (${(e && e.message) || e})`)
+  }
   send('launch-log', `[*] Port: ${port}\n`)
   send('launch-log', `[*] Args: ${extraArgs.join(' ')}\n`)
   try {
@@ -2308,6 +2529,12 @@ ipcMain.handle('launch-webview', async () => {
   if (!env) throw new Error('No active environment')
   const py = getPythonForEnv(env)
   if (!py) throw new Error('Cannot find python for env')
+  // Pre-flight (Tauri parity) — see 'launch' handler.
+  try {
+    await spawnAsyncCaptured(py, ['-c', 'import torch; print(torch.__version__)'])
+  } catch (e) {
+    throw new Error(`Cannot launch: the environment's Python can't import torch (${py}). Finish the install first, or repair/unlink the environment and reinstall. (${(e && e.message) || e})`)
+  }
 
   const cfg = loadConfig()
   const { extraArgs, preferredPort: port } = buildCommonLaunchArgs(cfg)
@@ -3062,8 +3289,16 @@ ipcMain.handle('uninstall-env', async (_, name) => {
       // self-heal transiently-locked files (a bin/ exe or .lock held by another
       // process) so you don't have to close other apps first.
       const removeEnvTree = (p) => {
-        // 1) Best-effort recursive rm with generous retry backoff.
-        try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }) } catch {}
+        // Narrate top-level entries as they go (Tauri parity: trust log).
+        let top = []
+        try { top = fs.readdirSync(p, { withFileTypes: true }).map(e => e.name) } catch {}
+        // 1) Best-effort recursive rm with generous retry backoff, one top
+        // entry at a time so the console shows where it is.
+        for (const n of top.length ? top : ['.']) {
+          const ep = n === '.' ? p : path.join(p, n)
+          if (n !== '.') send('setup-output', `[${name}] removing ${n}\\…\n`)
+          try { fs.rmSync(ep, { recursive: true, force: true, maxRetries: 10, retryDelay: 600 }) } catch {}
+        }
         if (!fs.existsSync(p)) return true
         // 2) If a locked subdir survived, sweep its entries individually so one
         //    stubborn handle can't leave a dirty shell behind.
@@ -3121,9 +3356,9 @@ const WELL_KNOWN_BROWSERS = [
   { id: 'chrome',    name: 'Google Chrome',  win: ['%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe', '%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe', '%LocalAppData%\\Google\\Chrome\\Application\\chrome.exe'], mac: '/Applications/Google Chrome.app', linux: ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'] },
   { id: 'edge',      name: 'Microsoft Edge', win: ['%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe', '%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe'], mac: '/Applications/Microsoft Edge.app', linux: ['microsoft-edge'] },
   { id: 'firefox',   name: 'Firefox',        win: ['%ProgramFiles%\\Mozilla Firefox\\firefox.exe', '%ProgramFiles(x86)%\\Mozilla Firefox\\firefox.exe'], mac: '/Applications/Firefox.app', linux: ['firefox'] },
-  { id: 'brave',     name: 'Brave',          win: ['%LocalAppData%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'], mac: '/Applications/Brave Browser.app', linux: ['brave-browser', 'brave'] },
+  { id: 'brave',     name: 'Brave',          win: ['%LocalAppData%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe', '%ProgramFiles%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe', '%ProgramFiles(x86)%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'], mac: '/Applications/Brave Browser.app', linux: ['brave-browser', 'brave'] },
   { id: 'opera',     name: 'Opera',          win: ['%LocalAppData%\\Programs\\Opera\\launcher.exe', '%ProgramFiles%\\Opera\\launcher.exe'], mac: '/Applications/Opera.app', linux: ['opera'] },
-  { id: 'vivaldi',   name: 'Vivaldi',        win: ['%LocalAppData%\\Vivaldi\\Application\\vivaldi.exe'], mac: '/Applications/Vivaldi.app', linux: ['vivaldi'] },
+  { id: 'vivaldi',   name: 'Vivaldi',        win: ['%LocalAppData%\\Vivaldi\\Application\\vivaldi.exe', '%ProgramFiles%\\Vivaldi\\Application\\vivaldi.exe', '%ProgramFiles(x86)%\\Vivaldi\\Application\\vivaldi.exe'], mac: '/Applications/Vivaldi.app', linux: ['vivaldi'] },
 ]
 
 function expandEnv(p) { return p.replace(/%([^%]+)%/g, (_, k) => process.env[k] || '') }
@@ -3170,6 +3405,7 @@ ipcMain.handle('launch-browser', (_, url) => {
   if (chosen !== 'system') {
     const b = WELL_KNOWN_BROWSERS.find(x => x.id === chosen)
     let exe = null
+    if (b) {
     if (IS_WIN) {
       for (const cand of b.win) { const ep = expandEnv(cand); try { if (fs.existsSync(ep)) { exe = ep; break } } catch {} }
     } else if (PLATFORM === 'darwin') {
@@ -3177,14 +3413,19 @@ ipcMain.handle('launch-browser', (_, url) => {
     } else {
       for (const cand of b.linux) { try { const p = execSync(`command -v ${cand}`, { encoding: 'utf8', windowsHide: true }).trim(); if (p) { exe = p; break } } catch {} }
     }
+    }
     if (exe) {
       try {
         if (IS_WIN) exec(`start "" "${exe}" "${safeUrl}"`, { windowsHide: false })
         else if (PLATFORM === 'darwin') exec(`open -a "${exe}" "${safeUrl}"`, { windowsHide: true })
         else exec(`"${exe}" "${safeUrl}"`, { windowsHide: true })
-        return { success: true }
+        send('launch-log', `[*] Opening with ${chosen}: ${exe}\n`)
+        return { success: true, via: chosen }
       } catch (e) { return { error: e.message } }
     }
+    // Stale selection (browser uninstalled after being picked) — say so
+    // instead of silently opening the system default ("it didn't use it").
+    send('launch-log', `[!] Default browser '${chosen}' not found — opened with the system default instead. Reinstall it or pick another in Manage → Default Browser.\n`)
   }
   // No specific browser (or not found) → let the OS decide.
   shell.openExternal(safeUrl)
@@ -3442,6 +3683,32 @@ ipcMain.handle('migrate-to-preferred', async (_, choices) => {
     return { ok, legacy: current, target }
   } catch (e) { return { ok: false, error: String(e) } }
 })
+// Just-switch (Tauri parity): adopt the Wan2GP install already living in the
+// target folder — no file moves. Validates wgp.py first so pointing at
+// garbage fails here instead of on a confusing dashboard.
+ipcMain.handle('migrate-point', (_, choices) => {
+  try {
+    if (!choices || !choices.dataDir) return { ok: false, error: 'no target data dir' }
+    let target = choices.dataDir
+    // Bare drive root ⇒ resolve to <root>\Wan2GP like installer Browse does.
+    if (path.parse(path.resolve(target)).root === path.resolve(target)) {
+      target = path.join(target, 'Wan2GP')
+    }
+    const wgpFlat = path.join(target, 'wgp.py')
+    const wgpNested = path.join(target, 'Wan2GP', 'wgp.py')
+    if (!fs.existsSync(wgpFlat) && !fs.existsSync(wgpNested)) {
+      return { ok: false, error: 'No Wan2GP install found there (no wgp.py). Pick the folder containing wgp.py, or install fresh.' }
+    }
+    atomicWriteFile(DATA_DIR_OVERRIDE, target); invalidateDefaultDataDirCache()
+    try {
+      const ed = path.join(target, '.electron')
+      fs.mkdirSync(ed, { recursive: true })
+      app.setPath('userData', ed)
+    } catch {}
+    try { rewriteModelPaths(target, { ckpts: choices.ckpts, loras: choices.loras, output: choices.output }) } catch (e) { logError('migrate-point-config', e) }
+    return { ok: true, target }
+  } catch (e) { return { ok: false, error: String(e) } }
+})
 // Physically move a folder (cross-device safe) — used when the user picks
 // "move existing files" for a model folder. Source is removed if left empty.
 ipcMain.handle('move-folder', async (_, src, dst) => {
@@ -3461,6 +3728,12 @@ ipcMain.handle('set-data-dir', (_, dir) => {
     return { ok: false, error: 'drive-root', dir }
   }
   atomicWriteFile(DATA_DIR_OVERRIDE, dir); invalidateDefaultDataDirCache()
+  // User deliberately pointed elsewhere — drop the last-known-install marker
+  // so first-run doesn't nag about the abandoned location.
+  try {
+    const marker = path.join(os.homedir(), '.wan2gp-desktop-installed')
+    if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8').trim() !== String(dir).trim()) fs.rmSync(marker, { force: true })
+  } catch {}
   try {
     const ed = path.join(dir, '.electron')
     fs.mkdirSync(ed, { recursive: true })
@@ -3474,6 +3747,7 @@ ipcMain.handle('open-folder', (_, dir) => {
 ipcMain.handle('reset-data-dir', () => {
   try {
     if (fs.existsSync(DATA_DIR_OVERRIDE)) fs.rmSync(DATA_DIR_OVERRIDE, { force: true })
+    try { fs.rmSync(path.join(os.homedir(), '.wan2gp-desktop-installed'), { force: true }) } catch {}
     invalidateDefaultDataDirCache()
     // Reset to the resolved default (C:\Wan2GP when writable, else AppData) —
     // NOT a hardcoded AppData path, which would override the preferred default.
@@ -4077,9 +4351,12 @@ ipcMain.handle('create-desktop-shortcut', () => {
 })
 
 // ── Disk space ──
-ipcMain.handle('get-disk-space', () => {
+ipcMain.handle('get-disk-space', (_, dir) => {
   try {
-    const p = getDataDir()
+    // Optional target dir (model-drive gates); defaults to the data dir.
+    // statfs follows the path's own volume — same-drive and cross-drive
+    // model folders are each measured on their real disk.
+    const p = (dir && String(dir)) || getDataDir()
     if (!p) return null
     const root = path.parse(p).root || p.substring(0, 2)
     if (typeof fs.statfs === 'function') {
