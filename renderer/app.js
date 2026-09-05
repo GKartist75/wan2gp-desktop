@@ -1160,7 +1160,14 @@ async function startInstall(){
       try { r = await window.w2gp.installPrerequisite(tool) }
       catch (e) { r = { error: (e && e.message) || String(e) } } // never leave the button frozen
       this.disabled = false; this.textContent = 'Download & Install'
-      if (r && r.success) { showToast('✓ ' + tool + ' installed. Please restart the launcher.') }
+      if (r && r.success) {
+        if (r.ready) {
+          // Tool is on PATH already (registry refresh) — continue automatically.
+          $('prereqHelp').classList.add('hidden')
+          showToast('✓ ' + tool + ' installed — continuing…')
+          startInstall()
+        } else showToast('✓ ' + tool + ' installed. Please restart the launcher.')
+      }
       else showToast('✗ Install failed: ' + (r?.error || 'unknown'))
     }
     $('prereqManualBtn').onclick = function() { window.w2gp.openExternal(url) }

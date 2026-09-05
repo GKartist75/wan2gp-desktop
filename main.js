@@ -3759,6 +3759,40 @@ ipcMain.handle('reset-data-dir', () => {
 })
 
 // ── Install a prerequisite tool (Git, Python, uv, Miniconda) ──
+// Re-read HKCU+HKLM PATH into this process after a one-click tool install
+// so newly installed tools resolve WITHOUT a launcher restart (Tauri parity).
+// Merges (deduplicated) — never removes anything.
+function refreshProcessPath() {
+  if (!IS_WIN) return
+  try {
+    const read = (hk, sub) => {
+      try { return execSync(`reg query "${hk}\${sub}" /v Path`, { encoding: 'utf8', timeout: 10000, windowsHide: true }) } catch { return '' }
+    }
+    const grab = (txt) => {
+      const out = []
+      for (const line of String(txt).split('\n')) {
+        const m = line.match(/REG_(?:EXPAND_)?SZ\s+(.*)$/)
+        if (!m) continue
+        const data = m[1].trim().replace(/%([^%]+)%/g, (_, n) => process.env[n] || '')
+        for (const part of data.split(';')) { const t = part.trim(); if (t) out.push(t) }
+      }
+      return out
+    }
+    const cur = (process.env.PATH || '').split(';')
+    const seen = new Set(cur.map(x => x.toLowerCase()))
+    const fresh = [...grab(read('HKCU', 'Environment')), ...grab(read('HKLM', 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'))]
+      .filter(x => !seen.has(x.toLowerCase()))
+    if (fresh.length) process.env.PATH = cur.concat(fresh).join(';')
+  } catch {}
+}
+// After a successful one-click install, is the tool already usable?
+function prereqReady(tool) {
+  const exe = { git: 'git', uv: 'uv', python: 'python', conda: 'conda' }[tool]
+  if (!exe || !IS_WIN) return false
+  refreshProcessPath()
+  try { execSync(`where ${exe}`, { encoding: 'utf8', timeout: 10000, windowsHide: true }); return true } catch { return false }
+}
+
 ipcMain.handle('install-prerequisite', async (_, tool) => {
   const tmpDir = require('os').tmpdir()
   const sendLog = (msg) => send('launch-log', msg + '\n')
@@ -3803,8 +3837,8 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
       await downloadFile(url, dest)
       sendLog('[*] Downloaded. Installing silently — this can take a couple of minutes...')
       await asyncExec(`"${dest}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS`, { timeout: 120000, windowsHide: true })
-      sendLog('[*] Git installed. Please restart the launcher to pick up the new PATH.')
-      return { success: true }
+      sendLog('[*] Git installed.')
+      return { success: true, ready: prereqReady('git') }
 
     } else if (tool === 'python') {
       if (!IS_WIN) {
@@ -3818,14 +3852,14 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
         return { error: 'python3 not installed — install it via your package manager (see log output)' }
       }
       sendLog('[*] Downloading Python 3.11 (~25 MB)...')
-      // NOTE: Update Python version when 3.11.x goes EOL. Check python.org for latest 3.11.x.
-      const url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
-      const dest = path.join(tmpDir, 'python-3.11.9-amd64.exe')
+      // NOTE: keep in step with setup.py's pin (currently 3.11.14).
+      const url = 'https://www.python.org/ftp/python/3.11.14/python-3.11.14-amd64.exe'
+      const dest = path.join(tmpDir, 'python-3.11.14-amd64.exe')
       await downloadFile(url, dest)
       sendLog('[*] Downloaded. Installing silently — this can take a couple of minutes...')
       await asyncExec(`"${dest}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`, { timeout: 180000, windowsHide: true })
-      sendLog('[*] Python 3.11 installed. Please restart the launcher to pick up the new PATH.')
-      return { success: true }
+      sendLog('[*] Python 3.11 installed.')
+      return { success: true, ready: prereqReady('python') }
 
     } else if (tool === 'uv') {
       if (!IS_WIN) {
@@ -3844,8 +3878,8 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
         let ver = '?'
         try { ver = execSync(`"${uvExe}" --version`, { encoding: 'utf8' }).trim() } catch {}
         sendLog(`[✓] ${ver} installed at ${uvExe}`)
-        sendLog('[*] Please restart the launcher to pick up the new PATH.')
-        return { success: true }
+        sendLog('[*] PATH refreshed — checking…')
+        return { success: true, ready: prereqReady('uv') }
       }
       sendLog('[*] Installing uv via PowerShell...')
       sendLog('[*]   This downloads ~30 MB and can take a minute or two.')
@@ -3889,8 +3923,8 @@ ipcMain.handle('install-prerequisite', async (_, tool) => {
       await downloadFile(url, dest)
       sendLog('[*] Downloaded. Installing silently — this can take a few minutes...')
       await asyncExec(`"${dest}" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\\Miniconda3`, { timeout: 180000, windowsHide: true })
-      sendLog('[*] Miniconda installed. Please restart the launcher to pick up the new PATH.')
-      return { success: true }
+      sendLog('[*] Miniconda installed.')
+      return { success: true, ready: prereqReady('conda') }
     }
     return { error: 'Unknown tool: ' + tool }
   } catch (e) {
