@@ -954,6 +954,20 @@ async function installPython(wanted) {
   }
   p = await findExact()
   if (await runsExact(p)) { send('setup-output', `[*] Python ${want} reinstalled: ${p}\n`); return p }
+  // uv itself may be corrupt (self-update can't fix that — only a reinstall
+  // can, which is exactly what users discovered manually). Reinstall from
+  // the official script and retry the download once (Tauri parity).
+  send('setup-output', '[*] uv itself may be broken — reinstalling uv from the official installer…\n')
+  try {
+    if (IS_WIN) await asyncExec('powershell -NoProfile -Command "& { iwr -useb https://astral.sh/uv/install.ps1 | iex }"', { stdio: 'pipe', windowsHide: true, timeout: 180000 })
+    else await asyncExec('curl -LsSf https://astral.sh/uv/install.sh | sh', { stdio: 'pipe', windowsHide: true, timeout: 180000 })
+    try { await asyncExec('uv python install ' + want, { stdio: 'pipe', windowsHide: true, timeout: 180000 }) } catch {}
+    p = await findExact()
+    if (await runsExact(p)) { send('setup-output', `[*] Python ${want} ready after uv reinstall: ${p}\n`); return p }
+    send('setup-output', '[!] Still failing after uv reinstall — see diagnostics below.\n')
+  } catch {
+    send('setup-output', '[!] Automatic uv reinstall failed — see manual command in the diagnostics below.\n')
+  }
   // Fallback: a system Python of the exact pin that actually runs (verified,
   // so setup.py never spawns a dead exe — previously this dead-ended in "exited code 9009").
   const sysCandidates = IS_WIN ? ['python', 'python' + minor] : ['python' + minor, 'python3', 'python']
@@ -1245,7 +1259,9 @@ async function runSetup(args, extraPath) {
   const py = await installPython(want)
   if (!py) {
     send('setup-output', `[!] No usable Python ${want} found: the uv-managed install is broken and no working system Python ${want} is available.\n`)
-    send('setup-output', `[!] Fix: run "uv self update", then "uv python install --reinstall ${want}" in a terminal (or uninstall + install), or install Python ${want} from https://www.python.org/downloads/ and retry.\n`)
+    send('setup-output', `[!] A corrupt uv can't be updated, only reinstalled (the installer already tried). Do it manually, then retry:\n`)
+    send('setup-output', `[!]   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"\n`)
+    send('setup-output', `[!] then "uv self update" + "uv python install --reinstall ${want}", or install Python ${want} from https://www.python.org/downloads/ (exact patch, Add to PATH) and retry.\n`)
     throw new Error(`No usable Python ${want} interpreter found (see output above)`)
   }
   return new Promise((resolve, reject) => {
