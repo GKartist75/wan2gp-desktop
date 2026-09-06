@@ -4025,6 +4025,22 @@ function getHardwareDefaults() {
   return out
 }
 
+// Reset a broken/outdated wgp_config.json (Tauri parity): back it up, delete
+// the original so Wan2GP regenerates full defaults on next launch. Used when
+// wgp.py dies with `KeyError: '<key>'` — partial write after a failed install
+// or an ancient config after an update.
+ipcMain.handle('reset-wgp-config', () => {
+  try {
+    const repo = getRepoDir()
+    const cfg = path.join(repo, 'wgp_config.json')
+    if (!fs.existsSync(cfg)) return { ok: false, error: 'wgp_config.json not found — nothing to reset' }
+    const bak = path.join(repo, `wgp_config.bak-${Math.floor(Date.now() / 1000)}.json`)
+    fs.copyFileSync(cfg, bak)
+    fs.rmSync(cfg, { force: true })
+    return { ok: true, success: true, backup: bak }
+  } catch (e) { return { ok: false, error: String(e && e.message || e) } }
+})
+
 ipcMain.handle('write-wgp-config', async (_, { checkpointsPaths, lorasRoot, savePath, enabled_plugins }) => {
   const hw = getHardwareDefaults()
   const configPath = path.join(getRepoDir(), 'wgp_config.json')

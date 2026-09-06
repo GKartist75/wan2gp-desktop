@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('w2gp', {
   onOpenMigration: (cb) => ipcRenderer.on('open-migration', () => cb()),
   onMigrationProgress: (cb) => ipcRenderer.on('migration-progress', (_, pct) => cb(pct)),
   writeWgpConfig: (cfg) => ipcRenderer.invoke('write-wgp-config', cfg),
+  resetWgpConfig: () => ipcRenderer.invoke('reset-wgp-config'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   confirmDialog: (opts) => ipcRenderer.invoke('confirm-dialog', opts),
   checkCommand: (cmd) => ipcRenderer.invoke('check-command', cmd),

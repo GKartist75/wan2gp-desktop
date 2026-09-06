@@ -2616,6 +2616,7 @@ $('stopWangpBtn').addEventListener('click', async () => {
 // ── Reset UI when server exits (manual stop or crash) ──
 window.w2gp.onWangpExit(c => {
   appendLog(`${c === 0 ? '[*]' : '[!]'} Wan2GP process exited (code ${c})`)
+  const exitMode = (typeof serverMode !== 'undefined') ? serverMode : null
   if (serverMode === 'app') {
     if (!$('webviewContainer').classList.contains('hidden')) closeWebview()
   } else if (serverMode === 'browser') {
@@ -2627,7 +2628,43 @@ window.w2gp.onWangpExit(c => {
   $('stopWangpBtn').style.display = 'none'
   updateLed('stopped')
   updateFtStatus('stopped')
+  // Config-skew recovery (Tauri parity): wgp.py died with KeyError on a
+  // settings key — offer backup + reset + relaunch instead of a dead dashboard.
+  if (c !== 0 && !window._configCrashOffered) {
+    try {
+      const tail = (typeof window._getLogTail === 'function') ? window._getLogTail() : ''
+      const m = tail.match(/KeyError:\s*'([^']+)'/)
+      if (m && /wgp\.py/.test(tail)) {
+        window._configCrashOffered = true
+        offerConfigReset(m[1], exitMode)
+      }
+    } catch {}
+  }
 })
+
+async function offerConfigReset(missingKey, mode) {
+  appendLog(`[!] Wan2GP crashed: settings file is missing '${missingKey}' (outdated or partial wgp_config.json).`)
+  showToast(`✗ Settings missing '${missingKey}' — reset offered`)
+  const choice = await window.w2gp.confirmDialog({
+    title: 'Settings file outdated?',
+    message: `Wan2GP crashed because wgp_config.json is missing '${missingKey}'.`,
+    detail: 'Back it up and reset to defaults? Wan2GP regenerates the full file on next launch (models stay where they are).'
+  })
+  window._configCrashOffered = false
+  if (choice !== 'ok') return
+  try {
+    const r = await window.w2gp.resetWgpConfig()
+    if (r && (r.success || r.ok)) {
+      appendLog('[*] Settings backed up to ' + (r.backup || 'wgp_config.bak-*.json') + ' — relaunching with fresh defaults…')
+      showToast('✓ Settings reset — relaunching')
+      setTimeout(function() {
+        const b = (mode === 'browser') ? $('browserBtn') : $('appBtn')
+        if (b && !b.disabled) b.click()
+        else showToast('Press Launch to start Wan2GP with fresh settings')
+      }, 800)
+    } else showToast('✗ Reset failed: ' + ((r && r.error) || 'unknown'))
+  } catch (e) { showToast('✗ ' + ((e && e.message) || String(e))) }
+}
 
 // ── Floating Terminal (Desktop/webview mode only) ──
 function updateFtStatus(state) {
