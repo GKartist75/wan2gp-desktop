@@ -1385,6 +1385,22 @@ $('modelsWarnDismissBtn')?.addEventListener('click', () => {
   if (b) { b.classList.add('hidden'); b.dataset.dismissed = '1' }
 })
 
+// ── Tauri sunset banner ──
+// This Electron edition is retired; the Tauri edition is the only one still
+// maintained. The banner is always shown on boot — dismissing it hides it for
+// the session only (no persistence), so every restart reminds again.
+// The Tauri installer detects this Electron app and offers silent removal;
+// Wan2GP, models and settings are kept, so the steps promise no re-download.
+const TAURI_RELEASES_URL = 'https://github.com/GKartist75/Wan2GP-Desktop-Tauri/releases/latest'
+function openTauriReleases() {
+  try { window.w2gp.openExternal(TAURI_RELEASES_URL) } catch (e) { console.error('[tauri-banner] openExternal failed', e) }
+}
+$('tauriDownloadBtn')?.addEventListener('click', openTauriReleases)
+$('tauriReleasesLink')?.addEventListener('click', (e) => { e.preventDefault(); openTauriReleases() })
+$('tauriMigrateDismissBtn')?.addEventListener('click', () => {
+  $('tauriMigrateBanner')?.classList.add('hidden')
+})
+
 // ── SageAttention broken-wheel banner ──
 // RTX 40/50 users who updated the launcher but haven't yet run Kernel sync are
 // still on the upstream `cu130torch2.9.0andhigher` SageAttention wheel, whose fp8

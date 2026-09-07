@@ -528,6 +528,12 @@ body {
   cursor: pointer; padding: 2px; line-height: 0; border-radius: 3px;
 }
 .update-dismiss:hover { background: var(--surface); color: var(--text-primary); }
+/* Tauri sunset banner: warning-amber accent, two-row layout (headline + steps) */
+.tauri-migrate { background: var(--warning-bg, #2e230f); border-color: var(--warning, #d9a441); align-items: flex-start; }
+.tauri-migrate-info { align-items: flex-start; }
+.tauri-migrate-text { display: flex; flex-direction: column; gap: 4px; }
+.tauri-migrate-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--text-secondary); }
+.tauri-migrate-steps a { color: var(--text-primary); font-weight: 600; }
 .update-dismiss svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ── Inline Terminal (dashboard) ── */

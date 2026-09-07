@@ -528,6 +528,27 @@
       </div>
     </div>
 
+    <!-- Tauri sunset banner (always shown — this Electron edition is retired) -->
+    <div id="tauriMigrateBanner" class="update-banner tauri-migrate">
+      <div class="update-info tauri-migrate-info">
+        <span class="update-badge" style="background:#e8930c">New home</span>
+        <div class="tauri-migrate-text">
+          <span><b>This Electron edition is retired.</b> Please switch to the <b>Tauri edition</b> — ~3&nbsp;MB instead of ~150&nbsp;MB, faster startup, and the only edition still maintained.</span>
+          <ol class="tauri-migrate-steps">
+            <li>Download the installer from <a href="#" id="tauriReleasesLink">Tauri GitHub Releases</a></li>
+            <li>Install &amp; launch it — it detects this Electron app and offers to remove it for you</li>
+            <li>Your Wan2GP install, models and settings are kept — nothing to re-download</li>
+          </ol>
+        </div>
+      </div>
+      <div class="update-actions">
+        <button id="tauriDownloadBtn" class="btn btn-primary small">Download Tauri edition</button>
+        <button id="tauriMigrateDismissBtn" class="update-dismiss" aria-label="Dismiss until restart">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
     <div class="dash-body" id="dashBody">
       <!-- Left column: System, Paths, Model Folders, Active Environment -->
       <div class="col-left">
