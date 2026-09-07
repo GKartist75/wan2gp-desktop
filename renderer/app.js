@@ -1391,9 +1391,9 @@ $('modelsWarnDismissBtn')?.addEventListener('click', () => {
 // the session only (no persistence), so every restart reminds again.
 // The Tauri installer detects this Electron app and offers silent removal;
 // Wan2GP, models and settings are kept, so the steps promise no re-download.
-const TAURI_RELEASES_URL = 'https://github.com/GKartist75/Wan2GP-Desktop-Tauri/releases/latest'
+const TAURI_REPO_URL = 'https://github.com/GKartist75/Wan2GP-Desktop-Tauri'
 function openTauriReleases() {
-  try { window.w2gp.openExternal(TAURI_RELEASES_URL) } catch (e) { console.error('[tauri-banner] openExternal failed', e) }
+  try { window.w2gp.openExternal(TAURI_REPO_URL) } catch (e) { console.error('[tauri-banner] openExternal failed', e) }
 }
 $('tauriDownloadBtn')?.addEventListener('click', openTauriReleases)
 $('tauriReleasesLink')?.addEventListener('click', (e) => { e.preventDefault(); openTauriReleases() })
