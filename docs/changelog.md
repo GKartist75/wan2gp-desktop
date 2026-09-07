@@ -4,6 +4,8 @@ Newest first. Each version links to its full standalone changelog.
 
 ## v3.x
 
+- **[v3.4.2](changelogs/CHANGELOG-v3.4.2.md)** — Final Electron release: retired — dashboard sunset banner + README point at the Tauri edition (switch guide, data kept). Full Electron docs archived.
+
 - **[v3.4.1](changelogs/CHANGELOG-v3.4.1.md)** — DLSS5 panel always shows all 8 files with versions + per-file SHAs (installed / not installed).
 - **[v3.4.0](changelogs/CHANGELOG-v3.4.0.md)** — DLSS5 status counts all 8 runtime files (+ `host/nvngx.dll`), README tracks workers v1.1.3.
 - **[v3.3.0](changelogs/CHANGELOG-v3.3.0.md)** — 🧩 Plugin Manager (Status Pro default, favourites auto-install, persistent update badges), ✨ DLSS5 installer card, Deepy local Qwen3.8 Prime, Int8 Kernels auto-tune, boot update check, scoped stop sweep.
