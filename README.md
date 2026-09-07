@@ -8,9 +8,10 @@
 >
 > **Switching is painless:**
 >
-> 1. Download the installer from [Tauri GitHub Releases](https://github.com/GKartist75/Wan2GP-Desktop-Tauri/releases/latest)
+> 1. Download the installer from the [Tauri repo page](https://github.com/GKartist75/Wan2GP-Desktop-Tauri)
 > 2. Install & launch it — it detects this Electron app and offers to remove it for you
-> 3. Your Wan2GP install, models and settings carry over untouched — nothing to re-download
+> 3. Prefer doing it yourself? Uninstall this app via Windows Settings → Apps — your Wan2GP, models and settings stay untouched
+> 4. Your Wan2GP install, models and settings carry over untouched — nothing to re-download
 >
 > ⭐ **Using the Tauri edition? Please [star it on GitHub](https://github.com/GKartist75/Wan2GP-Desktop-Tauri)** — it helps others find it.
 
